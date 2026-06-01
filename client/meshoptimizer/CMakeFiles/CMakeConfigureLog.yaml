@@ -1,0 +1,1534 @@
+
+---
+events:
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineSystem.cmake:233 (message)"
+      - "CMakeLists.txt:15 (project)"
+    message: |
+      The system is: Linux - 6.14.0-37-generic - x86_64
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCXXCompiler.cmake:126 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:15 (project)"
+    message: |
+      Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" succeeded.
+      Compiler: /usr/bin/c++ 
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      0
+      
+      
+      Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "a.out"
+      
+      The CXX compiler identification is GNU, found in:
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/3.28.3/CompilerIdCXX/a.out
+      
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCompilerABI.cmake:57 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:15 (project)"
+    checks:
+      - "Detecting CXX compiler ABI info"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-fCX6XE"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-fCX6XE"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: ""
+      CMAKE_CXX_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "CMAKE_CXX_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-fCX6XE'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_918e7/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_918e7.dir/build.make CMakeFiles/cmTC_918e7.dir/build
+        gmake[1]: Entering directory '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-fCX6XE'
+        Building CXX object CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.o
+        /usr/bin/c++   -v -o CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.o -c /usr/share/cmake-3.28/Modules/CMakeCXXCompilerABI.cpp
+        Using built-in specs.
+        COLLECT_GCC=/usr/bin/c++
+        OFFLOAD_TARGET_NAMES=nvptx-none:amdgcn-amdhsa
+        OFFLOAD_TARGET_DEFAULT=1
+        Target: x86_64-linux-gnu
+        Configured with: ../src/configure -v --with-pkgversion='Ubuntu 13.3.0-6ubuntu2~24.04' --with-bugurl=file:///usr/share/doc/gcc-13/README.Bugs --enable-languages=c,ada,c++,go,d,fortran,objc,obj-c++,m2 --prefix=/usr --with-gcc-major-version-only --program-suffix=-13 --program-prefix=x86_64-linux-gnu- --enable-shared --enable-linker-build-id --libexecdir=/usr/libexec --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --enable-bootstrap --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-libstdcxx-backtrace --enable-gnu-unique-object --disable-vtable-verify --enable-plugin --enable-default-pie --with-system-zlib --enable-libphobos-checking=release --with-target-system-zlib=auto --enable-objc-gc=auto --enable-multiarch --disable-werror --enable-cet --with-arch-32=i686 --with-abi=m64 --with-multilib-list=m32,m64,mx32 --enable-multilib --with-tune=generic --enable-offload-targets=nvptx-none=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-nvptx/usr,amdgcn-amdhsa=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-gcn/usr --enable-offload-defaulted --without-cuda-driver --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --with-build-config=bootstrap-lto-lean --enable-link-serialization=2
+        Thread model: posix
+        Supported LTO compression algorithms: zlib zstd
+        gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04) 
+        COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_918e7.dir/'
+         /usr/libexec/gcc/x86_64-linux-gnu/13/cc1plus -quiet -v -imultiarch x86_64-linux-gnu -D_GNU_SOURCE /usr/share/cmake-3.28/Modules/CMakeCXXCompilerABI.cpp -quiet -dumpdir CMakeFiles/cmTC_918e7.dir/ -dumpbase CMakeCXXCompilerABI.cpp.cpp -dumpbase-ext .cpp -mtune=generic -march=x86-64 -version -fasynchronous-unwind-tables -fstack-protector-strong -Wformat -Wformat-security -fstack-clash-protection -fcf-protection -o /tmp/cc6VuHMs.s
+        GNU C++17 (Ubuntu 13.3.0-6ubuntu2~24.04) version 13.3.0 (x86_64-linux-gnu)
+        	compiled by GNU C version 13.3.0, GMP version 6.3.0, MPFR version 4.2.1, MPC version 1.3.1, isl version isl-0.26-GMP
+        
+        GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072
+        ignoring duplicate directory "/usr/include/x86_64-linux-gnu/c++/13"
+        ignoring nonexistent directory "/usr/local/include/x86_64-linux-gnu"
+        ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/include-fixed/x86_64-linux-gnu"
+        ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/include-fixed"
+        ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include"
+        #include "..." search starts here:
+        #include <...> search starts here:
+         /usr/include/c++/13
+         /usr/include/x86_64-linux-gnu/c++/13
+         /usr/include/c++/13/backward
+         /usr/lib/gcc/x86_64-linux-gnu/13/include
+         /usr/local/include
+         /usr/include/x86_64-linux-gnu
+         /usr/include
+        End of search list.
+        Compiler executable checksum: c81c05345ce537099dafd5580045814a
+        COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_918e7.dir/'
+         as -v --64 -o CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.o /tmp/cc6VuHMs.s
+        GNU assembler version 2.42 (x86_64-linux-gnu) using BFD version (GNU Binutils for Ubuntu) 2.42
+        COMPILER_PATH=/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/
+        LIBRARY_PATH=/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../:/lib/:/usr/lib/
+        COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.'
+        Linking CXX executable cmTC_918e7
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_918e7.dir/link.txt --verbose=1
+        /usr/bin/c++  -v CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.o -o cmTC_918e7 
+        Using built-in specs.
+        COLLECT_GCC=/usr/bin/c++
+        COLLECT_LTO_WRAPPER=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper
+        OFFLOAD_TARGET_NAMES=nvptx-none:amdgcn-amdhsa
+        OFFLOAD_TARGET_DEFAULT=1
+        Target: x86_64-linux-gnu
+        Configured with: ../src/configure -v --with-pkgversion='Ubuntu 13.3.0-6ubuntu2~24.04' --with-bugurl=file:///usr/share/doc/gcc-13/README.Bugs --enable-languages=c,ada,c++,go,d,fortran,objc,obj-c++,m2 --prefix=/usr --with-gcc-major-version-only --program-suffix=-13 --program-prefix=x86_64-linux-gnu- --enable-shared --enable-linker-build-id --libexecdir=/usr/libexec --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --enable-bootstrap --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-libstdcxx-backtrace --enable-gnu-unique-object --disable-vtable-verify --enable-plugin --enable-default-pie --with-system-zlib --enable-libphobos-checking=release --with-target-system-zlib=auto --enable-objc-gc=auto --enable-multiarch --disable-werror --enable-cet --with-arch-32=i686 --with-abi=m64 --with-multilib-list=m32,m64,mx32 --enable-multilib --with-tune=generic --enable-offload-targets=nvptx-none=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-nvptx/usr,amdgcn-amdhsa=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-gcn/usr --enable-offload-defaulted --without-cuda-driver --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --with-build-config=bootstrap-lto-lean --enable-link-serialization=2
+        Thread model: posix
+        Supported LTO compression algorithms: zlib zstd
+        gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04) 
+        COMPILER_PATH=/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/
+        LIBRARY_PATH=/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../:/lib/:/usr/lib/
+        COLLECT_GCC_OPTIONS='-v' '-o' 'cmTC_918e7' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'cmTC_918e7.'
+         /usr/libexec/gcc/x86_64-linux-gnu/13/collect2 -plugin /usr/libexec/gcc/x86_64-linux-gnu/13/liblto_plugin.so -plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper -plugin-opt=-fresolution=/tmp/cch4LfbD.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 --hash-style=gnu --as-needed -dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie -z now -z relro -o cmTC_918e7 /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/Scrt1.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib -L/lib/x86_64-linux-gnu -L/lib/../lib -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../.. CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crtn.o
+        COLLECT_GCC_OPTIONS='-v' '-o' 'cmTC_918e7' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'cmTC_918e7.'
+        gmake[1]: Leaving directory '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-fCX6XE'
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCompilerABI.cmake:127 (message)"
+      - "/usr/share/cmake-3.28/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:15 (project)"
+    message: |
+      Parsed CXX implicit include dir info: rv=done
+        found start of include info
+        found start of implicit include info
+          add: [/usr/include/c++/13]
+          add: [/usr/include/x86_64-linux-gnu/c++/13]
+          add: [/usr/include/c++/13/backward]
+          add: [/usr/lib/gcc/x86_64-linux-gnu/13/include]
+          add: [/usr/local/include]
+          add: [/usr/include/x86_64-linux-gnu]
+          add: [/usr/include]
+        end of search list found
+        collapse include dir [/usr/include/c++/13] ==> [/usr/include/c++/13]
+        collapse include dir [/usr/include/x86_64-linux-gnu/c++/13] ==> [/usr/include/x86_64-linux-gnu/c++/13]
+        collapse include dir [/usr/include/c++/13/backward] ==> [/usr/include/c++/13/backward]
+        collapse include dir [/usr/lib/gcc/x86_64-linux-gnu/13/include] ==> [/usr/lib/gcc/x86_64-linux-gnu/13/include]
+        collapse include dir [/usr/local/include] ==> [/usr/local/include]
+        collapse include dir [/usr/include/x86_64-linux-gnu] ==> [/usr/include/x86_64-linux-gnu]
+        collapse include dir [/usr/include] ==> [/usr/include]
+        implicit include dirs: [/usr/include/c++/13;/usr/include/x86_64-linux-gnu/c++/13;/usr/include/c++/13/backward;/usr/lib/gcc/x86_64-linux-gnu/13/include;/usr/local/include;/usr/include/x86_64-linux-gnu;/usr/include]
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCompilerABI.cmake:159 (message)"
+      - "/usr/share/cmake-3.28/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:15 (project)"
+    message: |
+      Parsed CXX implicit link information:
+        link line regex: [^( *|.*[/\\])(ld|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        ignore line: [Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-fCX6XE']
+        ignore line: []
+        ignore line: [Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_918e7/fast]
+        ignore line: [/usr/bin/gmake  -f CMakeFiles/cmTC_918e7.dir/build.make CMakeFiles/cmTC_918e7.dir/build]
+        ignore line: [gmake[1]: Entering directory '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-fCX6XE']
+        ignore line: [Building CXX object CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.o]
+        ignore line: [/usr/bin/c++   -v -o CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.o -c /usr/share/cmake-3.28/Modules/CMakeCXXCompilerABI.cpp]
+        ignore line: [Using built-in specs.]
+        ignore line: [COLLECT_GCC=/usr/bin/c++]
+        ignore line: [OFFLOAD_TARGET_NAMES=nvptx-none:amdgcn-amdhsa]
+        ignore line: [OFFLOAD_TARGET_DEFAULT=1]
+        ignore line: [Target: x86_64-linux-gnu]
+        ignore line: [Configured with: ../src/configure -v --with-pkgversion='Ubuntu 13.3.0-6ubuntu2~24.04' --with-bugurl=file:///usr/share/doc/gcc-13/README.Bugs --enable-languages=c ada c++ go d fortran objc obj-c++ m2 --prefix=/usr --with-gcc-major-version-only --program-suffix=-13 --program-prefix=x86_64-linux-gnu- --enable-shared --enable-linker-build-id --libexecdir=/usr/libexec --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --enable-bootstrap --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-libstdcxx-backtrace --enable-gnu-unique-object --disable-vtable-verify --enable-plugin --enable-default-pie --with-system-zlib --enable-libphobos-checking=release --with-target-system-zlib=auto --enable-objc-gc=auto --enable-multiarch --disable-werror --enable-cet --with-arch-32=i686 --with-abi=m64 --with-multilib-list=m32 m64 mx32 --enable-multilib --with-tune=generic --enable-offload-targets=nvptx-none=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-nvptx/usr amdgcn-amdhsa=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-gcn/usr --enable-offload-defaulted --without-cuda-driver --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --with-build-config=bootstrap-lto-lean --enable-link-serialization=2]
+        ignore line: [Thread model: posix]
+        ignore line: [Supported LTO compression algorithms: zlib zstd]
+        ignore line: [gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04) ]
+        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_918e7.dir/']
+        ignore line: [ /usr/libexec/gcc/x86_64-linux-gnu/13/cc1plus -quiet -v -imultiarch x86_64-linux-gnu -D_GNU_SOURCE /usr/share/cmake-3.28/Modules/CMakeCXXCompilerABI.cpp -quiet -dumpdir CMakeFiles/cmTC_918e7.dir/ -dumpbase CMakeCXXCompilerABI.cpp.cpp -dumpbase-ext .cpp -mtune=generic -march=x86-64 -version -fasynchronous-unwind-tables -fstack-protector-strong -Wformat -Wformat-security -fstack-clash-protection -fcf-protection -o /tmp/cc6VuHMs.s]
+        ignore line: [GNU C++17 (Ubuntu 13.3.0-6ubuntu2~24.04) version 13.3.0 (x86_64-linux-gnu)]
+        ignore line: [	compiled by GNU C version 13.3.0  GMP version 6.3.0  MPFR version 4.2.1  MPC version 1.3.1  isl version isl-0.26-GMP]
+        ignore line: []
+        ignore line: [GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072]
+        ignore line: [ignoring duplicate directory "/usr/include/x86_64-linux-gnu/c++/13"]
+        ignore line: [ignoring nonexistent directory "/usr/local/include/x86_64-linux-gnu"]
+        ignore line: [ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/include-fixed/x86_64-linux-gnu"]
+        ignore line: [ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/include-fixed"]
+        ignore line: [ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include"]
+        ignore line: [#include "..." search starts here:]
+        ignore line: [#include <...> search starts here:]
+        ignore line: [ /usr/include/c++/13]
+        ignore line: [ /usr/include/x86_64-linux-gnu/c++/13]
+        ignore line: [ /usr/include/c++/13/backward]
+        ignore line: [ /usr/lib/gcc/x86_64-linux-gnu/13/include]
+        ignore line: [ /usr/local/include]
+        ignore line: [ /usr/include/x86_64-linux-gnu]
+        ignore line: [ /usr/include]
+        ignore line: [End of search list.]
+        ignore line: [Compiler executable checksum: c81c05345ce537099dafd5580045814a]
+        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_918e7.dir/']
+        ignore line: [ as -v --64 -o CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.o /tmp/cc6VuHMs.s]
+        ignore line: [GNU assembler version 2.42 (x86_64-linux-gnu) using BFD version (GNU Binutils for Ubuntu) 2.42]
+        ignore line: [COMPILER_PATH=/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/]
+        ignore line: [LIBRARY_PATH=/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../:/lib/:/usr/lib/]
+        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.']
+        ignore line: [Linking CXX executable cmTC_918e7]
+        ignore line: [/usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_918e7.dir/link.txt --verbose=1]
+        ignore line: [/usr/bin/c++  -v CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.o -o cmTC_918e7 ]
+        ignore line: [Using built-in specs.]
+        ignore line: [COLLECT_GCC=/usr/bin/c++]
+        ignore line: [COLLECT_LTO_WRAPPER=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper]
+        ignore line: [OFFLOAD_TARGET_NAMES=nvptx-none:amdgcn-amdhsa]
+        ignore line: [OFFLOAD_TARGET_DEFAULT=1]
+        ignore line: [Target: x86_64-linux-gnu]
+        ignore line: [Configured with: ../src/configure -v --with-pkgversion='Ubuntu 13.3.0-6ubuntu2~24.04' --with-bugurl=file:///usr/share/doc/gcc-13/README.Bugs --enable-languages=c ada c++ go d fortran objc obj-c++ m2 --prefix=/usr --with-gcc-major-version-only --program-suffix=-13 --program-prefix=x86_64-linux-gnu- --enable-shared --enable-linker-build-id --libexecdir=/usr/libexec --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --enable-bootstrap --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-libstdcxx-backtrace --enable-gnu-unique-object --disable-vtable-verify --enable-plugin --enable-default-pie --with-system-zlib --enable-libphobos-checking=release --with-target-system-zlib=auto --enable-objc-gc=auto --enable-multiarch --disable-werror --enable-cet --with-arch-32=i686 --with-abi=m64 --with-multilib-list=m32 m64 mx32 --enable-multilib --with-tune=generic --enable-offload-targets=nvptx-none=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-nvptx/usr amdgcn-amdhsa=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-gcn/usr --enable-offload-defaulted --without-cuda-driver --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --with-build-config=bootstrap-lto-lean --enable-link-serialization=2]
+        ignore line: [Thread model: posix]
+        ignore line: [Supported LTO compression algorithms: zlib zstd]
+        ignore line: [gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04) ]
+        ignore line: [COMPILER_PATH=/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/]
+        ignore line: [LIBRARY_PATH=/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../:/lib/:/usr/lib/]
+        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'cmTC_918e7' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'cmTC_918e7.']
+        link line: [ /usr/libexec/gcc/x86_64-linux-gnu/13/collect2 -plugin /usr/libexec/gcc/x86_64-linux-gnu/13/liblto_plugin.so -plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper -plugin-opt=-fresolution=/tmp/cch4LfbD.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 --hash-style=gnu --as-needed -dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie -z now -z relro -o cmTC_918e7 /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/Scrt1.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib -L/lib/x86_64-linux-gnu -L/lib/../lib -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../.. CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crtn.o]
+          arg [/usr/libexec/gcc/x86_64-linux-gnu/13/collect2] ==> ignore
+          arg [-plugin] ==> ignore
+          arg [/usr/libexec/gcc/x86_64-linux-gnu/13/liblto_plugin.so] ==> ignore
+          arg [-plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper] ==> ignore
+          arg [-plugin-opt=-fresolution=/tmp/cch4LfbD.res] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc_s] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc] ==> ignore
+          arg [-plugin-opt=-pass-through=-lc] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc_s] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc] ==> ignore
+          arg [--build-id] ==> ignore
+          arg [--eh-frame-hdr] ==> ignore
+          arg [-m] ==> ignore
+          arg [elf_x86_64] ==> ignore
+          arg [--hash-style=gnu] ==> ignore
+          arg [--as-needed] ==> ignore
+          arg [-dynamic-linker] ==> ignore
+          arg [/lib64/ld-linux-x86-64.so.2] ==> ignore
+          arg [-pie] ==> ignore
+          arg [-znow] ==> ignore
+          arg [-zrelro] ==> ignore
+          arg [-o] ==> ignore
+          arg [cmTC_918e7] ==> ignore
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/Scrt1.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/Scrt1.o]
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crti.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crti.o]
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib]
+          arg [-L/lib/x86_64-linux-gnu] ==> dir [/lib/x86_64-linux-gnu]
+          arg [-L/lib/../lib] ==> dir [/lib/../lib]
+          arg [-L/usr/lib/x86_64-linux-gnu] ==> dir [/usr/lib/x86_64-linux-gnu]
+          arg [-L/usr/lib/../lib] ==> dir [/usr/lib/../lib]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13/../../..] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../..]
+          arg [CMakeFiles/cmTC_918e7.dir/CMakeCXXCompilerABI.cpp.o] ==> ignore
+          arg [-lstdc++] ==> lib [stdc++]
+          arg [-lm] ==> lib [m]
+          arg [-lgcc_s] ==> lib [gcc_s]
+          arg [-lgcc] ==> lib [gcc]
+          arg [-lc] ==> lib [c]
+          arg [-lgcc_s] ==> lib [gcc_s]
+          arg [-lgcc] ==> lib [gcc]
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o]
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crtn.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crtn.o]
+        collapse obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/Scrt1.o] ==> [/usr/lib/x86_64-linux-gnu/Scrt1.o]
+        collapse obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crti.o] ==> [/usr/lib/x86_64-linux-gnu/crti.o]
+        collapse obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crtn.o] ==> [/usr/lib/x86_64-linux-gnu/crtn.o]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13] ==> [/usr/lib/gcc/x86_64-linux-gnu/13]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu] ==> [/usr/lib/x86_64-linux-gnu]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib] ==> [/usr/lib]
+        collapse library dir [/lib/x86_64-linux-gnu] ==> [/lib/x86_64-linux-gnu]
+        collapse library dir [/lib/../lib] ==> [/lib]
+        collapse library dir [/usr/lib/x86_64-linux-gnu] ==> [/usr/lib/x86_64-linux-gnu]
+        collapse library dir [/usr/lib/../lib] ==> [/usr/lib]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../..] ==> [/usr/lib]
+        implicit libs: [stdc++;m;gcc_s;gcc;c;gcc_s;gcc]
+        implicit objs: [/usr/lib/x86_64-linux-gnu/Scrt1.o;/usr/lib/x86_64-linux-gnu/crti.o;/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o;/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o;/usr/lib/x86_64-linux-gnu/crtn.o]
+        implicit dirs: [/usr/lib/gcc/x86_64-linux-gnu/13;/usr/lib/x86_64-linux-gnu;/usr/lib;/lib/x86_64-linux-gnu;/lib]
+        implicit fwks: []
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCCompiler.cmake:123 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "basis_universal/CMakeLists.txt:5 (project)"
+    message: |
+      Compiling the C compiler identification source file "CMakeCCompilerId.c" succeeded.
+      Compiler: /usr/bin/cc 
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      0
+      
+      
+      Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "a.out"
+      
+      The C compiler identification is GNU, found in:
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/3.28.3/CompilerIdC/a.out
+      
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCompilerABI.cmake:57 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "basis_universal/CMakeLists.txt:5 (project)"
+    checks:
+      - "Detecting C compiler ABI info"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-JR2cyG"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-JR2cyG"
+    cmakeVariables:
+      CMAKE_C_FLAGS: ""
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "CMAKE_C_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-JR2cyG'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_e8244/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_e8244.dir/build.make CMakeFiles/cmTC_e8244.dir/build
+        gmake[1]: Entering directory '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-JR2cyG'
+        Building C object CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.o
+        /usr/bin/cc   -v -o CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.o -c /usr/share/cmake-3.28/Modules/CMakeCCompilerABI.c
+        Using built-in specs.
+        COLLECT_GCC=/usr/bin/cc
+        OFFLOAD_TARGET_NAMES=nvptx-none:amdgcn-amdhsa
+        OFFLOAD_TARGET_DEFAULT=1
+        Target: x86_64-linux-gnu
+        Configured with: ../src/configure -v --with-pkgversion='Ubuntu 13.3.0-6ubuntu2~24.04' --with-bugurl=file:///usr/share/doc/gcc-13/README.Bugs --enable-languages=c,ada,c++,go,d,fortran,objc,obj-c++,m2 --prefix=/usr --with-gcc-major-version-only --program-suffix=-13 --program-prefix=x86_64-linux-gnu- --enable-shared --enable-linker-build-id --libexecdir=/usr/libexec --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --enable-bootstrap --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-libstdcxx-backtrace --enable-gnu-unique-object --disable-vtable-verify --enable-plugin --enable-default-pie --with-system-zlib --enable-libphobos-checking=release --with-target-system-zlib=auto --enable-objc-gc=auto --enable-multiarch --disable-werror --enable-cet --with-arch-32=i686 --with-abi=m64 --with-multilib-list=m32,m64,mx32 --enable-multilib --with-tune=generic --enable-offload-targets=nvptx-none=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-nvptx/usr,amdgcn-amdhsa=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-gcn/usr --enable-offload-defaulted --without-cuda-driver --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --with-build-config=bootstrap-lto-lean --enable-link-serialization=2
+        Thread model: posix
+        Supported LTO compression algorithms: zlib zstd
+        gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04) 
+        COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.o' '-c' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_e8244.dir/'
+         /usr/libexec/gcc/x86_64-linux-gnu/13/cc1 -quiet -v -imultiarch x86_64-linux-gnu /usr/share/cmake-3.28/Modules/CMakeCCompilerABI.c -quiet -dumpdir CMakeFiles/cmTC_e8244.dir/ -dumpbase CMakeCCompilerABI.c.c -dumpbase-ext .c -mtune=generic -march=x86-64 -version -fasynchronous-unwind-tables -fstack-protector-strong -Wformat -Wformat-security -fstack-clash-protection -fcf-protection -o /tmp/ccXuJ4ZF.s
+        GNU C17 (Ubuntu 13.3.0-6ubuntu2~24.04) version 13.3.0 (x86_64-linux-gnu)
+        	compiled by GNU C version 13.3.0, GMP version 6.3.0, MPFR version 4.2.1, MPC version 1.3.1, isl version isl-0.26-GMP
+        
+        GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072
+        ignoring nonexistent directory "/usr/local/include/x86_64-linux-gnu"
+        ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/include-fixed/x86_64-linux-gnu"
+        ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/include-fixed"
+        ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include"
+        #include "..." search starts here:
+        #include <...> search starts here:
+         /usr/lib/gcc/x86_64-linux-gnu/13/include
+         /usr/local/include
+         /usr/include/x86_64-linux-gnu
+         /usr/include
+        End of search list.
+        Compiler executable checksum: 38987c28e967c64056a6454abdef726e
+        COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.o' '-c' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_e8244.dir/'
+         as -v --64 -o CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.o /tmp/ccXuJ4ZF.s
+        GNU assembler version 2.42 (x86_64-linux-gnu) using BFD version (GNU Binutils for Ubuntu) 2.42
+        COMPILER_PATH=/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/
+        LIBRARY_PATH=/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../:/lib/:/usr/lib/
+        COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.o' '-c' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.'
+        Linking C executable cmTC_e8244
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_e8244.dir/link.txt --verbose=1
+        /usr/bin/cc  -v CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.o -o cmTC_e8244 
+        Using built-in specs.
+        COLLECT_GCC=/usr/bin/cc
+        COLLECT_LTO_WRAPPER=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper
+        OFFLOAD_TARGET_NAMES=nvptx-none:amdgcn-amdhsa
+        OFFLOAD_TARGET_DEFAULT=1
+        Target: x86_64-linux-gnu
+        Configured with: ../src/configure -v --with-pkgversion='Ubuntu 13.3.0-6ubuntu2~24.04' --with-bugurl=file:///usr/share/doc/gcc-13/README.Bugs --enable-languages=c,ada,c++,go,d,fortran,objc,obj-c++,m2 --prefix=/usr --with-gcc-major-version-only --program-suffix=-13 --program-prefix=x86_64-linux-gnu- --enable-shared --enable-linker-build-id --libexecdir=/usr/libexec --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --enable-bootstrap --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-libstdcxx-backtrace --enable-gnu-unique-object --disable-vtable-verify --enable-plugin --enable-default-pie --with-system-zlib --enable-libphobos-checking=release --with-target-system-zlib=auto --enable-objc-gc=auto --enable-multiarch --disable-werror --enable-cet --with-arch-32=i686 --with-abi=m64 --with-multilib-list=m32,m64,mx32 --enable-multilib --with-tune=generic --enable-offload-targets=nvptx-none=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-nvptx/usr,amdgcn-amdhsa=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-gcn/usr --enable-offload-defaulted --without-cuda-driver --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --with-build-config=bootstrap-lto-lean --enable-link-serialization=2
+        Thread model: posix
+        Supported LTO compression algorithms: zlib zstd
+        gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04) 
+        COMPILER_PATH=/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/
+        LIBRARY_PATH=/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../:/lib/:/usr/lib/
+        COLLECT_GCC_OPTIONS='-v' '-o' 'cmTC_e8244' '-mtune=generic' '-march=x86-64' '-dumpdir' 'cmTC_e8244.'
+         /usr/libexec/gcc/x86_64-linux-gnu/13/collect2 -plugin /usr/libexec/gcc/x86_64-linux-gnu/13/liblto_plugin.so -plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper -plugin-opt=-fresolution=/tmp/ccjpRfH1.res -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc_s --build-id --eh-frame-hdr -m elf_x86_64 --hash-style=gnu --as-needed -dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie -z now -z relro -o cmTC_e8244 /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/Scrt1.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib -L/lib/x86_64-linux-gnu -L/lib/../lib -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../.. CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.o -lgcc --push-state --as-needed -lgcc_s --pop-state -lc -lgcc --push-state --as-needed -lgcc_s --pop-state /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crtn.o
+        COLLECT_GCC_OPTIONS='-v' '-o' 'cmTC_e8244' '-mtune=generic' '-march=x86-64' '-dumpdir' 'cmTC_e8244.'
+        gmake[1]: Leaving directory '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-JR2cyG'
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCompilerABI.cmake:127 (message)"
+      - "/usr/share/cmake-3.28/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "basis_universal/CMakeLists.txt:5 (project)"
+    message: |
+      Parsed C implicit include dir info: rv=done
+        found start of include info
+        found start of implicit include info
+          add: [/usr/lib/gcc/x86_64-linux-gnu/13/include]
+          add: [/usr/local/include]
+          add: [/usr/include/x86_64-linux-gnu]
+          add: [/usr/include]
+        end of search list found
+        collapse include dir [/usr/lib/gcc/x86_64-linux-gnu/13/include] ==> [/usr/lib/gcc/x86_64-linux-gnu/13/include]
+        collapse include dir [/usr/local/include] ==> [/usr/local/include]
+        collapse include dir [/usr/include/x86_64-linux-gnu] ==> [/usr/include/x86_64-linux-gnu]
+        collapse include dir [/usr/include] ==> [/usr/include]
+        implicit include dirs: [/usr/lib/gcc/x86_64-linux-gnu/13/include;/usr/local/include;/usr/include/x86_64-linux-gnu;/usr/include]
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCompilerABI.cmake:159 (message)"
+      - "/usr/share/cmake-3.28/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "basis_universal/CMakeLists.txt:5 (project)"
+    message: |
+      Parsed C implicit link information:
+        link line regex: [^( *|.*[/\\])(ld|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        ignore line: [Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-JR2cyG']
+        ignore line: []
+        ignore line: [Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_e8244/fast]
+        ignore line: [/usr/bin/gmake  -f CMakeFiles/cmTC_e8244.dir/build.make CMakeFiles/cmTC_e8244.dir/build]
+        ignore line: [gmake[1]: Entering directory '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-JR2cyG']
+        ignore line: [Building C object CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.o]
+        ignore line: [/usr/bin/cc   -v -o CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.o -c /usr/share/cmake-3.28/Modules/CMakeCCompilerABI.c]
+        ignore line: [Using built-in specs.]
+        ignore line: [COLLECT_GCC=/usr/bin/cc]
+        ignore line: [OFFLOAD_TARGET_NAMES=nvptx-none:amdgcn-amdhsa]
+        ignore line: [OFFLOAD_TARGET_DEFAULT=1]
+        ignore line: [Target: x86_64-linux-gnu]
+        ignore line: [Configured with: ../src/configure -v --with-pkgversion='Ubuntu 13.3.0-6ubuntu2~24.04' --with-bugurl=file:///usr/share/doc/gcc-13/README.Bugs --enable-languages=c ada c++ go d fortran objc obj-c++ m2 --prefix=/usr --with-gcc-major-version-only --program-suffix=-13 --program-prefix=x86_64-linux-gnu- --enable-shared --enable-linker-build-id --libexecdir=/usr/libexec --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --enable-bootstrap --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-libstdcxx-backtrace --enable-gnu-unique-object --disable-vtable-verify --enable-plugin --enable-default-pie --with-system-zlib --enable-libphobos-checking=release --with-target-system-zlib=auto --enable-objc-gc=auto --enable-multiarch --disable-werror --enable-cet --with-arch-32=i686 --with-abi=m64 --with-multilib-list=m32 m64 mx32 --enable-multilib --with-tune=generic --enable-offload-targets=nvptx-none=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-nvptx/usr amdgcn-amdhsa=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-gcn/usr --enable-offload-defaulted --without-cuda-driver --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --with-build-config=bootstrap-lto-lean --enable-link-serialization=2]
+        ignore line: [Thread model: posix]
+        ignore line: [Supported LTO compression algorithms: zlib zstd]
+        ignore line: [gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04) ]
+        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.o' '-c' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_e8244.dir/']
+        ignore line: [ /usr/libexec/gcc/x86_64-linux-gnu/13/cc1 -quiet -v -imultiarch x86_64-linux-gnu /usr/share/cmake-3.28/Modules/CMakeCCompilerABI.c -quiet -dumpdir CMakeFiles/cmTC_e8244.dir/ -dumpbase CMakeCCompilerABI.c.c -dumpbase-ext .c -mtune=generic -march=x86-64 -version -fasynchronous-unwind-tables -fstack-protector-strong -Wformat -Wformat-security -fstack-clash-protection -fcf-protection -o /tmp/ccXuJ4ZF.s]
+        ignore line: [GNU C17 (Ubuntu 13.3.0-6ubuntu2~24.04) version 13.3.0 (x86_64-linux-gnu)]
+        ignore line: [	compiled by GNU C version 13.3.0  GMP version 6.3.0  MPFR version 4.2.1  MPC version 1.3.1  isl version isl-0.26-GMP]
+        ignore line: []
+        ignore line: [GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072]
+        ignore line: [ignoring nonexistent directory "/usr/local/include/x86_64-linux-gnu"]
+        ignore line: [ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/include-fixed/x86_64-linux-gnu"]
+        ignore line: [ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/include-fixed"]
+        ignore line: [ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include"]
+        ignore line: [#include "..." search starts here:]
+        ignore line: [#include <...> search starts here:]
+        ignore line: [ /usr/lib/gcc/x86_64-linux-gnu/13/include]
+        ignore line: [ /usr/local/include]
+        ignore line: [ /usr/include/x86_64-linux-gnu]
+        ignore line: [ /usr/include]
+        ignore line: [End of search list.]
+        ignore line: [Compiler executable checksum: 38987c28e967c64056a6454abdef726e]
+        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.o' '-c' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_e8244.dir/']
+        ignore line: [ as -v --64 -o CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.o /tmp/ccXuJ4ZF.s]
+        ignore line: [GNU assembler version 2.42 (x86_64-linux-gnu) using BFD version (GNU Binutils for Ubuntu) 2.42]
+        ignore line: [COMPILER_PATH=/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/]
+        ignore line: [LIBRARY_PATH=/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../:/lib/:/usr/lib/]
+        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.o' '-c' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.']
+        ignore line: [Linking C executable cmTC_e8244]
+        ignore line: [/usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_e8244.dir/link.txt --verbose=1]
+        ignore line: [/usr/bin/cc  -v CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.o -o cmTC_e8244 ]
+        ignore line: [Using built-in specs.]
+        ignore line: [COLLECT_GCC=/usr/bin/cc]
+        ignore line: [COLLECT_LTO_WRAPPER=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper]
+        ignore line: [OFFLOAD_TARGET_NAMES=nvptx-none:amdgcn-amdhsa]
+        ignore line: [OFFLOAD_TARGET_DEFAULT=1]
+        ignore line: [Target: x86_64-linux-gnu]
+        ignore line: [Configured with: ../src/configure -v --with-pkgversion='Ubuntu 13.3.0-6ubuntu2~24.04' --with-bugurl=file:///usr/share/doc/gcc-13/README.Bugs --enable-languages=c ada c++ go d fortran objc obj-c++ m2 --prefix=/usr --with-gcc-major-version-only --program-suffix=-13 --program-prefix=x86_64-linux-gnu- --enable-shared --enable-linker-build-id --libexecdir=/usr/libexec --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --enable-bootstrap --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-libstdcxx-backtrace --enable-gnu-unique-object --disable-vtable-verify --enable-plugin --enable-default-pie --with-system-zlib --enable-libphobos-checking=release --with-target-system-zlib=auto --enable-objc-gc=auto --enable-multiarch --disable-werror --enable-cet --with-arch-32=i686 --with-abi=m64 --with-multilib-list=m32 m64 mx32 --enable-multilib --with-tune=generic --enable-offload-targets=nvptx-none=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-nvptx/usr amdgcn-amdhsa=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-gcn/usr --enable-offload-defaulted --without-cuda-driver --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --with-build-config=bootstrap-lto-lean --enable-link-serialization=2]
+        ignore line: [Thread model: posix]
+        ignore line: [Supported LTO compression algorithms: zlib zstd]
+        ignore line: [gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04) ]
+        ignore line: [COMPILER_PATH=/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/]
+        ignore line: [LIBRARY_PATH=/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../:/lib/:/usr/lib/]
+        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'cmTC_e8244' '-mtune=generic' '-march=x86-64' '-dumpdir' 'cmTC_e8244.']
+        link line: [ /usr/libexec/gcc/x86_64-linux-gnu/13/collect2 -plugin /usr/libexec/gcc/x86_64-linux-gnu/13/liblto_plugin.so -plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper -plugin-opt=-fresolution=/tmp/ccjpRfH1.res -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc_s --build-id --eh-frame-hdr -m elf_x86_64 --hash-style=gnu --as-needed -dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie -z now -z relro -o cmTC_e8244 /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/Scrt1.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib -L/lib/x86_64-linux-gnu -L/lib/../lib -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../.. CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.o -lgcc --push-state --as-needed -lgcc_s --pop-state -lc -lgcc --push-state --as-needed -lgcc_s --pop-state /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crtn.o]
+          arg [/usr/libexec/gcc/x86_64-linux-gnu/13/collect2] ==> ignore
+          arg [-plugin] ==> ignore
+          arg [/usr/libexec/gcc/x86_64-linux-gnu/13/liblto_plugin.so] ==> ignore
+          arg [-plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper] ==> ignore
+          arg [-plugin-opt=-fresolution=/tmp/ccjpRfH1.res] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc_s] ==> ignore
+          arg [-plugin-opt=-pass-through=-lc] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc_s] ==> ignore
+          arg [--build-id] ==> ignore
+          arg [--eh-frame-hdr] ==> ignore
+          arg [-m] ==> ignore
+          arg [elf_x86_64] ==> ignore
+          arg [--hash-style=gnu] ==> ignore
+          arg [--as-needed] ==> ignore
+          arg [-dynamic-linker] ==> ignore
+          arg [/lib64/ld-linux-x86-64.so.2] ==> ignore
+          arg [-pie] ==> ignore
+          arg [-znow] ==> ignore
+          arg [-zrelro] ==> ignore
+          arg [-o] ==> ignore
+          arg [cmTC_e8244] ==> ignore
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/Scrt1.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/Scrt1.o]
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crti.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crti.o]
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib]
+          arg [-L/lib/x86_64-linux-gnu] ==> dir [/lib/x86_64-linux-gnu]
+          arg [-L/lib/../lib] ==> dir [/lib/../lib]
+          arg [-L/usr/lib/x86_64-linux-gnu] ==> dir [/usr/lib/x86_64-linux-gnu]
+          arg [-L/usr/lib/../lib] ==> dir [/usr/lib/../lib]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13/../../..] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../..]
+          arg [CMakeFiles/cmTC_e8244.dir/CMakeCCompilerABI.c.o] ==> ignore
+          arg [-lgcc] ==> lib [gcc]
+          arg [--push-state] ==> ignore
+          arg [--as-needed] ==> ignore
+          arg [-lgcc_s] ==> lib [gcc_s]
+          arg [--pop-state] ==> ignore
+          arg [-lc] ==> lib [c]
+          arg [-lgcc] ==> lib [gcc]
+          arg [--push-state] ==> ignore
+          arg [--as-needed] ==> ignore
+          arg [-lgcc_s] ==> lib [gcc_s]
+          arg [--pop-state] ==> ignore
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o]
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crtn.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crtn.o]
+        collapse obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/Scrt1.o] ==> [/usr/lib/x86_64-linux-gnu/Scrt1.o]
+        collapse obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crti.o] ==> [/usr/lib/x86_64-linux-gnu/crti.o]
+        collapse obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crtn.o] ==> [/usr/lib/x86_64-linux-gnu/crtn.o]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13] ==> [/usr/lib/gcc/x86_64-linux-gnu/13]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu] ==> [/usr/lib/x86_64-linux-gnu]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib] ==> [/usr/lib]
+        collapse library dir [/lib/x86_64-linux-gnu] ==> [/lib/x86_64-linux-gnu]
+        collapse library dir [/lib/../lib] ==> [/lib]
+        collapse library dir [/usr/lib/x86_64-linux-gnu] ==> [/usr/lib/x86_64-linux-gnu]
+        collapse library dir [/usr/lib/../lib] ==> [/usr/lib]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../..] ==> [/usr/lib]
+        implicit libs: [gcc;gcc_s;c;gcc;gcc_s]
+        implicit objs: [/usr/lib/x86_64-linux-gnu/Scrt1.o;/usr/lib/x86_64-linux-gnu/crti.o;/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o;/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o;/usr/lib/x86_64-linux-gnu/crtn.o]
+        implicit dirs: [/usr/lib/gcc/x86_64-linux-gnu/13;/usr/lib/x86_64-linux-gnu;/usr/lib;/lib/x86_64-linux-gnu;/lib]
+        implicit fwks: []
+      
+      
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "libwebp/cmake/deps.cmake:13 (check_c_source_compiles)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test HAVE_BUILTIN_BSWAP16"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xFMrBG"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xFMrBG"
+    cmakeVariables:
+      CMAKE_C_FLAGS: ""
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAVE_BUILTIN_BSWAP16"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xFMrBG'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_1ef77/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_1ef77.dir/build.make CMakeFiles/cmTC_1ef77.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xFMrBG'
+        Building C object CMakeFiles/cmTC_1ef77.dir/src.c.o
+        /usr/bin/cc -DHAVE_BUILTIN_BSWAP16  -fPIE -o CMakeFiles/cmTC_1ef77.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xFMrBG/src.c
+        Linking C executable cmTC_1ef77
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_1ef77.dir/link.txt --verbose=1
+        /usr/bin/cc CMakeFiles/cmTC_1ef77.dir/src.c.o -o cmTC_1ef77 
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xFMrBG'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "libwebp/cmake/deps.cmake:21 (check_c_source_compiles)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test HAVE_BUILTIN_BSWAP32"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-NltZv2"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-NltZv2"
+    cmakeVariables:
+      CMAKE_C_FLAGS: ""
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAVE_BUILTIN_BSWAP32"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-NltZv2'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_f6bec/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_f6bec.dir/build.make CMakeFiles/cmTC_f6bec.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-NltZv2'
+        Building C object CMakeFiles/cmTC_f6bec.dir/src.c.o
+        /usr/bin/cc -DHAVE_BUILTIN_BSWAP32  -fPIE -o CMakeFiles/cmTC_f6bec.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-NltZv2/src.c
+        Linking C executable cmTC_f6bec
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_f6bec.dir/link.txt --verbose=1
+        /usr/bin/cc CMakeFiles/cmTC_f6bec.dir/src.c.o -o cmTC_f6bec 
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-NltZv2'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "libwebp/cmake/deps.cmake:29 (check_c_source_compiles)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test HAVE_BUILTIN_BSWAP64"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-EAZ5nL"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-EAZ5nL"
+    cmakeVariables:
+      CMAKE_C_FLAGS: ""
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAVE_BUILTIN_BSWAP64"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-EAZ5nL'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_7d294/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_7d294.dir/build.make CMakeFiles/cmTC_7d294.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-EAZ5nL'
+        Building C object CMakeFiles/cmTC_7d294.dir/src.c.o
+        /usr/bin/cc -DHAVE_BUILTIN_BSWAP64  -fPIE -o CMakeFiles/cmTC_7d294.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-EAZ5nL/src.c
+        Linking C executable cmTC_7d294
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_7d294.dir/link.txt --verbose=1
+        /usr/bin/cc CMakeFiles/cmTC_7d294.dir/src.c.o -o cmTC_7d294 
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-EAZ5nL'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "/usr/share/cmake-3.28/Modules/FindThreads.cmake:97 (CHECK_C_SOURCE_COMPILES)"
+      - "/usr/share/cmake-3.28/Modules/FindThreads.cmake:163 (_threads_check_libc)"
+      - "libwebp/cmake/deps.cmake:40 (find_package)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test CMAKE_HAVE_LIBC_PTHREAD"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-BQ38Kr"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-BQ38Kr"
+    cmakeVariables:
+      CMAKE_C_FLAGS: ""
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "CMAKE_HAVE_LIBC_PTHREAD"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-BQ38Kr'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_ad481/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_ad481.dir/build.make CMakeFiles/cmTC_ad481.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-BQ38Kr'
+        Building C object CMakeFiles/cmTC_ad481.dir/src.c.o
+        /usr/bin/cc -DCMAKE_HAVE_LIBC_PTHREAD  -fPIE -o CMakeFiles/cmTC_ad481.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-BQ38Kr/src.c
+        Linking C executable cmTC_ad481
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_ad481.dir/link.txt --verbose=1
+        /usr/bin/cc CMakeFiles/cmTC_ad481.dir/src.c.o -o cmTC_ad481 
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-BQ38Kr'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "libwebp/cmake/deps.cmake:60 (check_c_source_compiles)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test HAVE_MATH_LIBRARY"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-6acUSu"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-6acUSu"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAVE_MATH_LIBRARY"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-6acUSu'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_fa048/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_fa048.dir/build.make CMakeFiles/cmTC_fa048.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-6acUSu'
+        Building C object CMakeFiles/cmTC_fa048.dir/src.c.o
+        /usr/bin/cc -DHAVE_MATH_LIBRARY  -pthread  -fPIE -o CMakeFiles/cmTC_fa048.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-6acUSu/src.c
+        Linking C executable cmTC_fa048
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_fa048.dir/link.txt --verbose=1
+        /usr/bin/cc  -pthread  CMakeFiles/cmTC_fa048.dir/src.c.o -o cmTC_fa048 
+        /usr/bin/ld: CMakeFiles/cmTC_fa048.dir/src.c.o: en la función `main':
+        src.c:(.text+0x33): undefined reference to `pow'
+        collect2: error: ld returned 1 exit status
+        gmake[1]: *** [CMakeFiles/cmTC_fa048.dir/build.make:99: cmTC_fa048] Error 1
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-6acUSu'
+        gmake: *** [Makefile:127: cmTC_fa048/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckIncludeFiles.cmake:132 (try_compile)"
+      - "libwebp/cmake/deps.cmake:98 (check_include_files)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Looking for include file GLUT/glut.h"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-okJx2A"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-okJx2A"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAVE_GLUT_GLUT_H"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-okJx2A'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_3dd72/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_3dd72.dir/build.make CMakeFiles/cmTC_3dd72.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-okJx2A'
+        Building C object CMakeFiles/cmTC_3dd72.dir/HAVE_GLUT_GLUT_H.c.o
+        /usr/bin/cc   -pthread  -fPIE -o CMakeFiles/cmTC_3dd72.dir/HAVE_GLUT_GLUT_H.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-okJx2A/HAVE_GLUT_GLUT_H.c
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-okJx2A/HAVE_GLUT_GLUT_H.c:2:10: fatal error: GLUT/glut.h: No existe el archivo o el directorio
+            2 | #include <GLUT/glut.h>
+              |          ^~~~~~~~~~~~~
+        compilation terminated.
+        gmake[1]: *** [CMakeFiles/cmTC_3dd72.dir/build.make:78: CMakeFiles/cmTC_3dd72.dir/HAVE_GLUT_GLUT_H.c.o] Error 1
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-okJx2A'
+        gmake: *** [Makefile:127: cmTC_3dd72/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckIncludeFiles.cmake:132 (try_compile)"
+      - "libwebp/cmake/deps.cmake:99 (check_include_files)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Looking for include file GL/glut.h"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xLqC7d"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xLqC7d"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAVE_GL_GLUT_H"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xLqC7d'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_66000/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_66000.dir/build.make CMakeFiles/cmTC_66000.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xLqC7d'
+        Building C object CMakeFiles/cmTC_66000.dir/HAVE_GL_GLUT_H.c.o
+        /usr/bin/cc   -pthread  -fPIE -o CMakeFiles/cmTC_66000.dir/HAVE_GL_GLUT_H.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xLqC7d/HAVE_GL_GLUT_H.c
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xLqC7d/HAVE_GL_GLUT_H.c:2:10: fatal error: GL/glut.h: No existe el archivo o el directorio
+            2 | #include <GL/glut.h>
+              |          ^~~~~~~~~~~
+        compilation terminated.
+        gmake[1]: *** [CMakeFiles/cmTC_66000.dir/build.make:78: CMakeFiles/cmTC_66000.dir/HAVE_GL_GLUT_H.c.o] Error 1
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xLqC7d'
+        gmake: *** [Makefile:127: cmTC_66000/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckIncludeFiles.cmake:132 (try_compile)"
+      - "libwebp/cmake/deps.cmake:100 (check_include_files)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Looking for include file OpenGL/glut.h"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-qPqCo0"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-qPqCo0"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAVE_OPENGL_GLUT_H"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-qPqCo0'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_6d5eb/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_6d5eb.dir/build.make CMakeFiles/cmTC_6d5eb.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-qPqCo0'
+        Building C object CMakeFiles/cmTC_6d5eb.dir/HAVE_OPENGL_GLUT_H.c.o
+        /usr/bin/cc   -pthread  -fPIE -o CMakeFiles/cmTC_6d5eb.dir/HAVE_OPENGL_GLUT_H.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-qPqCo0/HAVE_OPENGL_GLUT_H.c
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-qPqCo0/HAVE_OPENGL_GLUT_H.c:2:10: fatal error: OpenGL/glut.h: No existe el archivo o el directorio
+            2 | #include <OpenGL/glut.h>
+              |          ^~~~~~~~~~~~~~~
+        compilation terminated.
+        gmake[1]: *** [CMakeFiles/cmTC_6d5eb.dir/build.make:78: CMakeFiles/cmTC_6d5eb.dir/HAVE_OPENGL_GLUT_H.c.o] Error 1
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-qPqCo0'
+        gmake: *** [Makefile:127: cmTC_6d5eb/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckIncludeFiles.cmake:132 (try_compile)"
+      - "libwebp/cmake/deps.cmake:101 (check_include_files)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Looking for include file shlwapi.h"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-gOMNWZ"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-gOMNWZ"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAVE_SHLWAPI_H"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-gOMNWZ'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_cba89/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_cba89.dir/build.make CMakeFiles/cmTC_cba89.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-gOMNWZ'
+        Building C object CMakeFiles/cmTC_cba89.dir/HAVE_SHLWAPI_H.c.o
+        /usr/bin/cc   -pthread  -fPIE -o CMakeFiles/cmTC_cba89.dir/HAVE_SHLWAPI_H.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-gOMNWZ/HAVE_SHLWAPI_H.c
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-gOMNWZ/HAVE_SHLWAPI_H.c:2:10: fatal error: shlwapi.h: No existe el archivo o el directorio
+            2 | #include <shlwapi.h>
+              |          ^~~~~~~~~~~
+        compilation terminated.
+        gmake[1]: *** [CMakeFiles/cmTC_cba89.dir/build.make:78: CMakeFiles/cmTC_cba89.dir/HAVE_SHLWAPI_H.c.o] Error 1
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-gOMNWZ'
+        gmake: *** [Makefile:127: cmTC_cba89/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckIncludeFiles.cmake:132 (try_compile)"
+      - "libwebp/cmake/deps.cmake:102 (check_include_files)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Looking for include file unistd.h"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-WH7rhS"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-WH7rhS"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAVE_UNISTD_H"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-WH7rhS'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_5c383/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_5c383.dir/build.make CMakeFiles/cmTC_5c383.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-WH7rhS'
+        Building C object CMakeFiles/cmTC_5c383.dir/HAVE_UNISTD_H.c.o
+        /usr/bin/cc   -pthread  -fPIE -o CMakeFiles/cmTC_5c383.dir/HAVE_UNISTD_H.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-WH7rhS/HAVE_UNISTD_H.c
+        Linking C executable cmTC_5c383
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_5c383.dir/link.txt --verbose=1
+        /usr/bin/cc  -pthread  CMakeFiles/cmTC_5c383.dir/HAVE_UNISTD_H.c.o -o cmTC_5c383 
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-WH7rhS'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckIncludeFiles.cmake:132 (try_compile)"
+      - "libwebp/cmake/deps.cmake:103 (check_include_files)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Looking for include file wincodec.h"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-r01YrQ"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-r01YrQ"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAVE_WINCODEC_H"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-r01YrQ'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_2783f/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_2783f.dir/build.make CMakeFiles/cmTC_2783f.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-r01YrQ'
+        Building C object CMakeFiles/cmTC_2783f.dir/HAVE_WINCODEC_H.c.o
+        /usr/bin/cc   -pthread  -fPIE -o CMakeFiles/cmTC_2783f.dir/HAVE_WINCODEC_H.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-r01YrQ/HAVE_WINCODEC_H.c
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-r01YrQ/HAVE_WINCODEC_H.c:2:10: fatal error: wincodec.h: No existe el archivo o el directorio
+            2 | #include <wincodec.h>
+              |          ^~~~~~~~~~~~
+        compilation terminated.
+        gmake[1]: *** [CMakeFiles/cmTC_2783f.dir/build.make:78: CMakeFiles/cmTC_2783f.dir/HAVE_WINCODEC_H.c.o] Error 1
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-r01YrQ'
+        gmake: *** [Makefile:127: cmTC_2783f/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckIncludeFiles.cmake:132 (try_compile)"
+      - "libwebp/cmake/deps.cmake:104 (check_include_files)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Looking for include file windows.h"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-47PZS7"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-47PZS7"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAVE_WINDOWS_H"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-47PZS7'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_3786c/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_3786c.dir/build.make CMakeFiles/cmTC_3786c.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-47PZS7'
+        Building C object CMakeFiles/cmTC_3786c.dir/HAVE_WINDOWS_H.c.o
+        /usr/bin/cc   -pthread  -fPIE -o CMakeFiles/cmTC_3786c.dir/HAVE_WINDOWS_H.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-47PZS7/HAVE_WINDOWS_H.c
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-47PZS7/HAVE_WINDOWS_H.c:2:10: fatal error: windows.h: No existe el archivo o el directorio
+            2 | #include <windows.h>
+              |          ^~~~~~~~~~~
+        compilation terminated.
+        gmake[1]: *** [CMakeFiles/cmTC_3786c.dir/build.make:78: CMakeFiles/cmTC_3786c.dir/HAVE_WINDOWS_H.c.o] Error 1
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-47PZS7'
+        gmake: *** [Makefile:127: cmTC_3786c/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:32 (check_c_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:117 (webp_check_compiler_flag)"
+      - "libwebp/cmake/deps.cmake:112 (include)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test WEBP_HAVE_FLAG_AVX2"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-34QJkU"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-34QJkU"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "WEBP_HAVE_FLAG_AVX2"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-34QJkU'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_0ae1b/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_0ae1b.dir/build.make CMakeFiles/cmTC_0ae1b.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-34QJkU'
+        Building C object CMakeFiles/cmTC_0ae1b.dir/src.c.o
+        /usr/bin/cc -DWEBP_HAVE_FLAG_AVX2 -I/home/kenif/zincel-web-gsap/client/meshoptimizer/libwebp -pthread  -fPIE -o CMakeFiles/cmTC_0ae1b.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-34QJkU/src.c
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-34QJkU/src.c: In function ‘main’:
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-34QJkU/src.c:19:9: error: unknown type name ‘this’
+           19 |         this is not valid code
+              |         ^~~~
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-34QJkU/src.c:19:17: error: expected ‘=’, ‘,’, ‘;’, ‘asm’ or ‘__attribute__’ before ‘not’
+           19 |         this is not valid code
+              |                 ^~~
+        gmake[1]: *** [CMakeFiles/cmTC_0ae1b.dir/build.make:78: CMakeFiles/cmTC_0ae1b.dir/src.c.o] Error 1
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-34QJkU'
+        gmake: *** [Makefile:127: cmTC_0ae1b/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:32 (check_c_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:124 (webp_check_compiler_flag)"
+      - "libwebp/cmake/deps.cmake:112 (include)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test WEBP_HAVE_FLAG_AVX2"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-O11xi0"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-O11xi0"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "WEBP_HAVE_FLAG_AVX2"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-O11xi0'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_21c66/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_21c66.dir/build.make CMakeFiles/cmTC_21c66.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-O11xi0'
+        Building C object CMakeFiles/cmTC_21c66.dir/src.c.o
+        /usr/bin/cc -DWEBP_HAVE_FLAG_AVX2 -I/home/kenif/zincel-web-gsap/client/meshoptimizer/libwebp -pthread -mavx2 -fPIE -o CMakeFiles/cmTC_21c66.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-O11xi0/src.c
+        Linking C executable cmTC_21c66
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_21c66.dir/link.txt --verbose=1
+        /usr/bin/cc  -pthread -mavx2 CMakeFiles/cmTC_21c66.dir/src.c.o -o cmTC_21c66 
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-O11xi0'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:32 (check_c_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:117 (webp_check_compiler_flag)"
+      - "libwebp/cmake/deps.cmake:112 (include)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test WEBP_HAVE_FLAG_SSE41"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-fcEEGJ"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-fcEEGJ"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "WEBP_HAVE_FLAG_SSE41"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-fcEEGJ'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_206a7/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_206a7.dir/build.make CMakeFiles/cmTC_206a7.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-fcEEGJ'
+        Building C object CMakeFiles/cmTC_206a7.dir/src.c.o
+        /usr/bin/cc -DWEBP_HAVE_FLAG_SSE41 -I/home/kenif/zincel-web-gsap/client/meshoptimizer/libwebp -pthread  -fPIE -o CMakeFiles/cmTC_206a7.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-fcEEGJ/src.c
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-fcEEGJ/src.c: In function ‘main’:
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-fcEEGJ/src.c:19:9: error: unknown type name ‘this’
+           19 |         this is not valid code
+              |         ^~~~
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-fcEEGJ/src.c:19:17: error: expected ‘=’, ‘,’, ‘;’, ‘asm’ or ‘__attribute__’ before ‘not’
+           19 |         this is not valid code
+              |                 ^~~
+        gmake[1]: *** [CMakeFiles/cmTC_206a7.dir/build.make:78: CMakeFiles/cmTC_206a7.dir/src.c.o] Error 1
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-fcEEGJ'
+        gmake: *** [Makefile:127: cmTC_206a7/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:32 (check_c_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:124 (webp_check_compiler_flag)"
+      - "libwebp/cmake/deps.cmake:112 (include)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test WEBP_HAVE_FLAG_SSE41"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-W6cE3Y"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-W6cE3Y"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "WEBP_HAVE_FLAG_SSE41"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-W6cE3Y'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_a8812/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_a8812.dir/build.make CMakeFiles/cmTC_a8812.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-W6cE3Y'
+        Building C object CMakeFiles/cmTC_a8812.dir/src.c.o
+        /usr/bin/cc -DWEBP_HAVE_FLAG_SSE41 -I/home/kenif/zincel-web-gsap/client/meshoptimizer/libwebp -pthread -msse4.1 -fPIE -o CMakeFiles/cmTC_a8812.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-W6cE3Y/src.c
+        Linking C executable cmTC_a8812
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_a8812.dir/link.txt --verbose=1
+        /usr/bin/cc  -pthread -msse4.1 CMakeFiles/cmTC_a8812.dir/src.c.o -o cmTC_a8812 
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-W6cE3Y'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:32 (check_c_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:117 (webp_check_compiler_flag)"
+      - "libwebp/cmake/deps.cmake:112 (include)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test WEBP_HAVE_FLAG_SSE2"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-LidJGo"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-LidJGo"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "WEBP_HAVE_FLAG_SSE2"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-LidJGo'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_ec4cb/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_ec4cb.dir/build.make CMakeFiles/cmTC_ec4cb.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-LidJGo'
+        Building C object CMakeFiles/cmTC_ec4cb.dir/src.c.o
+        /usr/bin/cc -DWEBP_HAVE_FLAG_SSE2 -I/home/kenif/zincel-web-gsap/client/meshoptimizer/libwebp -pthread  -fPIE -o CMakeFiles/cmTC_ec4cb.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-LidJGo/src.c
+        Linking C executable cmTC_ec4cb
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_ec4cb.dir/link.txt --verbose=1
+        /usr/bin/cc  -pthread  CMakeFiles/cmTC_ec4cb.dir/src.c.o -o cmTC_ec4cb 
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-LidJGo'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:32 (check_c_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:117 (webp_check_compiler_flag)"
+      - "libwebp/cmake/deps.cmake:112 (include)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test WEBP_HAVE_FLAG_MIPS32"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xsRE7L"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xsRE7L"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "WEBP_HAVE_FLAG_MIPS32"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xsRE7L'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_5dc4f/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_5dc4f.dir/build.make CMakeFiles/cmTC_5dc4f.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xsRE7L'
+        Building C object CMakeFiles/cmTC_5dc4f.dir/src.c.o
+        /usr/bin/cc -DWEBP_HAVE_FLAG_MIPS32 -I/home/kenif/zincel-web-gsap/client/meshoptimizer/libwebp -pthread  -fPIE -o CMakeFiles/cmTC_5dc4f.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xsRE7L/src.c
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xsRE7L/src.c: In function ‘main’:
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xsRE7L/src.c:19:9: error: unknown type name ‘this’
+           19 |         this is not valid code
+              |         ^~~~
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xsRE7L/src.c:19:17: error: expected ‘=’, ‘,’, ‘;’, ‘asm’ or ‘__attribute__’ before ‘not’
+           19 |         this is not valid code
+              |                 ^~~
+        gmake[1]: *** [CMakeFiles/cmTC_5dc4f.dir/build.make:78: CMakeFiles/cmTC_5dc4f.dir/src.c.o] Error 1
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-xsRE7L'
+        gmake: *** [Makefile:127: cmTC_5dc4f/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:32 (check_c_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:124 (webp_check_compiler_flag)"
+      - "libwebp/cmake/deps.cmake:112 (include)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test WEBP_HAVE_FLAG_MIPS32"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-UF0V1d"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-UF0V1d"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "WEBP_HAVE_FLAG_MIPS32"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-UF0V1d'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_e5c47/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_e5c47.dir/build.make CMakeFiles/cmTC_e5c47.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-UF0V1d'
+        Building C object CMakeFiles/cmTC_e5c47.dir/src.c.o
+        /usr/bin/cc -DWEBP_HAVE_FLAG_MIPS32 -I/home/kenif/zincel-web-gsap/client/meshoptimizer/libwebp -pthread -mips32 -fPIE -o CMakeFiles/cmTC_e5c47.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-UF0V1d/src.c
+        cc: error: unrecognized command-line option ‘-mips32’; did you mean ‘-mpc32’?
+        gmake[1]: *** [CMakeFiles/cmTC_e5c47.dir/build.make:78: CMakeFiles/cmTC_e5c47.dir/src.c.o] Error 1
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-UF0V1d'
+        gmake: *** [Makefile:127: cmTC_e5c47/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:32 (check_c_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:117 (webp_check_compiler_flag)"
+      - "libwebp/cmake/deps.cmake:112 (include)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test WEBP_HAVE_FLAG_MIPS_DSP_R2"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-tj9zQ0"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-tj9zQ0"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "WEBP_HAVE_FLAG_MIPS_DSP_R2"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-tj9zQ0'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_628e3/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_628e3.dir/build.make CMakeFiles/cmTC_628e3.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-tj9zQ0'
+        Building C object CMakeFiles/cmTC_628e3.dir/src.c.o
+        /usr/bin/cc -DWEBP_HAVE_FLAG_MIPS_DSP_R2 -I/home/kenif/zincel-web-gsap/client/meshoptimizer/libwebp -pthread  -fPIE -o CMakeFiles/cmTC_628e3.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-tj9zQ0/src.c
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-tj9zQ0/src.c: In function ‘main’:
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-tj9zQ0/src.c:19:9: error: unknown type name ‘this’
+           19 |         this is not valid code
+              |         ^~~~
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-tj9zQ0/src.c:19:17: error: expected ‘=’, ‘,’, ‘;’, ‘asm’ or ‘__attribute__’ before ‘not’
+           19 |         this is not valid code
+              |                 ^~~
+        gmake[1]: *** [CMakeFiles/cmTC_628e3.dir/build.make:78: CMakeFiles/cmTC_628e3.dir/src.c.o] Error 1
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-tj9zQ0'
+        gmake: *** [Makefile:127: cmTC_628e3/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:32 (check_c_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:124 (webp_check_compiler_flag)"
+      - "libwebp/cmake/deps.cmake:112 (include)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test WEBP_HAVE_FLAG_MIPS_DSP_R2"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-V1RC67"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-V1RC67"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "WEBP_HAVE_FLAG_MIPS_DSP_R2"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-V1RC67'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_fdc87/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_fdc87.dir/build.make CMakeFiles/cmTC_fdc87.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-V1RC67'
+        Building C object CMakeFiles/cmTC_fdc87.dir/src.c.o
+        /usr/bin/cc -DWEBP_HAVE_FLAG_MIPS_DSP_R2 -I/home/kenif/zincel-web-gsap/client/meshoptimizer/libwebp -pthread -mdspr2 -fPIE -o CMakeFiles/cmTC_fdc87.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-V1RC67/src.c
+        cc: error: unrecognized command-line option ‘-mdspr2’
+        gmake[1]: *** [CMakeFiles/cmTC_fdc87.dir/build.make:78: CMakeFiles/cmTC_fdc87.dir/src.c.o] Error 1
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-V1RC67'
+        gmake: *** [Makefile:127: cmTC_fdc87/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckCompilerFlag.cmake:18 (cmake_check_source_compiles)"
+      - "/usr/share/cmake-3.28/Modules/CheckCCompilerFlag.cmake:51 (cmake_check_compiler_flag)"
+      - "libwebp/cmake/cpu.cmake:162 (check_c_compiler_flag)"
+      - "libwebp/cmake/deps.cmake:112 (include)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test HAS_COMPILE_FLAG"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-6mHk7Q"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-6mHk7Q"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAS_COMPILE_FLAG"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-6mHk7Q'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_e542f/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_e542f.dir/build.make CMakeFiles/cmTC_e542f.dir/build
+        gmake[1]: Entering directory '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-6mHk7Q'
+        Building C object CMakeFiles/cmTC_e542f.dir/src.c.o
+        /usr/bin/cc -DHAS_COMPILE_FLAG  -pthread -mdspr2 -fPIE   -mno-dspr2 -o CMakeFiles/cmTC_e542f.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-6mHk7Q/src.c
+        cc: error: unrecognized command-line option '-mdspr2'
+        cc: error: unrecognized command-line option '-mno-dspr2'; did you mean '-mno-sse2'?
+        gmake[1]: *** [CMakeFiles/cmTC_e542f.dir/build.make:78: CMakeFiles/cmTC_e542f.dir/src.c.o] Error 1
+        gmake[1]: Leaving directory '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-6mHk7Q'
+        gmake: *** [Makefile:127: cmTC_e542f/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:32 (check_c_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:117 (webp_check_compiler_flag)"
+      - "libwebp/cmake/deps.cmake:112 (include)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test WEBP_HAVE_FLAG_NEON"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-9MQ6Ek"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-9MQ6Ek"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "WEBP_HAVE_FLAG_NEON"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-9MQ6Ek'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_2db41/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_2db41.dir/build.make CMakeFiles/cmTC_2db41.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-9MQ6Ek'
+        Building C object CMakeFiles/cmTC_2db41.dir/src.c.o
+        /usr/bin/cc -DWEBP_HAVE_FLAG_NEON -I/home/kenif/zincel-web-gsap/client/meshoptimizer/libwebp -pthread  -fPIE -o CMakeFiles/cmTC_2db41.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-9MQ6Ek/src.c
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-9MQ6Ek/src.c: In function ‘main’:
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-9MQ6Ek/src.c:19:9: error: unknown type name ‘this’
+           19 |         this is not valid code
+              |         ^~~~
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-9MQ6Ek/src.c:19:17: error: expected ‘=’, ‘,’, ‘;’, ‘asm’ or ‘__attribute__’ before ‘not’
+           19 |         this is not valid code
+              |                 ^~~
+        gmake[1]: *** [CMakeFiles/cmTC_2db41.dir/build.make:78: CMakeFiles/cmTC_2db41.dir/src.c.o] Error 1
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-9MQ6Ek'
+        gmake: *** [Makefile:127: cmTC_2db41/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:32 (check_c_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:124 (webp_check_compiler_flag)"
+      - "libwebp/cmake/deps.cmake:112 (include)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test WEBP_HAVE_FLAG_NEON"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-4W4DzW"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-4W4DzW"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "WEBP_HAVE_FLAG_NEON"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-4W4DzW'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_134ae/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_134ae.dir/build.make CMakeFiles/cmTC_134ae.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-4W4DzW'
+        Building C object CMakeFiles/cmTC_134ae.dir/src.c.o
+        /usr/bin/cc -DWEBP_HAVE_FLAG_NEON -I/home/kenif/zincel-web-gsap/client/meshoptimizer/libwebp -pthread -mfpu=neon -fPIE -o CMakeFiles/cmTC_134ae.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-4W4DzW/src.c
+        cc: error: unrecognized command-line option ‘-mfpu=neon’
+        gmake[1]: *** [CMakeFiles/cmTC_134ae.dir/build.make:78: CMakeFiles/cmTC_134ae.dir/src.c.o] Error 1
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-4W4DzW'
+        gmake: *** [Makefile:127: cmTC_134ae/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:32 (check_c_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:117 (webp_check_compiler_flag)"
+      - "libwebp/cmake/deps.cmake:112 (include)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test WEBP_HAVE_FLAG_MSA"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-17adlN"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-17adlN"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "WEBP_HAVE_FLAG_MSA"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-17adlN'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_c59e2/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_c59e2.dir/build.make CMakeFiles/cmTC_c59e2.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-17adlN'
+        Building C object CMakeFiles/cmTC_c59e2.dir/src.c.o
+        /usr/bin/cc -DWEBP_HAVE_FLAG_MSA -I/home/kenif/zincel-web-gsap/client/meshoptimizer/libwebp -pthread  -fPIE -o CMakeFiles/cmTC_c59e2.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-17adlN/src.c
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-17adlN/src.c: In function ‘main’:
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-17adlN/src.c:19:9: error: unknown type name ‘this’
+           19 |         this is not valid code
+              |         ^~~~
+        /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-17adlN/src.c:19:17: error: expected ‘=’, ‘,’, ‘;’, ‘asm’ or ‘__attribute__’ before ‘not’
+           19 |         this is not valid code
+              |                 ^~~
+        gmake[1]: *** [CMakeFiles/cmTC_c59e2.dir/build.make:78: CMakeFiles/cmTC_c59e2.dir/src.c.o] Error 1
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-17adlN'
+        gmake: *** [Makefile:127: cmTC_c59e2/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:32 (check_c_source_compiles)"
+      - "libwebp/cmake/cpu.cmake:124 (webp_check_compiler_flag)"
+      - "libwebp/cmake/deps.cmake:112 (include)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test WEBP_HAVE_FLAG_MSA"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-7qAeuq"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-7qAeuq"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "WEBP_HAVE_FLAG_MSA"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-7qAeuq'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_d5cf0/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_d5cf0.dir/build.make CMakeFiles/cmTC_d5cf0.dir/build
+        gmake[1]: se entra en el directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-7qAeuq'
+        Building C object CMakeFiles/cmTC_d5cf0.dir/src.c.o
+        /usr/bin/cc -DWEBP_HAVE_FLAG_MSA -I/home/kenif/zincel-web-gsap/client/meshoptimizer/libwebp -pthread -mmsa -fPIE -o CMakeFiles/cmTC_d5cf0.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-7qAeuq/src.c
+        cc: error: unrecognized command-line option ‘-mmsa’
+        gmake[1]: *** [CMakeFiles/cmTC_d5cf0.dir/build.make:78: CMakeFiles/cmTC_d5cf0.dir/src.c.o] Error 1
+        gmake[1]: se sale del directorio '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-7qAeuq'
+        gmake: *** [Makefile:127: cmTC_d5cf0/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckCompilerFlag.cmake:18 (cmake_check_source_compiles)"
+      - "/usr/share/cmake-3.28/Modules/CheckCCompilerFlag.cmake:51 (cmake_check_compiler_flag)"
+      - "libwebp/cmake/cpu.cmake:162 (check_c_compiler_flag)"
+      - "libwebp/cmake/deps.cmake:112 (include)"
+      - "libwebp/CMakeLists.txt:123 (include)"
+    checks:
+      - "Performing Test HAS_COMPILE_FLAG"
+    directories:
+      source: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-YNcdtz"
+      binary: "/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-YNcdtz"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -pthread"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAS_COMPILE_FLAG"
+      cached: true
+      stdout: |
+        Change Dir: '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-YNcdtz'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_1f86a/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_1f86a.dir/build.make CMakeFiles/cmTC_1f86a.dir/build
+        gmake[1]: Entering directory '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-YNcdtz'
+        Building C object CMakeFiles/cmTC_1f86a.dir/src.c.o
+        /usr/bin/cc -DHAS_COMPILE_FLAG  -pthread -mmsa -fPIE   -mno-msa -o CMakeFiles/cmTC_1f86a.dir/src.c.o -c /home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-YNcdtz/src.c
+        cc: error: unrecognized command-line option '-mmsa'
+        cc: error: unrecognized command-line option '-mno-msa'; did you mean '-Wno-hsa'?
+        gmake[1]: *** [CMakeFiles/cmTC_1f86a.dir/build.make:78: CMakeFiles/cmTC_1f86a.dir/src.c.o] Error 1
+        gmake[1]: Leaving directory '/home/kenif/zincel-web-gsap/client/meshoptimizer/CMakeFiles/CMakeScratch/TryCompile-YNcdtz'
+        gmake: *** [Makefile:127: cmTC_1f86a/fast] Error 2
+        
+      exitCode: 2
+...

@@ -1,0 +1,75 @@
+/* src/styles/section.css*/
+
+.section {
+  position: relative;
+  width: 100%;
+  background: #000000;
+  overflow: hidden;
+}
+
+.section-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+.section-content {
+  position: relative;
+  z-index: 2;
+}
+
+.section-image {
+  position: relative;
+  z-index: 1;
+}
+
+/* Reverse layout */
+.section-reverse .section-container {
+  direction: rtl;
+}
+
+.section-reverse .section-content,
+.section-reverse .section-image {
+  direction: ltr;
+}
+
+/* Special styling for intro-inicio */
+.intro-inicio-section {
+  min-height: 100vh;
+}
+
+.intro-inicio-section .section-container {
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+
+.intro-inicio-section .section-content {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+}
+
+.intro-inicio-section .section-image {
+  position: relative;
+  z-index: 1;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .section-container {
+    grid-template-columns: 1fr;
+    gap: 3rem;
+  }
+
+  .section-reverse .section-container {
+    direction: ltr;
+  }
+}
+
+@media (max-width: 768px) {
+  .section-container {
+    gap: 2rem;
+  }
+}

@@ -1,0 +1,110 @@
+/* index.css - Agrupa todos los CSS globales */
+
+/* 1️⃣ TODOS los imports PRIMERO */
+@import "../styles/section.css";
+@import './fonts.css';
+@import './tailwind.css';
+@import './theme.css';
+
+
+/* 2️⃣ Luego Tailwind (output o capas) */
+/*! tailwindcss v4.1.3 | MIT License | https://tailwindcss.com */
+@layer theme {
+  :root, :host {
+    --font-sans: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    --color-white: #ffffff;
+    --color-text: #ebdfdfcc;
+    --spacing: .25rem;
+    --container-4xl: 56rem;
+    --text-base: 1rem;
+    --text-lg: 1.125rem;
+    --text-xl: 1.25rem;
+    --text-2xl: 1.5rem;
+    --font-weight-normal: 400;
+    --font-weight-medium: 500;
+    --default-font-family: var(--font-sans);
+    --default-font-feature-settings: var(--font-sans--font-feature-settings);
+    --default-font-variation-settings: var(--font-sans--font-variation-settings);
+    --default-mono-font-family: var(--font-mono);
+    --default-mono-font-feature-settings: var(--font-mono--font-feature-settings);
+    --default-mono-font-variation-settings: var(--font-mono--font-variation-settings);
+  }
+}
+
+@layer base {
+  
+}
+
+@layer utilities {
+
+
+  .mb-4 {
+    margin-bottom: calc(var(--spacing) * 4);
+  }
+
+  .flex {
+    display: flex;
+  }
+
+  .min-h-screen {
+    min-height: 100vh;
+  }
+
+  .max-w-4xl {
+    max-width: var(--container-4xl);
+  }
+
+  .items-center {
+    align-items: center;
+  }
+
+  .justify-center {
+    justify-content: center;
+  }
+
+  .bg-\[\#0a0a0a\] {
+    background-color: #ffffff;
+  }
+
+  .px-6 {
+    padding-inline: calc(var(--spacing) * 6);
+  }
+
+  .text-center {
+    text-align: center;
+  }
+
+  .text-white\/50 {
+    color: #ffffff80;
+  }
+
+  @supports (color: color-mix(in lab, red, red)) {
+    .text-white\/50 {
+      color: color-mix(in oklab, var(--color-white) 50%, transparent);
+    }
+  }
+
+  .text-white\/90 {
+    color: #ffffffe6;
+  }
+
+  @supports (color: color-mix(in lab, red, red)) {
+    .text-white\/90 {
+      color: color-mix(in oklab, var(--color-white) 90%, transparent);
+    }
+  }
+
+  .bg-gradient-radial {
+    background-image: radial-gradient(circle at 50% 50%, var(--tw-gradient-stops));
+  }
+}
+
+
+html {
+  font-size: var(--font-size);
+}
+
+
+
+

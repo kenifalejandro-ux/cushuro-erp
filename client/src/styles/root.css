@@ -1,0 +1,233 @@
+/* client/src/styles/root.css*/
+:root {
+  /* Colores base */
+  --primary-color: #1a1a1a;
+  --secondary-color: #141414;
+  --accent-color: #ba92ca;
+  --footer-color: blue;
+  --tertiary-color: #ffffff;
+  --background-color: #ffffff;
+  --floatingbanner-color: #ebdaf7;
+  --container-bg: #000000;
+  --overlay-bg: rgb(6, 7, 7);
+  --about-bg: linear-gradient(to bottom, #e6e0e0, #ffffff);
+  --section-bg: linear-gradient(to bottom, #67148d, #ffffff);
+  --fade-light-bg: linear-gradient(to bottom,  #999393, #4d4545, #201c1c);
+
+  /* Texto */
+  --primary-text: #000000;
+  --secondary-text: #1d1d1d;
+  --tertiary-text: #ffffff;
+  --light-text: #bdbdbd;
+
+  --font-family-base: 'Inter', sans-serif;
+  --font-family-title: 'Inter', sans-serif;
+  --font-family-description: 'Inter', sans-serif;
+  --font-weight-thin: 100;
+  --font-weight-light: 300;
+  --font-weight-normal: 300;
+  --font-weight-medium: 500;
+  --font-weight-bold: 700;
+  --styletoken-heading: uppercase;
+
+  --font-size-md: clamp(1.2rem, 1.6vw + 0.5rem, 1.5rem);
+  --font-size-md-testimonial: clamp(1rem, 1.6vw + 0.5rem, 1.5rem);
+  --font-size-xs: clamp(0.65rem, 1.5vw + 0.5rem, 0.85rem);
+  --font-size-sm: clamp(0.6rem, 1.5vw + 0.4rem, 0.9rem);
+  --font-size-h1: clamp(2rem, 5vw, 4.5rem);
+  --font-size-h2: clamp(2rem, 3vw, 3.5rem);
+  --font-size-h3: clamp(1rem, 2.5vw, 2rem);
+  --font-size-p: clamp(0.9rem, 2vw, 1.3rem);
+  --font-size-psmall: clamp(0.85rem, 1.8vw, 1.1rem);
+
+  /* font para el footer */
+  --font-size-mdFooter: clamp(1rem, 1.6vw + 0.5rem, 1rem);
+  --font-size-xsFooter: clamp(0.65rem, 1.5vw + 0.5rem, 0.85rem);
+  --font-size-smFooter: clamp(0.6rem, 1.5vw + 0.4rem, 0.9rem);
+  --font-size-pFooter: clamp(0.9rem, 2vw, 1.3rem);
+  --font-size-psmallFooter: clamp(0.85rem, 1.8vw, 1.1rem);
+  
+
+  /* Espaciados */
+  --padding-section: clamp(1rem, 5vw, 4rem);
+    --padding-section-chat: clamp(4rem, 5vw, 10rem);
+  --padding-container: clamp(1.5rem, 4vw, 2.5rem);
+  --gap-sm: clamp(0.5rem, 2vw, 1rem);
+  --gap-md: clamp(1rem, 3vw, 2rem);
+  --gap-lg: clamp(2rem, 4vw, 3rem);
+  --gap-section: clamp(4rem, 10vw, 5rem);
+
+  /* Transiciones y animaciones */
+  --transition-duration: 0.3s;
+  --transition-easing: ease-in-out;
+  --animation-duration: 1s;
+  --animation-easing: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Estados y accesibilidad */
+  --hover-opacity: 0.8;
+  --disabled-opacity: 0.5;
+
+  /* Layout */
+  --container-width: clamp(320px, 90vw, 500px);
+  --container-max-width: clamp(1200px, 95vw, 1400px);
+  --border-radius: clamp(0.5rem, 1vw, 1rem);
+  --box-shadow-light: 0 clamp(4px, 1vw, 8px) clamp(8px, 2vw, 16px) rgba(0, 0, 0, 0.1);
+  --box-shadow-dark: 0 clamp(4px, 1vw, 8px) clamp(8px, 2vw, 16px) rgba(0, 0, 0, 0.2);
+
+  /*  glb */
+  --width-glb: clamp(300px, 100vw, 400px);
+  --margin-top-glb: clamp(50px, 10vw,  500px);
+  --margin-top-glbBot: clamp(5px, 10vw,  10px);
+
+  /* Banner */
+  --banner-width: 100%;
+  --banner-height: 100px;
+  --logo-max-width: clamp(150px, 15vw, 250px);
+
+  /* Imágenes normales */
+  --img-normal-width: clamp(250px, 90%, 800px);
+  --img-normal-height: auto;
+  --img-normal-max-width: 100%;
+  --img-normal-max-height: auto;
+
+  /* Imágenes parallax */
+  --img-parallax-width: clamp(300px, 100%, 1600px);
+  --img-parallax-height: auto;
+  --img-parallax-max-width: 100%;
+  --img-parallax-max-height: auto;
+
+  /* Imágenes panorámicas */
+  --img-panoramic-width: clamp(280px, 100%, 1800px);
+  --img-panoramic-carousel: clamp(480px, 100%, 1200px);
+  --img-panoramic-height: auto;
+  --img-panoramic-max-width: 100%;
+  --img-panoramic-max-height: auto;
+
+  /* Imágenes de galería */
+  --img-gallery-width: clamp(250px, 100%, 800px);
+  --img-gallery-height:auto;
+  --img-gallery-mockup: clamp(10px, 100%, 400px);
+  --img-gallery-max-width: 100%;
+  --img-gallery-max-height: auto;
+
+  /* imagenes de pestaña de contacto */
+  --img-gallery-widthContacto: clamp(250px, 100%, 600px);
+  --img-gallery-heightContacto:auto;
+  --margin-block-titleContact: clamp(50px, 50vw, 400px); /* equivale aprox a 24px - 200px */
+  --margin-block-endcontact: clamp(10px, 10vw, 50px); /* equivale aprox a 24px - 200px */
+
+  /* Imágenes hero */
+  --img-hero-width: clamp(280px, 90%, 1400px);
+  --img-hero-height: auto;
+  --img-hero-max-width: 100%;
+  --img-hero-max-height: auto;
+
+  /* Textos */
+  --text-width: clamp(280px, 90%, 800px);
+  --text-font-size: clamp(16px, 2.5vw, 20px);
+  --text-min-width: 260px;
+  --text-max-width: 100%;
+  --text-min-font-size: 14px;
+  --text-max-font-size: 22px;
+
+  /* Márgenes */
+  --margin-xs: clamp(0.25rem, 1vw, 0.5rem);
+  --margin-sm: clamp(0.5rem, 1.5vw, 1rem);
+  --margin-md: clamp(1rem, 2vw, 2rem);
+  --margin-lg: clamp(2rem, 3vw, 3rem);
+  --margin-xl: clamp(3rem, 4vw, 5rem);
+
+  /* margin top */
+  --margin-top-image: clamp(10px, 10vw, 200px);
+  --margin-top-threeBox: clamp(100px, 4vw, 100px);
+  --margin-top-serviceText: clamp(100px, 40vw,  200px);
+  --margin-top-imageContact: clamp(100px, 40vw,  300px);
+  --margin-top-video: clamp(0px, 1vw,  100px);
+  --margin-top-subTitle: clamp(50px, 10vw,  300px);
+  --margin-top-trabajos: clamp(50px, 10vw,  300px);
+  --margin-top-chatbox: clamp(100px, 20vw,  10px);
+
+
+  --margin-section: clamp(2rem, 5vw, 6rem);
+  --margin-section-header: clamp(2rem, 10vw, 10rem);
+  --margin-threeservice: clamp(2rem, 5vw, 4rem);
+  --margin-block-title: clamp(150px, 20vw, 200px); /* equivale aprox a 24px - 200px */
+  --margin-block-title-trabajos: clamp(200px, 20vw, 200px); /* equivale aprox a 24px - 200px */
+  --margin-block-subtitle: clamp(10px, 3vw, 10px); /* equivale aprox a 24px - 200px */
+  --margin-block-heading: clamp(1rem, 20vw, 1rem); /* equivale aprox a 24px - 200px */
+  --margin-block-description: clamp(1rem, 10vw, 2rem); /* equivale aprox a 24px - 200px */
+  --margin-block-viñeta: clamp(1rem, 10vw, 2rem); /* equivale aprox a 24px - 200px */
+  --margin-block-video3d: clamp(1rem, 10vw, 2rem); /* equivale aprox a 24px - 200px */
+  /* Deslizamiento */
+  --translate-x-offset: clamp(-25%, -5%, -40%);
+}
+
+/* Fondo específico para la página QUIENES-SOMOS */
+body.quienes-somos {
+  background: none; 
+}
+
+/* Transparencia en el fondo del hero para que no tape el gradiente del body */
+body.quienes-somos .hero-header::before {
+  background: linear-gradient(to bottom, #e6e0e0, #e6e0e0,#ffffff);
+}
+/* Transparencia en el fondo del footer para que no tape el gradiente del body */
+body.quienes-somos .footer::before {
+  background: linear-gradient(to bottom, #ffffff,  #e6e0e0);
+}
+/* Fondo específico para la página PUERTA DEL VALLE */
+body.puerta-del-valle {
+  background: linear-gradient(to bottom,#6fc9dbff); 
+}
+
+/* Transparencia en el fondo del hero para que no tape el gradiente del body */
+body.puerta-del-valle .hero-header::before {
+  background: transparent;
+}
+/* Transparencia en el fondo del footer para que no tape el gradiente del body */
+body.puerta-del-valle .footer::before {
+  background: linear-gradient(to bottom, #e6e0e0);
+}
+
+/* -------------------------------------- */
+/* Fondo específico para la página INTI PINTAY */
+body.inti-pintay {
+  background: linear-gradient(to bottom,rgb(192, 179, 0)); 
+}
+
+/* Transparencia en el fondo del hero para que no tape el gradiente del body */
+body.inti-pintay .hero-header::before {
+  background: transparent;
+}
+/* Transparencia en el fondo del footer para que no tape el gradiente del body */
+body.inti-pintay .footer::before {
+  background: linear-gradient(to bottom, #e6e0e0);
+}
+
+/* Fondo específico para la página DBARBITO COFFEE */
+body.dbarbito-coffee {
+  background: linear-gradient(to bottom,rgb(255, 236, 184)); 
+}
+
+/* Transparencia en el fondo del hero para que no tape el gradiente del body */
+body.dbarbito-coffee .hero-header::before {
+  background: transparent;
+}
+/* Transparencia en el fondo del footer para que no tape el gradiente del body */
+body.dbarbito-coffee .footer::before {
+  background: linear-gradient(to bottom, #e6e0e0);
+}
+
+/* Fondo específico para la página BKARS */
+body.bkars {
+  background: peru;
+}
+
+/* Transparencia en el fondo del hero para que no tape el gradiente del body */
+body.bkars .hero-header::before {
+  background: peru;
+}
+/* Transparencia en el fondo del footer para que no tape el gradiente del body */
+body.bkars .footer::before {
+  background: linear-gradient(to bottom, #e6e0e0);
+}

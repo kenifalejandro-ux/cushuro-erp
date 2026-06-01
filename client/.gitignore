@@ -1,0 +1,50 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+dist-ssr/
+build/
+
+# Environment files (IMPORTANT)
+.env
+.env.*
+!.env.example
+
+# Cache
+.cache
+.temp
+.tmp
+
+# Vite
+.vite
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# TypeScript
+*.tsbuildinfo
+
+# Package managers
+.pnpm-store
+
+# Testing
+coverage/
+
+# Misc
+*.local

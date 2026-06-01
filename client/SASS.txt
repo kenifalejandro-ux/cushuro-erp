@@ -1,0 +1,33 @@
+
+
+
+eliminar sass.
+npm uninstall -g sass
+
+
+
+archivos residuales borrar: 
+npm cache clean --force
+
+
+
+confirmar que sass no esta instalado.
+sass --version
+
+
+mirar version sass
+sass --version
+
+
+inicia sass para compilar. 
+sass acordeon.scss acordeon.css
+
+para ver actualizacion en time real
+sass --watch acordeon.scss:acordeon.css
+
+
+hover: 
+  background-color: #e9e9e9;
+  box-shadow: 6px 6px 10px rgba(0, 0, 0, 0.1), -6px -6px 10px rgba(255, 255, 255, 0.7);
+  transform: translateX(-50%) scale(1.05); /* Ligeramente más grande al hacer hover */
+

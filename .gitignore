@@ -1,0 +1,10 @@
+/node_modules
+/brochure
+.env
+.env.*
+!.env.example
+client/.env
+client/.env.*
+!client/.env.example
+client/public/api/config.php
+client/public/api/config.local.php

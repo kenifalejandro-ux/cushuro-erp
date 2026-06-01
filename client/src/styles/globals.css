@@ -1,0 +1,269 @@
+/*client/src/styles/globals.css*/
+
+@import "tailwindcss";
+
+/* CSS legacy DESPUÉS */
+@import "./section.css";
+
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+/*animación scroll indicator*/
+@keyframes scrollWheel {
+  0% {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+  50% {
+    transform: translate(-50%, 12px);
+    opacity: 0.3;
+  }
+  100% {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadePulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/*animación scroll eva*/
+@keyframes float-slow {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-20px); /* flotación suave y elegante */
+  }
+}
+
+.animate-float-slow {
+  animation: float-slow 6s ease-in-out infinite;
+}
+
+/*Animation portfolio*/
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes gradient {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Tailwind necesario (clases GSAP) - bkars - VERTICAL */
+@layer utilities {
+  .slice,
+  .slice-bg {
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ===== SLICE ACTIVO (GSAP) ===== */
+  .slice {
+    clip-path: inset(
+      0 calc(100% - (var(--i) + 1) * (100% / var(--total-slices))) 0
+        calc(var(--i) * (100% / var(--total-slices)))
+    );
+  }
+
+  /* ===== IMAGEN BASE ===== */
+  .slice-bg {
+    clip-path: inset(
+      0 calc(100% - (var(--i) + 1) * (100% / var(--total-slices))) 0
+        calc(var(--i) * (100% / var(--total-slices)))
+    );
+  }
+
+  /* ===== SKELETON ===== */
+  .skeleton-slice {
+    clip-path: inset(
+      0 calc(100% - (var(--i) + 1) * (100% / var(--total-slices)) - 1px) 0
+        calc(var(--i) * (100% / var(--total-slices)))
+    );
+  }
+
+  .styletoken-heading {
+    text-transform: var(--styletoken-heading);
+  }
+}
+
+@layer components {
+  .b2b-eyebrow {
+    @apply text-[11px] font-medium uppercase tracking-[0.22em] text-stone-500;
+  }
+
+  .b2b-section-title {
+    @apply text-3xl font-semibold tracking-tight text-zinc-900 md:text-4xl;
+  }
+
+  .b2b-section-title-dark {
+    @apply text-3xl font-semibold tracking-tight text-white md:text-4xl;
+  }
+
+  .b2b-card {
+    @apply rounded-2xl border border-zinc-200 bg-white shadow-[0_18px_36px_-28px_rgba(24,24,27,0.3)];
+  }
+
+  .b2b-card-compact {
+    @apply p-5 md:p-6;
+  }
+
+  .b2b-card-accent {
+    position: relative;
+  }
+
+  .b2b-card-accent::before {
+    content: "";
+    position: absolute;
+    left: 1.5rem;
+    right: 1.5rem;
+    top: 0;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(5, 150, 105, 0.55), rgba(24, 24, 27, 0));
+  }
+
+  .b2b-icon-chip {
+    @apply flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-zinc-50 text-emerald-700;
+  }
+
+  .b2b-stat-card {
+    @apply rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-white shadow-[0_28px_56px_-40px_rgba(15,23,42,0.78)];
+  }
+
+  .b2b-stat-card-soft {
+    @apply rounded-2xl border border-zinc-800 bg-zinc-900 p-8 text-white shadow-[0_24px_48px_-36px_rgba(24,24,27,0.72)];
+  }
+
+  .b2b-stat-card-muted {
+    @apply rounded-2xl border border-stone-700 bg-stone-900 p-8 text-white shadow-[0_24px_48px_-36px_rgba(41,37,36,0.68)];
+  }
+
+  .b2b-process-card {
+    @apply flex items-start gap-6 rounded-2xl border border-zinc-200 bg-white p-6 shadow-[0_18px_36px_-28px_rgba(24,24,27,0.3)];
+  }
+
+  .b2b-step-badge {
+    @apply flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-zinc-50 text-zinc-900;
+  }
+
+  .b2b-dark-section {
+    @apply bg-zinc-950 text-white;
+  }
+
+  .b2b-total-card {
+    @apply rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-center text-white shadow-[0_30px_60px_-42px_rgba(15,23,42,0.8)];
+  }
+
+  .b2b-pill {
+    @apply inline-flex items-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-700;
+  }
+
+  .b2b-cta-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-zinc-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800;
+  }
+
+  .b2b-cta-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-zinc-300 px-5 py-3 text-sm font-semibold text-zinc-700 transition hover:border-zinc-950 hover:text-zinc-950;
+  }
+
+  .mining-hero-eyebrow {
+    @apply inline-flex items-center gap-3 text-[0.68rem] font-medium uppercase tracking-[0.22em] text-emerald-600 sm:text-xs;
+  }
+
+  .mining-hero-line {
+    @apply h-px w-14 bg-gradient-to-r from-stone-50/80 via-emerald-300/55 to-transparent;
+  }
+
+  .mining-hero-title {
+    @apply text-3xl sm:text-4xl md:text-[2.8rem] lg:text-5xl font-semibold leading-[0.95] tracking-[-0.05em] text-white;
+  }
+
+  .mining-hero-subtitle {
+    @apply max-w-2xl text-sm font-normal leading-6 tracking-[-0.01em] text-stone-200/78 sm:text-base sm:leading-7 lg:text-[1.125rem] lg:leading-8;
+  }
+
+  .mining-hero-actions {
+    @apply flex flex-col items-start gap-3 pt-2 sm:flex-row sm:items-center;
+  }
+
+  .mining-hero-cta-primary {
+    @apply inline-flex items-center justify-center rounded-full border border-white/18 bg-white px-5 py-3 text-sm font-medium text-zinc-950 transition hover:bg-stone-200;
+  }
+
+  .mining-hero-cta-secondary {
+    @apply inline-flex items-center justify-center rounded-full border border-white/14 bg-white/[0.03] px-5 py-3 text-sm font-medium text-white/88 backdrop-blur-sm transition hover:border-white/28 hover:bg-white/[0.08];
+  }
+
+  .mining-hero-badge-list {
+    @apply flex flex-col items-start gap-3 pt-3 text-stone-100/86 sm:flex-row sm:flex-wrap sm:gap-4;
+  }
+
+  .mining-hero-badge {
+    @apply inline-flex items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[0.72rem] font-medium backdrop-blur-md sm:text-xs md:text-sm;
+  }
+}
+
+/* Clases iniciales para ocultar antes de que GSAP anime */
+.gsap-hidden {
+  opacity: 0 !important;
+}
+
+.gsap-y-hidden {
+  opacity: 0 !important;
+  transform: translateY(100px) !important;
+}
+
+.gsap-clip-hidden {
+  clip-path: inset(0 100% 0 0) !important;
+  transform: scale(1.2) !important;
+}
+
+.gsap-rotate-hidden {
+  opacity: 0 !important;
+  transform: rotateY(-45deg) translateY(40px) !important;
+}
+
+/* GRID BASE (gris) */
+
+.grid-bg {
+  position: absolute;
+  inset: 0;
+
+  /* Fade central */
+  mask-image: radial-gradient(ellipse 100% 60% at 50% 50%, black, transparent);
+}
+
+/* En tu CSS o Tailwind */
+.image-container img,
+.image-container picture,
+.image-container div[style*="background-image"] {
+  pointer-events: auto !important;
+}
