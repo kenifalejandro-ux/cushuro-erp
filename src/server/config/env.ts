@@ -64,11 +64,6 @@ export const env = {
   dbName: process.env.PG_DATABASE || "",
 };
 
-// Si hay DATABASE_URL (Railway), las variables PG_* no son obligatorias
-const pgVarsRequired = !process.env.DATABASE_URL
-  ? ["PG_HOST", "PG_USER", "PG_PASSWORD", "PG_DATABASE"]
-  : [];
-
 export const requiredEnvNames = [
   "EMAIL_HOST",
   "EMAIL_PORT",
@@ -76,7 +71,6 @@ export const requiredEnvNames = [
   "EMAIL_PASS",
   "RECAPTCHA_SITE_KEY",
   "RECAPTCHA_SECRET_KEY",
-  ...pgVarsRequired,
 ];
 
 export const missingRequiredEnv = requiredEnvNames.filter((name) => !process.env[name]);
