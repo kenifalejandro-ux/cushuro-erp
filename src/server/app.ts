@@ -1,6 +1,7 @@
 /** src/app.ts */
 
 import { randomUUID } from "crypto";
+import fs from "fs";
 import path from "path";
 import compression from "compression";
 import cors from "cors";
@@ -110,9 +111,9 @@ export function createApp() {
   // Manejo de rutas no encontradas
   app.use("/api", notFoundApiHandler);
 
-  // Servir frontend en producción
-  if (env.isProduction) {
-    const distPath = path.resolve(process.cwd(), "client", "dist");
+  // Servir frontend si el build existe
+  const distPath = path.resolve(process.cwd(), "client", "dist");
+  if (fs.existsSync(distPath)) {
     app.use(express.static(distPath));
     app.get("*", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
