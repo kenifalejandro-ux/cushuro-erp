@@ -1,6 +1,7 @@
 /**client/src/components/combustible/CombustiblePanel */
 
 import { useState, useEffect } from "react";
+import { apiFetch } from "../../services/apiClient";
 import CountUp from "../dashboard/CountUp";
 
 interface Tanque {
@@ -19,7 +20,7 @@ export default function CombustiblePanel() {
 
   {/** lo quitamos temporal para usar mocks */}
   useEffect(() => {
-    fetch("/api/erp/combustible")
+    apiFetch("/api/erp/combustible")
       .then((res) => res.json())
       .then((data) => {
         const t = data[0];

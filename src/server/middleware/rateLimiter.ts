@@ -7,6 +7,18 @@ type MemoryEntry = { count: number; resetAt: number };
 
 const memoryStore = new Map<string, MemoryEntry>();
 
+// Sin esto, memoryStore (fallback cuando no hay Redis) crece sin límite: cada
+// combinación nueva de ip+ruta queda huérfana en el Map una vez vencida.
+// Barrido periódico simple, sin dependencias ni cambios de comportamiento.
+setInterval(() => {
+  const timestamp = Date.now();
+  for (const [key, entry] of memoryStore) {
+    if (timestamp >= entry.resetAt) {
+      memoryStore.delete(key);
+    }
+  }
+}, 5 * 60_000).unref();
+
 function now() {
   return Date.now();
 }

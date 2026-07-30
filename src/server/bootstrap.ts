@@ -32,7 +32,7 @@ export function startServer() {
   const app = createApp();
   
   const server = app.listen(env.port, () => {
-    logger.info(`🚀 Cushuro ERP API iniciada correctamente en http://localhost:${env.port}`);
+    logger.info(`🚀 MinCore ERP API iniciada correctamente en http://localhost:${env.port}`);
     logger.info(`📊 Entorno: ${env.isProduction ? 'PRODUCCIÓN' : 'DESARROLLO'}`);
   });
 

@@ -2,6 +2,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { AuthProvider } from './context/AuthContext';
 
 // Importaciones globales (mantén solo las que realmente uses)
 import './styles/globals.css';        // estilos globales
@@ -18,6 +19,8 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <React.StrictMode>
-    <App />
+    <AuthProvider>
+      <App />
+    </AuthProvider>
   </React.StrictMode>
 );

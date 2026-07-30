@@ -8,7 +8,11 @@ function isAllowedOrigin(origin?: string) {
 
   try {
     const url = new URL(origin);
-    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+    // Solo se relaja el origin en desarrollo: permitirlo también en
+    // producción abriría la API (con credentials:true, es decir cookies de
+    // sesión) a cualquier proceso que corra en localhost de la máquina del
+    // cliente.
+    if (!env.isProduction && (url.hostname === "localhost" || url.hostname === "127.0.0.1")) {
       return true;
     }
   } catch {
@@ -25,9 +29,9 @@ export const corsOptions: CorsOptions = {
     }
     return callback(new Error("Origin no permitido por CORS"));
   },
-  credentials: true, // Cámbialo a true
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // Añade métodos comunes
-  allowedHeaders: ["Content-Type", "Authorization", "Accept", "X-Requested-With", "X-Request-Id"], // Añade Authorization
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "Accept", "X-Requested-With", "X-Request-Id"],
   maxAge: 86400,
 };
 

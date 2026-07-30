@@ -1,6 +1,7 @@
 /**client/src/documentos/Documentostable.tsx */
 
 import { useEffect, useState } from "react";
+import { apiFetch } from "../../services/apiClient";
 
 interface Documento {
   id: number;
@@ -22,7 +23,7 @@ export default function DocumentosTable() {
   const [openModal, setOpenModal] = useState(false);
 
   const load = () => {
-    fetch("/api/erp/documentos")
+    apiFetch("/api/erp/documentos")
       .then(r => r.json())
       .then(data => {
         setDocs(Array.isArray(data) ? data : []);
@@ -51,7 +52,7 @@ export default function DocumentosTable() {
 
   // ➕ CREAR
   const createDoc = async () => {
-    await fetch("/api/erp/documentos", {
+    await apiFetch("/api/erp/documentos", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form)
@@ -64,7 +65,7 @@ export default function DocumentosTable() {
 
   // ✏️ EDITAR
   const updateDoc = async () => {
-    await fetch(`/api/erp/documentos/${editId}`, {
+    await apiFetch(`/api/erp/documentos/${editId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form)
@@ -78,7 +79,7 @@ export default function DocumentosTable() {
 
   // 🗑️ DELETE
   const deleteDoc = async (id: number) => {
-    await fetch(`/api/erp/documentos/${id}`, {
+    await apiFetch(`/api/erp/documentos/${id}`, {
       method: "DELETE"
     });
 
@@ -92,7 +93,7 @@ export default function DocumentosTable() {
     reader.onload = async (e) => {
       const json = JSON.parse(e.target?.result as string);
 
-      await fetch("/api/erp/documentos/bulk", {
+      await apiFetch("/api/erp/documentos/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(json)

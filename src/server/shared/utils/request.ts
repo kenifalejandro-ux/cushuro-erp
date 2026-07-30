@@ -9,6 +9,16 @@ export function getClientIp(req: Request) {
   return req.ip || forwardedIp?.trim() || req.socket.remoteAddress || "unknown";
 }
 
+/** Siempre leer el tenant del request (adjuntado por tenantMiddleware desde
+ *  el JWT verificado), nunca de body/query — esos los controla el cliente. */
+export function getTenantId(req: Request): string {
+  const tenantId = (req as Request & { tenantId?: string }).tenantId;
+  if (!tenantId) {
+    throw new Error("tenantId no presente en el request: falta tenantMiddleware en esta ruta");
+  }
+  return tenantId;
+}
+
 export function getRequestId(req: Request) {
   const requestWithId = req as Request & { id?: string };
   if (typeof requestWithId.id === "string" && requestWithId.id.length > 0) {

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
+import { apiFetch } from '../../services/apiClient';
 
 // 1. ESTRUCTURA DE DATOS: Define qué campos tiene un repuesto
 interface Repuesto {
@@ -53,7 +54,7 @@ export default function RepuestosTable() {
 
   const fetchRepuestos = async () => {
     try {
-      const res = await fetch('/api/erp/repuestos');
+      const res = await apiFetch('/api/erp/repuestos');
       const data = await res.json();
       setRepuestos(Array.isArray(data) ? data : []);
       setLoading(false);
@@ -70,7 +71,7 @@ const handleDelete = async (id: number) => {
 
   try {
     // 2. Llamada a la API
-      const res = await fetch(`/api/erp/repuestos/${id}`, {
+      const res = await apiFetch(`/api/erp/repuestos/${id}`, {
         method: 'DELETE',
       });
 
@@ -99,7 +100,7 @@ const handleDelete = async (id: number) => {
       const ws = wb.Sheets[wb.SheetNames[0]];
       const data = XLSX.utils.sheet_to_json(ws);
 
-      fetch('/api/erp/repuestos/bulk', {
+      apiFetch('/api/erp/repuestos/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
@@ -123,7 +124,7 @@ const handleDelete = async (id: number) => {
     const method = editingId ? 'PUT' : 'POST';
 
     try {
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method: method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)

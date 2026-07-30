@@ -1,5 +1,5 @@
 {
-  "name": "formulario-nuevo",
+  "name": "mincoreerp",
   "version": "1.0.0",
   "main": "server.ts",
   "scripts": {
@@ -24,9 +24,11 @@
     "@hookform/resolvers": "^5.2.2",
     "@sentry/node": "^8.34.0",
     "axios": "^1.11.0",
+    "bcrypt": "^6.0.0",
     "body-parser": "^1.20.3",
     "build": "^0.1.4",
     "compression": "^1.8.1",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.2",
     "express": "^4.21.2",
@@ -34,6 +36,7 @@
     "framer-motion": "^11.11.11",
     "helmet": "^8.1.0",
     "ioredis": "^5.4.1",
+    "jsonwebtoken": "^9.0.3",
     "nodemailer": "^7.0.6",
     "pg": "^8.20.0",
     "pino": "^9.4.0",
@@ -46,9 +49,12 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/compression": "^1.8.1",
+    "@types/cookie-parser": "^1.4.10",
     "@types/express": "^4.17.23",
     "@types/express-serve-static-core": "^4.19.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.0.0",
     "@types/nodemailer": "^7.0.11",
     "@types/pg": "^8.20.0",

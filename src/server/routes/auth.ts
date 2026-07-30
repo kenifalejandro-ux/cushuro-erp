@@ -1,0 +1,112 @@
+/** src/server/routes/auth.ts */
+
+import { Router, type Response } from "express";
+import { env } from "../config/env";
+import { validate } from "../middleware/validate";
+import rateLimiter from "../middleware/rateLimiter";
+import { verifyRecaptcha } from "../middleware/verifyRecaptcha";
+import { loginSchema } from "../schemas/auth.schema";
+import { loginService, logoutService, refrescarTokenService, aPublico } from "../services/auth.service";
+import { authMiddleware } from "../shared/middlewares/auth.middleware";
+
+export const authRouter = Router();
+
+const REFRESH_COOKIE_NAME = `${env.authCookieName}_refresh`;
+// Solo se envía a /api/auth/* (login, refresh, logout) — nunca al resto de
+// la API, así que aunque un endpoint de negocio tenga un bug que refleje
+// cookies en una respuesta, el refresh token no queda expuesto por ahí.
+const REFRESH_COOKIE_PATH = "/api/auth";
+
+/** Cookie httpOnly: invisible para JS del navegador (a salvo de robo por
+ *  XSS). SameSite=strict basta si frontend y API viven en el mismo origen
+ *  (proxy de Vite en dev, mismo dominio detrás de un solo host en prod). */
+function setCookieSesion(res: Response, token: string) {
+  res.cookie(env.authCookieName, token, {
+    httpOnly: true,
+    secure: env.isProduction,
+    sameSite: "strict",
+    // El navegador puede conservar la cookie más tiempo del que el JWT
+    // dentro es válido (JWT_EXPIRES, 30 min) — eso está bien: cuando el
+    // JWT expira, authMiddleware responde 401 y el frontend debe llamar a
+    // /api/auth/refresh para obtener uno nuevo con este mismo maxAge.
+    maxAge: env.sessionTtlSeconds * 1000,
+    path: "/",
+  });
+}
+
+function setCookieRefresh(res: Response, refreshToken: string) {
+  res.cookie(REFRESH_COOKIE_NAME, refreshToken, {
+    httpOnly: true,
+    secure: env.isProduction,
+    sameSite: "strict",
+    maxAge: env.sessionTtlSeconds * 1000,
+    path: REFRESH_COOKIE_PATH,
+  });
+}
+
+function limpiarCookiesSesion(res: Response) {
+  res.clearCookie(env.authCookieName, { path: "/" });
+  res.clearCookie(REFRESH_COOKIE_NAME, { path: REFRESH_COOKIE_PATH });
+}
+
+authRouter.post(
+  "/login",
+  rateLimiter,
+  validate(loginSchema),
+  ...(env.isProduction ? [verifyRecaptcha] : []),
+  async (req, res, next) => {
+    try {
+      const result = await loginService(req.validatedBody as any);
+      setCookieSesion(res, result.token);
+      setCookieRefresh(res, result.refreshToken);
+      res.status(200).json({ ok: true, usuario: aPublico(result.usuario) });
+    } catch (err) {
+      // Se delega al errorHandler central: solo expone err.message cuando es
+      // un AppError deliberado (ej. "Credenciales inválidas"); cualquier otro
+      // error queda oculto detrás de un mensaje genérico, nunca el mensaje
+      // crudo de la BD u otra dependencia interna.
+      next(err);
+    }
+  }
+);
+
+authRouter.post(
+  "/refresh",
+  rateLimiter,
+  async (req, res, next) => {
+    try {
+      const refreshTokenCookie = (req as typeof req & { cookies?: Record<string, string> }).cookies?.[
+        REFRESH_COOKIE_NAME
+      ];
+
+      if (!refreshTokenCookie) {
+        return res.status(401).json({ ok: false, message: "Sesión inválida, inicia sesión nuevamente" });
+      }
+
+      const result = await refrescarTokenService(refreshTokenCookie);
+      setCookieSesion(res, result.token);
+      setCookieRefresh(res, result.refreshToken);
+      res.status(200).json({ ok: true, usuario: aPublico(result.usuario) });
+    } catch (err) {
+      // Si el refresh falla (token inválido, reusado o expirado) las
+      // cookies ya no sirven — se limpian para que el frontend redirija
+      // a /login en vez de reintentar con las mismas cookies muertas.
+      limpiarCookiesSesion(res);
+      next(err);
+    }
+  }
+);
+
+authRouter.post("/logout", authMiddleware, async (req, res, next) => {
+  try {
+    await logoutService(req.usuario!.id);
+    limpiarCookiesSesion(res);
+    res.status(200).json({ ok: true, message: "Sesión cerrada correctamente" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+authRouter.get("/me", authMiddleware, (req, res) => {
+  res.status(200).json({ ok: true, usuario: aPublico(req.usuario!) });
+});

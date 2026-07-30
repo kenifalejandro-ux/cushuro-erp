@@ -1,6 +1,7 @@
 /**client/src/components/dashboard/Dashboard.tsx**/
 
 import { useState, useEffect } from 'react';
+import { apiFetch } from '../../services/apiClient';
 import CountUp from './CountUp';
 import InventarioCategoria from './charts/InventarioCategoria';
 import ValorCategoria from './charts/ValorCategoria';
@@ -32,7 +33,7 @@ export default function Dashboard() {
  useEffect(() => {
   const fetchData = async () => {
     try {
-      const res = await fetch('/api/erp/dashboard');
+      const res = await apiFetch('/api/erp/dashboard');
       if (!res.ok) throw new Error(`Error HTTP: ${res.status}`);
 
       const data = await res.json();

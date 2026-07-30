@@ -6,5 +6,7 @@
 client/.env
 client/.env.*
 !client/.env.example
-client/public/api/config.php
-client/public/api/config.local.php
+
+# Datos operativos reales / documentos comerciales, no código
+/combustible
+/propuesta_cushuro_erp.html

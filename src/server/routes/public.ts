@@ -24,7 +24,7 @@ export function createPublicRouter() {
 
     return res.json({
       ok: true,
-      message: "Cushuro ERP API running",
+      message: "MinCore ERP API running",
       port: env.port,
       redis: redisStatus,
       environment: env.isProduction ? "production" : "development",
@@ -36,7 +36,7 @@ export function createPublicRouter() {
   router.get("/health", (_req, res) => {
     res.json({
       status: "healthy",
-      service: "cushuro-erp",
+      service: "mincoreerp",
       version: "1.0.0",           // puedes cambiarlo después
       uptime: process.uptime()
     });

@@ -62,7 +62,21 @@ export const env = {
   dbUser: process.env.PG_USER || "",
   dbPass: process.env.PG_PASSWORD || "",
   dbName: process.env.PG_DATABASE || "",
+  // --- AUTENTICACIÓN ---
+  // Corto a propósito: la revocación real ahora la hace token_version (ver
+  // authMiddleware + migrations/0002_token_version.sql), así que esta
+  // duración es solo el límite superior de exposición si JWT_SECRET se
+  // filtrara, no el mecanismo de logout.
+  jwtExpires: process.env.JWT_EXPIRES || "30m",
+  sessionTtlSeconds: readNumber(process.env.SESSION_TTL_SECONDS, 60 * 60 * 24 * 30), // 30 días
+  authCookieName: process.env.AUTH_COOKIE_NAME || "erp_token",
 };
+
+// Si hay DATABASE_URL (Railway u otro proveedor gestionado), las variables
+// PG_* individuales no son obligatorias — ver src/server/config/database.ts.
+const pgVarsRequeridas = process.env.DATABASE_URL
+  ? []
+  : ["PG_HOST", "PG_USER", "PG_PASSWORD", "PG_DATABASE"];
 
 export const requiredEnvNames = [
   "EMAIL_HOST",
@@ -71,6 +85,8 @@ export const requiredEnvNames = [
   "EMAIL_PASS",
   "RECAPTCHA_SITE_KEY",
   "RECAPTCHA_SECRET_KEY",
+  ...pgVarsRequeridas,
+  "JWT_SECRET",
 ];
 
 export const missingRequiredEnv = requiredEnvNames.filter((name) => !process.env[name]);

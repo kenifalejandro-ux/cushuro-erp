@@ -4,17 +4,19 @@ import { randomUUID } from "crypto";
 import fs from "fs";
 import path from "path";
 import compression from "compression";
+import cookieParser from "cookie-parser";
 import cors from "cors";
-import express, { type ErrorRequestHandler, type RequestHandler } from "express";
+import express, { type RequestHandler } from "express";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
 import { env } from "./config/env";
 import { logger } from "./config/logger";
 import { corsOptions } from "./middleware/originGuard";
+import { authRouter } from "./routes/auth";
 import { createPublicRouter } from "./routes/public";
 import { createSystemRouter } from "./routes/system";
 import { createApiRouter } from "./routes";
-import { getRequestId } from "./shared/utils/request";
+import { errorHandler } from "./shared/middlewares/error.middleware";
 
 
 const requestLogger = pinoHttp({
@@ -54,7 +56,14 @@ const helmetMiddleware = helmet({
 
 const compressionMiddleware = compression({ threshold: 1024 }) as unknown as RequestHandler;
 const corsMiddleware = cors(corsOptions) as unknown as RequestHandler;
-const jsonMiddleware = express.json({ limit: env.bodyLimit }) as unknown as RequestHandler;
+const jsonMiddleware = express.json({
+  limit: env.bodyLimit,
+  // Guarda el body crudo para poder validar firmas HMAC de futuros webhooks
+  // (pagos, integraciones) sin tener que reserializar el JSON parseado.
+  verify: (req, _res, buf) => {
+    (req as unknown as { rawBody: Buffer }).rawBody = buf;
+  },
+}) as unknown as RequestHandler;
 const urlencodedMiddleware = express.urlencoded({
   extended: false,
   limit: env.bodyLimit,
@@ -71,32 +80,22 @@ const notFoundApiHandler: RequestHandler = (_req, res) => {
   res.status(404).json({ message: "Ruta API no encontrada." });
 };
 
-const errorHandler: ErrorRequestHandler = (error, req, res, _next) => {
-  const requestId = getRequestId(req);
-  if (req.log) {
-    req.log.error({ err: error, requestId }, "Error no controlado en la API");
-  } else {
-    console.error("Error no controlado en la API", error);
-  }
-
-  if (res.headersSent) return;
-
-  res.status(500).json({
-    message: "Error interno del servidor.",
-    requestId,
-  });
-};
-
 export function createApp() {
   const app = express();
 
   app.disable("x-powered-by");
-  app.set("trust proxy", true);
+  // "true" confía en CUALQUIER proxy de la cadena, lo que permite spoofear
+  // X-Forwarded-For y falsear req.ip (usado por el rate limiter de /login y
+  // por reCAPTCHA) desde el propio cliente. "1" confía solo en el primer
+  // hop (el balanceador de Railway/reverse proxy real) — ajustar el número
+  // si en producción hay más saltos de proxy antes de llegar a esta app.
+  app.set("trust proxy", 1);
 
   app.use(requestLogger);
   app.use(helmetMiddleware);
   app.use(compressionMiddleware);
   app.use(corsMiddleware);
+  app.use(cookieParser() as unknown as RequestHandler);
   app.use(jsonMiddleware);
   app.use(urlencodedMiddleware);
   app.use(noStoreMiddleware);
@@ -105,7 +104,11 @@ export function createApp() {
   app.use(createSystemRouter());
   app.use(createPublicRouter());
 
-  // Rutas del ERP (con prefijo /api)
+  // Autenticación (fuera del prefijo /api/erp: es transversal, no un módulo de negocio)
+  app.use("/api/auth", authRouter);
+
+  // Rutas del ERP (con prefijo /api) — protegidas por authMiddleware/tenantMiddleware
+  // dentro de cada módulo (ver routes/index.ts)
   app.use("/api/erp", createApiRouter());
 
   // Manejo de rutas no encontradas
@@ -114,7 +117,7 @@ export function createApp() {
   // Servir frontend si el build existe
   const distPath = path.resolve(process.cwd(), "client", "dist");
   if (fs.existsSync(distPath)) {
-    app.use(express.static(distPath));
+    app.use(express.static(distPath) as unknown as RequestHandler);
     app.get("*", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
