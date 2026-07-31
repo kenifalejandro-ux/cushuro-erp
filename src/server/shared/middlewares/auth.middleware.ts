@@ -34,7 +34,9 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     let versionActual = await getCachedTokenVersion(payload.id);
     if (versionActual === undefined) {
       const resultado = await pool.query(
-        `SELECT token_version FROM usuarios WHERE id = $1 AND activo = true`,
+        `SELECT u.token_version FROM usuarios u
+         JOIN tenants t ON t.id = u.tenant_id
+         WHERE u.id = $1 AND u.activo = true AND t.activo = true`,
         [payload.id]
       );
       if (resultado.rows.length === 0) {

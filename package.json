@@ -5,6 +5,7 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
+    "migrate": "tsx migrate.ts",
     "generar-imagenes": "tsx generate-all-images.ts",
     "generar-videos": "tsx generate-all-videos.ts",
     "preview": "npm run preview --prefix client",

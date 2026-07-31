@@ -4,18 +4,19 @@ import { createApp } from "./app";
 import { env, missingRequiredEnv } from "./config/env";
 import { logger } from "./config/logger";
 import { getRedis } from "./config/redis";
-import { testDatabaseConnection } from "./config/database"; 
+import { testDatabaseConnection } from "./config/database";
+import { runMigrations } from "./config/migrate";
 
-export function startServer() {
+export async function startServer() {
   // ====================== VALIDACIONES INICIALES ======================
   if (missingRequiredEnv.length > 0) {
     const message = `Faltan variables de entorno obligatorias: ${missingRequiredEnv.join(", ")}`;
-    
+
     if (env.isProduction) {
       logger.error(message);
       throw new Error(message);
     }
-    
+
     logger.warn({ missingRequiredEnv }, message);
   }
 
@@ -27,6 +28,16 @@ export function startServer() {
       process.exit(1);
     }
   });
+
+  // ====================== MIGRACIONES ======================
+  // Deja la BD al día sola en cada arranque — sin esto, un deploy sin
+  // correr migrations/*.sql a mano primero deja el ERP roto.
+  try {
+    await runMigrations();
+  } catch (err) {
+    logger.error({ err }, "❌ Error al correr migraciones, el server no arranca");
+    process.exit(1);
+  }
 
   // ====================== INICIO DEL SERVIDOR ======================
   const app = createApp();

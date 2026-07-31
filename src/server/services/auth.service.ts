@@ -68,9 +68,10 @@ export async function loginService(input: LoginInput): Promise<{ token: string; 
   let result;
   try {
     result = await pool.query(
-      `SELECT id, tenant_id, nombre, email, password_hash, rol, token_version
-       FROM usuarios
-       WHERE email = $1 AND activo = true`,
+      `SELECT u.id, u.tenant_id, u.nombre, u.email, u.password_hash, u.rol, u.token_version
+       FROM usuarios u
+       JOIN tenants t ON t.id = u.tenant_id
+       WHERE u.email = $1 AND u.activo = true AND t.activo = true`,
       [input.email.toLowerCase()]
     );
   } catch (err) {

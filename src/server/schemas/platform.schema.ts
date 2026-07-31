@@ -15,3 +15,9 @@ export const crearTenantSchema = z.object({
 });
 
 export type CrearTenantInput = z.infer<typeof crearTenantSchema>;
+
+export const cambiarEstadoTenantSchema = z.object({
+  activo: z.boolean(),
+});
+
+export type CambiarEstadoTenantInput = z.infer<typeof cambiarEstadoTenantSchema>;

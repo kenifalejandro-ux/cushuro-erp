@@ -62,3 +62,23 @@ export async function crearTenantConAdminService(
     client.release();
   }
 }
+
+/** Activa/desactiva un tenant. Un tenant desactivado no puede loguear
+ *  (ver loginService) y a los que ya tengan sesión abierta se les corta
+ *  el acceso en ≤60s (mismo cache/mecanismo que revoca por token_version,
+ *  ver authMiddleware + token-version-cache.ts). */
+export async function cambiarEstadoTenantService(
+  tenantId: string,
+  activo: boolean
+): Promise<TenantCreado> {
+  const result = await pool.query(
+    `UPDATE tenants SET activo = $1 WHERE id = $2 RETURNING id, nombre, slug`,
+    [activo, tenantId]
+  );
+
+  if (result.rows.length === 0) {
+    throw new AppError(404, "Tenant no encontrado");
+  }
+
+  return result.rows[0];
+}

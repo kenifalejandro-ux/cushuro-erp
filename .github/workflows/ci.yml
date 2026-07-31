@@ -54,17 +54,10 @@ jobs:
         run: npm ci
 
       - name: Correr migraciones
-        run: |
-          for f in migrations/0001_tenants_usuarios.sql \
-                   migrations/0002_business_tables.sql \
-                   migrations/0003_token_version.sql \
-                   migrations/0004_refresh_tokens.sql \
-                   migrations/0005_rls_tenant_isolation.sql; do
-            echo "=== $f ==="
-            psql -h localhost -U mincoreerp_app -d mincoreerp -v ON_ERROR_STOP=1 -f "$f"
-          done
-        env:
-          PGPASSWORD: ci_only_password
+        # Mismo runner que corre en producción al arrancar (ver
+        # src/server/config/migrate.ts) — así CI prueba el camino real,
+        # no un loop de psql aparte que se puede desincronizar.
+        run: npm run migrate
 
       - name: Typecheck
         run: npx tsc --noEmit

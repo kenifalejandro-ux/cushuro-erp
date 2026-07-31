@@ -12,6 +12,7 @@
   },
   "include": [
     "server.ts",
+    "migrate.ts",
     "src/server/**/*.ts",
     "src/server/**/*.d.ts",
     "tests/**/*.ts",

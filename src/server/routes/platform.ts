@@ -4,8 +4,8 @@ import { Router } from "express";
 import { validate } from "../middleware/validate";
 import rateLimiter from "../middleware/rateLimiter";
 import { platformAdminMiddleware } from "../shared/middlewares/platformAdmin.middleware";
-import { crearTenantSchema } from "../schemas/platform.schema";
-import { crearTenantConAdminService } from "../services/platform.service";
+import { crearTenantSchema, cambiarEstadoTenantSchema } from "../schemas/platform.schema";
+import { crearTenantConAdminService, cambiarEstadoTenantService } from "../services/platform.service";
 
 export function createPlatformRouter() {
   const router = Router();
@@ -19,6 +19,22 @@ export function createPlatformRouter() {
       try {
         const resultado = await crearTenantConAdminService(req.validatedBody as any);
         res.status(201).json({ ok: true, ...resultado });
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  router.patch(
+    "/tenants/:id/estado",
+    rateLimiter,
+    platformAdminMiddleware,
+    validate(cambiarEstadoTenantSchema),
+    async (req, res, next) => {
+      try {
+        const { activo } = req.validatedBody as { activo: boolean };
+        const tenant = await cambiarEstadoTenantService(req.params.id, activo);
+        res.status(200).json({ ok: true, tenant });
       } catch (err) {
         next(err);
       }

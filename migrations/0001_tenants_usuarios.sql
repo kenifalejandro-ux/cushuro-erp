@@ -69,13 +69,17 @@ CREATE INDEX IF NOT EXISTS idx_usuarios_tenant ON usuarios(tenant_id);
 -- agregaría por error — ya pasó una vez en desarrollo local y rompía el
 -- INSERT de emitirRefreshToken() en auth.service.ts al quedar NOT NULL sin
 -- default.
+--
+-- schema_migrations EXCLUIDA por el mismo motivo: es la tabla de control
+-- del runner (ver src/server/config/migrate.ts), tampoco es una tabla de
+-- negocio con dueño por tenant.
 DO $$
 DECLARE t text;
 BEGIN
   FOR t IN
     SELECT tablename FROM pg_tables
     WHERE schemaname = 'public'
-      AND tablename NOT IN ('tenants', 'usuarios', 'refresh_tokens')
+      AND tablename NOT IN ('tenants', 'usuarios', 'refresh_tokens', 'schema_migrations')
   LOOP
     IF NOT EXISTS (
       SELECT 1 FROM information_schema.columns
