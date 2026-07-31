@@ -93,7 +93,7 @@
     "tooltip": "^1.6.1",
     "tooltips": "^1.1.2",
     "vaul": "^1.1.2",
-    "web-vitals": "^5.1.0",
+    "web-vitals": "^6.0.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
