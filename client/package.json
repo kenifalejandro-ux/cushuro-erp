@@ -112,7 +112,7 @@
     "@vitejs/plugin-react-swc": "^4.2.2",
     "autoprefixer": "^10.4.23",
     "cssnano": "^7.1.2",
-    "cssnano-preset-advanced": "^7.0.9",
+    "cssnano-preset-advanced": "^8.0.2",
     "csso-cli": "^4.0.2",
     "eslint": "^9.36.0",
     "eslint-config-prettier": "^10.1.8",
