@@ -1,19 +1,20 @@
 /**src/modules/combutible/combustible.service.ts */
 
+import type { PoolClient } from "pg";
 import { CombustibleRepository } from "./combustible.repository";
 
 export class CombustibleService {
   private repository = new CombustibleRepository();
 
-  async getAll() {
-    return this.repository.findAll();
+  async getAll(client: PoolClient, tenantId: string) {
+    return this.repository.findAll(client, tenantId);
   }
 
-  async getById(id: number) {
-    return this.repository.findById(id);
+  async getById(client: PoolClient, tenantId: string, id: number) {
+    return this.repository.findById(client, tenantId, id);
   }
 
-  async updateNivel(id: number, nivel_actual: number) {
-    return this.repository.updateNivel(id, nivel_actual);
+  async updateNivel(client: PoolClient, tenantId: string, id: number, nivel_actual: number) {
+    return this.repository.updateNivel(client, tenantId, id, nivel_actual);
   }
 }

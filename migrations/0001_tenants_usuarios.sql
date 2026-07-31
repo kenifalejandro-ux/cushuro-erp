@@ -61,13 +61,21 @@ CREATE INDEX IF NOT EXISTS idx_usuarios_tenant ON usuarios(tenant_id);
 -- correr esto). Sin DEFAULT: si alguna tabla ya tiene filas, este paso
 -- fallará y hay que decidir a mano a qué tenant pertenecen esas filas
 -- (usualmente el tenant inicial de arriba) antes de quitar el DEFAULT.
+--
+-- refresh_tokens EXCLUIDA a propósito: se relaciona con el tenant de forma
+-- indirecta (a través de usuario_id → usuarios.tenant_id), no directo. Si
+-- esta migración se re-corre después de que 0004_refresh_tokens.sql ya creó
+-- esa tabla (ej. reaplicando migraciones fuera de orden), este loop se la
+-- agregaría por error — ya pasó una vez en desarrollo local y rompía el
+-- INSERT de emitirRefreshToken() en auth.service.ts al quedar NOT NULL sin
+-- default.
 DO $$
 DECLARE t text;
 BEGIN
   FOR t IN
     SELECT tablename FROM pg_tables
     WHERE schemaname = 'public'
-      AND tablename NOT IN ('tenants', 'usuarios')
+      AND tablename NOT IN ('tenants', 'usuarios', 'refresh_tokens')
   LOOP
     IF NOT EXISTS (
       SELECT 1 FROM information_schema.columns

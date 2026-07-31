@@ -1,31 +1,33 @@
 /** src/modules/documentos/documentos.service.ts */
 
+import type { PoolClient } from "pg";
+import type { Paginacion } from "../../server/shared/utils/pagination";
 import { DocumentosRepository } from "./documentos.repository";
 
 export const DocumentosService = {
 
-  getAll() {
-    return DocumentosRepository.findAll();
+  getAll(client: PoolClient, tenantId: string, paginacion: Paginacion) {
+    return DocumentosRepository.findAll(client, tenantId, paginacion);
   },
 
-  create(data: any) {
-    return DocumentosRepository.create(data);
+  create(client: PoolClient, tenantId: string, data: any) {
+    return DocumentosRepository.create(client, tenantId, data);
   },
 
-  update(id: number, data: any) {
-    return DocumentosRepository.update(id, data);
+  update(client: PoolClient, tenantId: string, id: number, data: any) {
+    return DocumentosRepository.update(client, tenantId, id, data);
   },
 
-  delete(id: number) {
-    return DocumentosRepository.delete(id);
+  delete(client: PoolClient, tenantId: string, id: number) {
+    return DocumentosRepository.delete(client, tenantId, id);
   },
 
-  bulkCreate(data: any[]) {
-    return DocumentosRepository.bulkCreate(data);
+  bulkCreate(client: PoolClient, tenantId: string, data: any[]) {
+    return DocumentosRepository.bulkCreate(client, tenantId, data);
   },
 
-  getKPIs() {
-    return DocumentosRepository.getKPIs();
+  getKPIs(client: PoolClient, tenantId: string) {
+    return DocumentosRepository.getKPIs(client, tenantId);
   }
 
 };

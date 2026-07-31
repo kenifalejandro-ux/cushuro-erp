@@ -25,6 +25,8 @@ export default function RepuestosTable() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
   //  Crea la función para abrir el modo edición:
   const openEditModal = (r: Repuesto) => {
@@ -47,16 +49,17 @@ export default function RepuestosTable() {
     codigo: '', nombre: '', categoria: 'General', stock: 0, stock_minimo: 5,stock_maximo: 30, precio: 0
   });
 
-  // 2. CARGA INICIAL: Trae los datos de la base de datos al montar el componente
+  // 2. CARGA: Trae los datos de la base de datos (paginado) al montar y al cambiar de página
   useEffect(() => {
-    fetchRepuestos();
-  }, []);
+    fetchRepuestos(page);
+  }, [page]);
 
-  const fetchRepuestos = async () => {
+  const fetchRepuestos = async (paginaAConsultar: number = page) => {
     try {
-      const res = await apiFetch('/api/erp/repuestos');
-      const data = await res.json();
-      setRepuestos(Array.isArray(data) ? data : []);
+      const res = await apiFetch(`/api/erp/repuestos?page=${paginaAConsultar}&pageSize=50`);
+      const body = await res.json();
+      setRepuestos(Array.isArray(body.data) ? body.data : []);
+      setTotalPages(body.pagination?.totalPages ?? 1);
       setLoading(false);
     } catch (err) {
       console.error("Error al obtener repuestos:", err);
@@ -76,8 +79,9 @@ const handleDelete = async (id: number) => {
       });
 
     if (res.ok) {
-      // 3. Actualizar la interfaz sin recargar
-      setRepuestos(repuestos.filter(r => r.id !== id));
+      // 3. Recargar la página actual (no solo filtrar en memoria, para que
+      // el total y las páginas restantes sigan siendo correctos)
+      fetchRepuestos(page);
       alert("Eliminado con éxito");
     } else {
       alert("Error: El servidor no permitió eliminar el registro.");
@@ -142,7 +146,9 @@ const handleDelete = async (id: number) => {
   };
 
 
-  // 6. BUSCADOR: Filtra la lista en tiempo real según lo que escribas
+  // 6. BUSCADOR: filtra solo dentro de la página actual (50 filas) — como
+  // el listado ahora pagina en el servidor, buscar en todo el inventario
+  // requeriría mandar el término al backend (pendiente, no en este cambio).
   const filteredRepuestos = repuestos.filter(r =>
     r.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
     r.codigo.toLowerCase().includes(searchTerm.toLowerCase())
@@ -252,6 +258,24 @@ const handleDelete = async (id: number) => {
   </table>
 </div>
 
+      {/* PAGINACIÓN */}
+      <div className="flex items-center justify-between mt-4 px-1">
+        <button
+          onClick={() => setPage(p => Math.max(1, p - 1))}
+          disabled={page <= 1}
+          className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
+        >
+          ← Anterior
+        </button>
+        <span className="text-sm text-slate-400">Página {page} de {totalPages}</span>
+        <button
+          onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+          disabled={page >= totalPages}
+          className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
+        >
+          Siguiente →
+        </button>
+      </div>
 
       {/* MODAL PARA NUEVO REGISTRO */}
       {isModalOpen && (

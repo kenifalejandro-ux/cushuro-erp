@@ -1,6 +1,6 @@
 /** src/server/config/database.ts */
 
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { env } from "./env";
 import { logger } from "./logger";
 
@@ -69,6 +69,37 @@ export async function testDatabaseConnection(): Promise<boolean> {
     return false;
   } finally {
     if (client) client.release();
+  }
+}
+
+// ====================== AISLAMIENTO MULTI-TENANT (RLS) ======================
+// pool.query() puede usar una conexión distinta en cada llamada, así que no
+// sirve para setear una variable de sesión que después lean las políticas
+// de Row-Level Security (ver migrations/0005_rls_tenant_isolation.sql).
+// Por eso acá se reserva un client dedicado del pool para toda la duración
+// del request, dentro de una transacción: set_config con is_local=true deja
+// app.tenant_id visible solo hasta el COMMIT/ROLLBACK de esta transacción,
+// nunca se filtra a la siguiente vez que ese client vuelva al pool.
+//
+// El filtro por tenant_id en el WHERE de cada query (ver los repositorios)
+// sigue siendo el mecanismo principal — esto es la red de seguridad si
+// alguna query nueva se olvida de filtrar.
+export async function withTenant<T>(
+  tenantId: string,
+  fn: (client: PoolClient) => Promise<T>
+): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
   }
 }
 

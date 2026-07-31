@@ -1,13 +1,16 @@
 /** src/modules/dashboard/dashboard.controller.ts */
 
 import { Request, Response } from "express";
+import { withTenant } from "../../server/config/database";
+import { getTenantId } from "../../server/shared/utils/request";
 import { DashboardService } from "./dashboard.service";
 
 export const DashboardController = {
-  
+
  async getFullDashboard(req: Request, res: Response) {
     try {
-      const data = await DashboardService.getFullDashboardData();
+      const tenantId = getTenantId(req);
+      const data = await withTenant(tenantId, (client) => DashboardService.getFullDashboardData(client, tenantId));
       res.json(data);
     } catch (error) {
       console.error("Error en getFullDashboard:", error);
@@ -19,7 +22,8 @@ export const DashboardController = {
   // ============================================================
   async getKPIs(req: Request, res: Response) {
     try {
-      const data = await DashboardService.getKPIs();
+      const tenantId = getTenantId(req);
+      const data = await withTenant(tenantId, (client) => DashboardService.getKPIs(client, tenantId));
       res.json(data);
     } catch (error) {
       res.status(500).json({ error: "Error KPIs dashboard" });
@@ -31,7 +35,8 @@ export const DashboardController = {
   // ============================================================
   async repuestosPorCategoria(req: Request, res: Response) {
     try {
-      const data = await DashboardService.repuestosPorCategoria();
+      const tenantId = getTenantId(req);
+      const data = await withTenant(tenantId, (client) => DashboardService.repuestosPorCategoria(client, tenantId));
       res.json(data);
     } catch (error) {
       res.status(500).json({ error: "Error chart repuestos" });
@@ -43,7 +48,8 @@ export const DashboardController = {
   // ============================================================
   async valorPorCategoria(req: Request, res: Response) {
     try {
-      const data = await DashboardService.valorPorCategoria();
+      const tenantId = getTenantId(req);
+      const data = await withTenant(tenantId, (client) => DashboardService.valorPorCategoria(client, tenantId));
       res.json(data);
     } catch (error) {
       res.status(500).json({ error: "Error chart valor" });
@@ -55,7 +61,8 @@ export const DashboardController = {
   // ============================================================
   async estadoDocumentos(req: Request, res: Response) {
     try {
-      const data = await DashboardService.estadoDocumentos();
+      const tenantId = getTenantId(req);
+      const data = await withTenant(tenantId, (client) => DashboardService.estadoDocumentos(client, tenantId));
       res.json(data);
     } catch (error) {
       res.status(500).json({ error: "Error chart documentos" });
@@ -67,7 +74,8 @@ export const DashboardController = {
   // ============================================================
   async nivelstock(req: Request, res: Response) {
     try {
-      const data = await DashboardService.nivelstock();
+      const tenantId = getTenantId(req);
+      const data = await withTenant(tenantId, (client) => DashboardService.nivelstock(client, tenantId));
       res.json(data);
     } catch (error) {
       res.status(500).json({ error: "Error chart nivelstock" });

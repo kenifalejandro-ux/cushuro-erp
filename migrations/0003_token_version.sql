@@ -13,7 +13,7 @@
 -- usuario = incrementar este número — funciona con o sin Redis.
 --
 -- EJECUTAR:
---   psql -d cushuro_erp -f migrations/0002_token_version.sql
+--   psql -d cushuro_erp -f migrations/0003_token_version.sql
 -- ═══════════════════════════════════════════════════════════════════════════
 
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 1;

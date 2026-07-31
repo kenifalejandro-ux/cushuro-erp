@@ -22,11 +22,15 @@ export default function DocumentosTable() {
   // 🟡 MODAL CONTROL
   const [openModal, setOpenModal] = useState(false);
 
-  const load = () => {
-    apiFetch("/api/erp/documentos")
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
+  const load = (paginaAConsultar: number = page) => {
+    apiFetch(`/api/erp/documentos?page=${paginaAConsultar}&pageSize=50`)
       .then(r => r.json())
-      .then(data => {
-        setDocs(Array.isArray(data) ? data : []);
+      .then(body => {
+        setDocs(Array.isArray(body.data) ? body.data : []);
+        setTotalPages(body.pagination?.totalPages ?? 1);
         setLoading(false);
       })
       .catch(() => {
@@ -36,8 +40,8 @@ export default function DocumentosTable() {
   };
 
   useEffect(() => {
-    load();
-  }, []);
+    load(page);
+  }, [page]);
 
   const getStatusStyle = (estado: string) => {
     switch (estado) {
@@ -349,6 +353,25 @@ export default function DocumentosTable() {
 
         </table>
       </div>
+    </div>
+
+    {/* PAGINACIÓN */}
+    <div className="flex items-center justify-between mt-4 px-1">
+      <button
+        onClick={() => setPage(p => Math.max(1, p - 1))}
+        disabled={page <= 1}
+        className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
+      >
+        ← Anterior
+      </button>
+      <span className="text-sm text-slate-400">Página {page} de {totalPages}</span>
+      <button
+        onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+        disabled={page >= totalPages}
+        className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
+      >
+        Siguiente →
+      </button>
     </div>
   </div>
 );

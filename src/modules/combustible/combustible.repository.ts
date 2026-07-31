@@ -1,12 +1,12 @@
 /**src/modules/combutible/combustible.repository.ts */
 
-import { pool } from "../../server/config/database";
+import type { PoolClient } from "pg";
 
 export class CombustibleRepository {
 
-  async findAll() {
-    const result = await pool.query(`
-      SELECT 
+  async findAll(client: PoolClient, tenantId: string) {
+    const result = await client.query(`
+      SELECT
         id,
         tanque_nombre,
         capacidad_total,
@@ -14,15 +14,16 @@ export class CombustibleRepository {
         fecha_actualizacion,
         ROUND((nivel_actual / capacidad_total) * 100, 2) AS porcentaje
       FROM combustible
+      WHERE tenant_id = $1
       ORDER BY id ASC
-    `);
+    `, [tenantId]);
 
     return result.rows;
   }
 
-  async findById(id: number) {
-    const result = await pool.query(`
-      SELECT 
+  async findById(client: PoolClient, tenantId: string, id: number) {
+    const result = await client.query(`
+      SELECT
         id,
         tanque_nombre,
         capacidad_total,
@@ -30,28 +31,28 @@ export class CombustibleRepository {
         fecha_actualizacion,
         ROUND((nivel_actual / capacidad_total) * 100, 2) AS porcentaje
       FROM combustible
-      WHERE id = $1
-    `, [id]);
+      WHERE id = $1 AND tenant_id = $2
+    `, [id, tenantId]);
 
     return result.rows[0] || null;
   }
 
-  async updateNivel(id: number, nivel_actual: number) {
-    const result = await pool.query(`
+  async updateNivel(client: PoolClient, tenantId: string, id: number, nivel_actual: number) {
+    const result = await client.query(`
       UPDATE combustible
-      SET 
+      SET
         nivel_actual = $1,
         fecha_actualizacion = CURRENT_TIMESTAMP
-      WHERE id = $2
-      RETURNING 
+      WHERE id = $2 AND tenant_id = $3
+      RETURNING
         id,
         tanque_nombre,
         capacidad_total,
         nivel_actual,
         fecha_actualizacion,
         ROUND((nivel_actual / capacidad_total) * 100, 2) AS porcentaje
-    `, [nivel_actual, id]);
+    `, [nivel_actual, id, tenantId]);
 
-    return result.rows[0];
+    return result.rows[0] ?? null;
   }
 }

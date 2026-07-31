@@ -17,7 +17,7 @@
 -- los refresh tokens de ese usuario como medida de contención.
 --
 -- EJECUTAR:
---   psql -d cushuro_erp -f migrations/0003_refresh_tokens.sql
+--   psql -d cushuro_erp -f migrations/0004_refresh_tokens.sql
 -- ═══════════════════════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS refresh_tokens (

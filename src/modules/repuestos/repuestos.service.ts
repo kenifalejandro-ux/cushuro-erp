@@ -1,36 +1,38 @@
 /**src/modules/repuestos/repuestos.service.ts */
 
+import type { PoolClient } from "pg";
+import type { Paginacion } from "../../server/shared/utils/pagination";
 import { RepuestosRepository } from "./repuestos.repository";
 
 export const RepuestosService = {
 
-  // 📥 traer todo
-  getAll() {
-    return RepuestosRepository.findAll();
+  // 📥 traer todo (paginado)
+  getAll(client: PoolClient, tenantId: string, paginacion: Paginacion) {
+    return RepuestosRepository.findAll(client, tenantId, paginacion);
   },
 
   // ➕ crear
-  create(data: any) {
-    return RepuestosRepository.create(data);
+  create(client: PoolClient, tenantId: string, data: any) {
+    return RepuestosRepository.create(client, tenantId, data);
   },
 
-  // ✏️ actualizar (NUEVO)
-  update(id: number, data: any) {
-    return RepuestosRepository.update(id, data);
+  // ✏️ actualizar
+  update(client: PoolClient, tenantId: string, id: number, data: any) {
+    return RepuestosRepository.update(client, tenantId, id, data);
   },
 
   // 🗑 eliminar
-  delete(id: number) {
-    return RepuestosRepository.delete(id);
+  delete(client: PoolClient, tenantId: string, id: number) {
+    return RepuestosRepository.delete(client, tenantId, id);
   },
 
   // 📦 bulk
-  createBulk(rows: any[]) {
-    return RepuestosRepository.createBulk(rows);
+  createBulk(client: PoolClient, tenantId: string, rows: any[]) {
+    return RepuestosRepository.createBulk(client, tenantId, rows);
   },
 
   // 📊 KPIs
-  getKPIs() {
-    return RepuestosRepository.getDashboardKPIs();
+  getKPIs(client: PoolClient, tenantId: string) {
+    return RepuestosRepository.getDashboardKPIs(client, tenantId);
   }
 };
