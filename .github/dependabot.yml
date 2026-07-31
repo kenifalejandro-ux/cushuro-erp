@@ -1,0 +1,32 @@
+version: 2
+updates:
+  # Backend (raíz del repo)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      # Junta las actualizaciones menores/patch en un solo PR en vez de uno
+      # por paquete — evita que 15 PRs triviales tapen los que sí importan
+      # (majors, o los que arreglan una vulnerabilidad real).
+      minor-y-patch:
+        update-types: ["minor", "patch"]
+
+  # Frontend (client/)
+  - package-ecosystem: "npm"
+    directory: "/client"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      minor-y-patch:
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions, si en algún momento se agrega CI (no hace daño tenerlo
+  # ya configurado, Dependabot simplemente no encuentra nada que revisar
+  # hasta que exista un workflow).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

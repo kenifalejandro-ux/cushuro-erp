@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mincoreerp_app
+          POSTGRES_PASSWORD: ci_only_password
+          POSTGRES_DB: mincoreerp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # No son secretos reales: Postgres es un contenedor efímero que se
+      # borra al terminar el job, y estos valores nunca tocan producción.
+      NODE_ENV: development
+      PORT: 3001
+      JWT_SECRET: ci-only-not-a-real-secret
+      JWT_EXPIRES: 30m
+      SESSION_TTL_SECONDS: 2592000
+      AUTH_COOKIE_NAME: erp_token
+      PLATFORM_ADMIN_TOKEN: ci-only-not-a-real-secret
+      PG_HOST: localhost
+      PG_PORT: 5432
+      PG_USER: mincoreerp_app
+      PG_PASSWORD: ci_only_password
+      PG_DATABASE: mincoreerp
+      RATE_LIMIT_WINDOW_MS: 60000
+      RATE_LIMIT_MAX_REQUESTS: 1000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Correr migraciones
+        run: |
+          for f in migrations/0001_tenants_usuarios.sql \
+                   migrations/0002_business_tables.sql \
+                   migrations/0003_token_version.sql \
+                   migrations/0004_refresh_tokens.sql \
+                   migrations/0005_rls_tenant_isolation.sql; do
+            echo "=== $f ==="
+            psql -h localhost -U mincoreerp_app -d mincoreerp -v ON_ERROR_STOP=1 -f "$f"
+          done
+        env:
+          PGPASSWORD: ci_only_password
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Tests (incluye aislamiento entre tenants vía RLS)
+        run: npm test
+
+  frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: client
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: client
+        run: npx tsc --noEmit
+
+      - name: Build de producción
+        working-directory: client
+        run: npm run build
