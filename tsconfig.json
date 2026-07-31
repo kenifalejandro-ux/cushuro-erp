@@ -13,8 +13,10 @@
   "include": [
     "server.ts",
     "src/server/**/*.ts",
-    "src/server/**/*.d.ts"
-, "app.ts"  ],
+    "src/server/**/*.d.ts",
+    "tests/**/*.ts",
+    "app.ts"
+  ],
   "exclude": [
     "node_modules",
     "client/node_modules",

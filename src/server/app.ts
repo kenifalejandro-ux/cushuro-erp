@@ -15,6 +15,7 @@ import { corsOptions } from "./middleware/originGuard";
 import { authRouter } from "./routes/auth";
 import { createPublicRouter } from "./routes/public";
 import { createSystemRouter } from "./routes/system";
+import { createPlatformRouter } from "./routes/platform";
 import { createApiRouter } from "./routes";
 import { errorHandler } from "./shared/middlewares/error.middleware";
 
@@ -106,6 +107,11 @@ export function createApp() {
 
   // Autenticación (fuera del prefijo /api/erp: es transversal, no un módulo de negocio)
   app.use("/api/auth", authRouter);
+
+  // Onboarding de tenants: protegido por platformAdminMiddleware (secreto
+  // de plataforma), no por el JWT de usuario — no es una acción de un
+  // tenant, es de quien opera el ERP.
+  app.use("/api/platform", createPlatformRouter());
 
   // Rutas del ERP (con prefijo /api) — protegidas por authMiddleware/tenantMiddleware
   // dentro de cada módulo (ver routes/index.ts)

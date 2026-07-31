@@ -64,12 +64,18 @@ export const env = {
   dbName: process.env.PG_DATABASE || "",
   // --- AUTENTICACIÓN ---
   // Corto a propósito: la revocación real ahora la hace token_version (ver
-  // authMiddleware + migrations/0002_token_version.sql), así que esta
+  // authMiddleware + migrations/0003_token_version.sql), así que esta
   // duración es solo el límite superior de exposición si JWT_SECRET se
   // filtrara, no el mecanismo de logout.
   jwtExpires: process.env.JWT_EXPIRES || "30m",
   sessionTtlSeconds: readNumber(process.env.SESSION_TTL_SECONDS, 60 * 60 * 24 * 30), // 30 días
   authCookieName: process.env.AUTH_COOKIE_NAME || "erp_token",
+  // --- PLATAFORMA (onboarding de tenants, no forma parte del login normal) ---
+  // Deliberadamente NO está en requiredEnvNames: el server debe poder
+  // arrancar sin esto. platformAdmin.middleware.ts falla cerrado (503) si
+  // no está configurado, en vez de bloquear todo el arranque por una
+  // operación que se usa rara vez.
+  platformAdminToken: process.env.PLATFORM_ADMIN_TOKEN || "",
 };
 
 // Si hay DATABASE_URL (Railway u otro proveedor gestionado), las variables

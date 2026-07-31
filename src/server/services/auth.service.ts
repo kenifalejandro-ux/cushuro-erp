@@ -3,6 +3,7 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { randomBytes, createHash } from "crypto";
+import type { Pool, PoolClient } from "pg";
 import { pool } from "../config/database";
 import { env } from "../config/env";
 import { getRedis } from "../config/redis";
@@ -221,20 +222,27 @@ export async function logoutService(usuarioId: string): Promise<void> {
   await revocarSesionesService(usuarioId);
 }
 
-export async function crearUsuarioService(input: {
-  tenantId: string;
-  nombre: string;
-  email: string;
-  password: string;
-  rol?: UsuarioPayload["rol"];
-}): Promise<UsuarioPayload> {
+export async function crearUsuarioService(
+  input: {
+    tenantId: string;
+    nombre: string;
+    email: string;
+    password: string;
+    rol?: UsuarioPayload["rol"];
+  },
+  // Permite que el caller pase un client dentro de su propia transacción
+  // (ej. platform.service.ts crea tenant + admin de forma atómica). Por
+  // default usa el pool normal, así que no cambia el comportamiento para
+  // quien no lo necesita.
+  db: Pool | PoolClient = pool
+): Promise<UsuarioPayload> {
   const passwordHash = await bcrypt.hash(input.password, 12);
 
   let result;
   try {
-    result = await pool.query(
+    result = await db.query(
       `INSERT INTO usuarios (tenant_id, nombre, email, password_hash, rol)
-       VALUES ($1, $2, $3, $4, COALESCE($5, 'operador'))
+       VALUES ($1, $2, $3, $4, COALESCE($5::rol_usuario, 'operador'))
        RETURNING id, tenant_id, nombre, email, rol, token_version`,
       [input.tenantId, input.nombre, input.email.toLowerCase(), passwordHash, input.rol ?? null]
     );
