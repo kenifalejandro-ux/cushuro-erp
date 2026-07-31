@@ -11,6 +11,9 @@
 let refrescoEnCurso: Promise<boolean> | null = null;
 let onSesionExpirada: (() => void) | null = null;
 
+// Nombre del lock coordinado por el navegador (ver refrescarAccessToken).
+const LOCK_REFRESH = "erp-refresh-token";
+
 /** AuthContext se registra acá para enterarse cuando el refresh también
  *  falla (refresh token vencido o revocado) y así limpiar el usuario en
  *  memoria y mandar a /login. */
@@ -18,19 +21,39 @@ export function registrarSesionExpirada(callback: () => void) {
   onSesionExpirada = callback;
 }
 
+async function pedirRefreshAlServidor(): Promise<boolean> {
+  try {
+    const res = await fetch("/api/auth/refresh", { method: "POST", credentials: "include" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function refrescarAccessToken(): Promise<boolean> {
-  // Una sola llamada a /refresh aunque varios requests reciban 401 al mismo
-  // tiempo: el backend rota el refresh token en cada uso y trata un reuso
-  // como robo, revocando la sesión entera (ver auth.service.ts,
-  // refrescarTokenService) — disparar el refresh dos veces en paralelo la
-  // mataría por accidente.
+  // El backend rota el refresh token en cada uso y trata un reuso como
+  // robo, revocando la sesión entera (ver auth.service.ts,
+  // refrescarTokenService) — así que dos pestañas del mismo navegador
+  // cuyo access token vence casi al mismo tiempo NO pueden llamar a
+  // /refresh en paralelo: la segunda perdería la carrera contra la
+  // rotación de la primera y tumbaría la sesión en todos los
+  // dispositivos, como si hubiera sido un ataque real.
+  //
+  // navigator.locks coordina esto entre TODAS las pestañas del mismo
+  // origen en el mismo navegador (no solo dentro de una pestaña como el
+  // fallback de abajo). Cuando la segunda pestaña por fin obtiene el
+  // lock, el navegador ya tiene la cookie nueva que dejó la primera —
+  // así que su propio fetch sale con la cookie al día, sin colisión.
+  if (typeof navigator !== "undefined" && "locks" in navigator) {
+    return navigator.locks.request(LOCK_REFRESH, () => pedirRefreshAlServidor());
+  }
+
+  // Fallback para navegadores sin Web Locks API: al menos serializa
+  // dentro de esta misma pestaña (protección parcial, mejor que nada).
   if (!refrescoEnCurso) {
-    refrescoEnCurso = fetch("/api/auth/refresh", { method: "POST", credentials: "include" })
-      .then((res) => res.ok)
-      .catch(() => false)
-      .finally(() => {
-        refrescoEnCurso = null;
-      });
+    refrescoEnCurso = pedirRefreshAlServidor().finally(() => {
+      refrescoEnCurso = null;
+    });
   }
   return refrescoEnCurso;
 }
