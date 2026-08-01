@@ -70,6 +70,7 @@ export async function borrarTenantDePrueba(tenantId: string) {
     await client.query("DELETE FROM checklists WHERE tenant_id = $1", [tenantId]);
     await client.query("DELETE FROM checklist_plantillas WHERE tenant_id = $1", [tenantId]);
     await client.query("DELETE FROM ipercs WHERE tenant_id = $1", [tenantId]);
+    await client.query("DELETE FROM iperc_lineas_base WHERE tenant_id = $1", [tenantId]);
     await client.query("DELETE FROM equipos WHERE tenant_id = $1", [tenantId]);
     await client.query("COMMIT");
   } catch (err) {

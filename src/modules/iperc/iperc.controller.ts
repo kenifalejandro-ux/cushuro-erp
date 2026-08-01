@@ -4,7 +4,11 @@ import { Request, Response } from "express";
 import { withTenant } from "../../server/config/database";
 import { getTenantId } from "../../server/shared/utils/request";
 import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/utils/pagination";
-import type { CrearIpercInput, CambiarEstadoIpercInput } from "../../server/schemas/iperc.schema";
+import type {
+  CrearIpercInput,
+  CambiarEstadoIpercInput,
+  CrearLineaBaseInput,
+} from "../../server/schemas/iperc.schema";
 import { IpercService } from "./iperc.service";
 
 export const IpercController = {
@@ -13,7 +17,8 @@ export const IpercController = {
     try {
       const tenantId = getTenantId(req);
       const paginacion = parsePaginacion(req.query);
-      const filas = await withTenant(tenantId, (client) => IpercService.getAll(client, tenantId, paginacion));
+      const tipo = typeof req.query.tipo === "string" ? req.query.tipo : undefined;
+      const filas = await withTenant(tenantId, (client) => IpercService.getAll(client, tenantId, paginacion, tipo));
       res.json(armarRespuestaPaginada(filas, paginacion));
     } catch {
       res.status(500).json({ message: "Error al obtener IPERC" });
@@ -40,7 +45,11 @@ export const IpercController = {
       const data = req.validatedBody as CrearIpercInput;
       const iperc = await withTenant(tenantId, (client) => IpercService.crear(client, tenantId, req.usuario!.id, data));
       res.status(201).json(iperc);
-    } catch {
+    } catch (err: any) {
+      if (err?.message?.includes("no existe en este tenant")) {
+        res.status(400).json({ message: err.message });
+        return;
+      }
       res.status(500).json({ message: "Error al crear IPERC" });
     }
   },
@@ -73,6 +82,80 @@ export const IpercController = {
       res.json({ message: "Eliminado" });
     } catch {
       res.status(500).json({ message: "Error al eliminar IPERC" });
+    }
+  },
+
+  // ── Línea Base ───────────────────────────────────────────────────────
+  async getLineasBase(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const paginacion = parsePaginacion(req.query);
+      const filas = await withTenant(tenantId, (client) => IpercService.getLineasBase(client, tenantId, paginacion));
+      res.json(armarRespuestaPaginada(filas, paginacion));
+    } catch {
+      res.status(500).json({ message: "Error al obtener líneas base" });
+    }
+  },
+
+  async getLineaBase(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const lineaBase = await withTenant(tenantId, (client) =>
+        IpercService.getLineaBase(client, tenantId, Number(req.params.id))
+      );
+      if (!lineaBase) {
+        res.status(404).json({ message: "Línea base no encontrada" });
+        return;
+      }
+      res.json(lineaBase);
+    } catch {
+      res.status(500).json({ message: "Error al obtener línea base" });
+    }
+  },
+
+  async crearLineaBase(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const data = req.validatedBody as CrearLineaBaseInput;
+      const lineaBase = await withTenant(tenantId, (client) =>
+        IpercService.crearLineaBase(client, tenantId, req.usuario!.id, data)
+      );
+      res.status(201).json(lineaBase);
+    } catch {
+      res.status(500).json({ message: "Error al crear línea base" });
+    }
+  },
+
+  async cambiarEstadoLineaBase(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const { estado } = req.validatedBody as CambiarEstadoIpercInput;
+      const lineaBase = await withTenant(tenantId, (client) =>
+        IpercService.cambiarEstadoLineaBase(client, tenantId, Number(req.params.id), estado, req.usuario!.id)
+      );
+      if (!lineaBase) {
+        res.status(404).json({ message: "Línea base no encontrada" });
+        return;
+      }
+      res.json(lineaBase);
+    } catch {
+      res.status(500).json({ message: "Error al cambiar estado de la línea base" });
+    }
+  },
+
+  async eliminarLineaBase(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const eliminado = await withTenant(tenantId, (client) =>
+        IpercService.eliminarLineaBase(client, tenantId, Number(req.params.id))
+      );
+      if (!eliminado) {
+        res.status(404).json({ message: "Línea base no encontrada" });
+        return;
+      }
+      res.json({ message: "Eliminada" });
+    } catch {
+      res.status(500).json({ message: "Error al eliminar línea base" });
     }
   },
 };
