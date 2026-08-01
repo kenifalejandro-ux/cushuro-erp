@@ -64,6 +64,13 @@ export async function borrarTenantDePrueba(tenantId: string) {
     await client.query("DELETE FROM repuestos WHERE tenant_id = $1", [tenantId]);
     await client.query("DELETE FROM documentos WHERE tenant_id = $1", [tenantId]);
     await client.query("DELETE FROM combustible WHERE tenant_id = $1", [tenantId]);
+    // Orden importa: checklists/ipercs referencian equipos y
+    // checklist_plantillas (sin CASCADE), así que van primero. Sus tablas
+    // de items sí tienen ON DELETE CASCADE, se limpian solas.
+    await client.query("DELETE FROM checklists WHERE tenant_id = $1", [tenantId]);
+    await client.query("DELETE FROM checklist_plantillas WHERE tenant_id = $1", [tenantId]);
+    await client.query("DELETE FROM ipercs WHERE tenant_id = $1", [tenantId]);
+    await client.query("DELETE FROM equipos WHERE tenant_id = $1", [tenantId]);
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});

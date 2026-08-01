@@ -6,6 +6,9 @@ import repuestosRoutes from "../../modules/repuestos/repuestos.routes";
 import combustibleRoutes from "../../modules/combustible/combustible.routes";
 import documentosRoutes from "../../modules/documentos/documentos.routes";
 import dashboardRoutes from "../../modules/dashboard/dashboard.routes";
+import equiposRoutes from "../../modules/equipos/equipos.routes";
+import checklistsRoutes from "../../modules/checklists/checklists.routes";
+import ipercRoutes from "../../modules/iperc/iperc.routes";
 import { authMiddleware } from "../shared/middlewares/auth.middleware";
 import { tenantMiddleware } from "../shared/middlewares/tenant.middleware";
 
@@ -20,6 +23,9 @@ export function createApiRouter() {
   router.use("/combustible", combustibleRoutes);
   router.use("/documentos", documentosRoutes);
   router.use("/dashboard", dashboardRoutes);
+  router.use("/equipos", equiposRoutes);
+  router.use("/checklists", checklistsRoutes);
+  router.use("/iperc", ipercRoutes);
 
   return router;
 }
