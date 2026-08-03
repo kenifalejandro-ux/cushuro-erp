@@ -1,0 +1,26 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Migración: corrige la invariante de actor_id en platform_audit_log
+--
+-- 0016 agregó un CHECK exigiendo actor_id NOT NULL cuando actor_type =
+-- 'platform_admin' — pero eso choca con el ON DELETE SET NULL de la misma
+-- migración: si alguna vez se borra de verdad un platform_admin (la app
+-- hoy solo lo desactiva, nunca lo borra — pero el FK se diseñó a propósito
+-- para que la fila de auditoría sobreviva si algún día sí se borra),
+-- Postgres pone actor_id en NULL en cada fila que lo referencia sin tocar
+-- actor_type, y esa fila pasa a violar el CHECK en el acto. Se descubrió
+-- al limpiar admins de prueba en tests/platform-admins.test.ts (DELETE
+-- real en el afterAll, a diferencia de la app que nunca borra).
+--
+-- La invariante "si el actor es platform_admin, tiene que traer actor_id"
+-- solo tiene sentido en el momento de escribir el evento — y ya la
+-- garantiza actorAContexto() en routes/platform.ts, no hace falta
+-- reforzarla con un CHECK a nivel de fila que además tendría que seguir
+-- siendo válido para siempre, incluso después de un borrado. Mismo
+-- criterio que tenant_id/usuario_id (0012), que nunca tuvieron un CHECK
+-- análogo por esta misma razón.
+--
+-- EJECUTAR (después de 0016):
+--   psql -d mincoreerp -f migrations/0017_platform_audit_log_actor_check_fix.sql
+-- ═══════════════════════════════════════════════════════════════════════════
+
+ALTER TABLE platform_audit_log DROP CONSTRAINT IF EXISTS platform_audit_log_actor_id_consistente;
