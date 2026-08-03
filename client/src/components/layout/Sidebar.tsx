@@ -1,17 +1,23 @@
 // client/src/components/layout/Sidebar.tsx
+import { useAuth } from '../../context/AuthContext';
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: any) => void;
 }
 
+const TODAS_LAS_PESTAÑAS = [
+  { id: 'dashboard', label: '📊 Dashboard', icon: '📊' },
+  { id: 'repuestos', label: '🔧 Repuestos', icon: '🔧' },
+  { id: 'combustible', label: '⛽ Combustible', icon: '⛽' },
+  { id: 'documentos', label: '📄 Documentos', icon: '📄' },
+];
+
 export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
-  const tabs = [
-    { id: 'dashboard', label: '📊 Dashboard', icon: '📊' },
-    { id: 'repuestos', label: '🔧 Repuestos', icon: '🔧' },
-    { id: 'combustible', label: '⛽ Combustible', icon: '⛽' },
-    { id: 'documentos', label: '📄 Documentos', icon: '📄' },
-  ];
+  const { usuario } = useAuth();
+  // Qué pestañas ve cada quien lo decide el panel de plataforma (módulos
+  // por empresa + por usuario) — ver modulosPermitidos en el JWT.
+  const tabs = TODAS_LAS_PESTAÑAS.filter((tab) => usuario?.modulosPermitidos.includes(tab.id));
 
   return (
     <aside className="w-64 bg-white border-r min-h-[calc(100vh-73px)] p-6">
