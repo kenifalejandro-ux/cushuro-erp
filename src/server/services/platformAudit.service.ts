@@ -31,13 +31,22 @@ import { getRedis } from "../config/redis";
  *  autenticadas con el token de un tenant_scim_config puntual — ninguna
  *  persona humana de por medio, así que ni 'platform_admin' ni
  *  'emergency_shared_secret' describen correctamente el origen. actor_id
- *  queda NULL en estas filas (sigue siendo FK a platform_admins). */
+ *  queda NULL en estas filas (sigue siendo FK a platform_admins).
+ *
+ *  'tenant_usuario' (migrations/0030): una acción de negocio dentro de un
+ *  módulo del ERP (crear/editar/borrar un equipo, un checklist, un
+ *  IPERC), hecha por un usuario normal de un tenant — no alguien operando
+ *  el panel de plataforma. Ver contextoAuditoriaModulo() en
+ *  shared/utils/moduleAudit.ts, que arma este contexto para cualquier
+ *  controller de módulo. actor_id es el id de usuarios (sin FK real,
+ *  usuarios tiene RLS — ver la migración). */
 export type ActorTypeAuditoria =
   | "platform_admin"
   | "emergency_shared_secret"
   | "unauthenticated"
   | "system"
-  | "scim";
+  | "scim"
+  | "tenant_usuario";
 
 export interface ContextoAuditoria {
   ip: string;

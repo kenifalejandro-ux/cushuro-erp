@@ -2,13 +2,7 @@
 
 import { Router } from "express";
 
-import repuestosRoutes from "../../modules/repuestos/repuestos.routes";
-import combustibleRoutes from "../../modules/combustible/combustible.routes";
-import documentosRoutes from "../../modules/documentos/documentos.routes";
-import dashboardRoutes from "../../modules/dashboard/dashboard.routes";
-import equiposRoutes from "../../modules/equipos/equipos.routes";
-import checklistsRoutes from "../../modules/checklists/checklists.routes";
-import ipercRoutes from "../../modules/iperc/iperc.routes";
+import { MODULOS } from "../../modules/registry";
 import { authMiddleware } from "../shared/middlewares/auth.middleware";
 import { tenantMiddleware } from "../shared/middlewares/tenant.middleware";
 import { requireModulo } from "../shared/middlewares/modulo.middleware";
@@ -24,13 +18,12 @@ export function createApiRouter() {
   // cuenta como tráfico real — ver platformTenantHealth.service.ts).
   router.use(authMiddleware, tenantMiddleware, tenantMetricsMiddleware);
 
-  router.use("/repuestos", requireModulo("repuestos"), repuestosRoutes);
-  router.use("/combustible", requireModulo("combustible"), combustibleRoutes);
-  router.use("/documentos", requireModulo("documentos"), documentosRoutes);
-  router.use("/dashboard", requireModulo("dashboard"), dashboardRoutes);
-  router.use("/equipos", requireModulo("equipos"), equiposRoutes);
-  router.use("/checklists", requireModulo("checklists"), checklistsRoutes);
-  router.use("/iperc", requireModulo("iperc"), ipercRoutes);
+  // Cada módulo se monta bajo /<id> — agregar un módulo nuevo es agregarlo
+  // al registry (ver docs/adr/0002-contrato-de-modulo.md), no tocar este
+  // archivo.
+  for (const modulo of MODULOS) {
+    router.use(`/${modulo.id}`, requireModulo(modulo.id), modulo.router);
+  }
 
   return router;
 }

@@ -1,0 +1,35 @@
+// client/src/modules/registry.tsx
+//
+// Fuente única del cliente para "qué módulos existen" — ver
+// docs/adr/0002-contrato-de-modulo.md. Antes de este archivo, Sidebar.tsx
+// y App.tsx tenían cada uno su propia lista hardcodeada, y quedaron
+// desincronizadas: Equipos/Checklists/IPERC tenían backend completo pero
+// nunca se agregaron acá, así que eran invisibles para cualquier usuario.
+//
+// `id` DEBE coincidir con un id de src/modules/registry.ts (backend) — o
+// sea, con un valor del enum modulo_erp. No se comparte el archivo entre
+// server y cliente (son dos builds de Vite/tsx separados); mantener este
+// archivo sin ninguna lógica, solo datos + import perezoso, es lo que
+// hace barato ese único punto de duplicación.
+//
+// El componente se carga con React.lazy (code-splitting): el chunk de un
+// módulo solo viaja al navegador si ese usuario realmente lo tiene
+// habilitado y lo abre — ver App.tsx (<Suspense>).
+import { lazy, type LazyExoticComponent, type ComponentType } from 'react';
+
+export interface ModuloCliente {
+  id: string;
+  label: string;
+  icono: string;
+  componente: LazyExoticComponent<ComponentType>;
+}
+
+export const MODULOS_CLIENTE: ModuloCliente[] = [
+  { id: 'dashboard', label: 'Dashboard', icono: '📊', componente: lazy(() => import('../components/dashboard/Dashboard')) },
+  { id: 'repuestos', label: 'Repuestos', icono: '🔧', componente: lazy(() => import('../components/repuestos/RepuestosTable')) },
+  { id: 'combustible', label: 'Combustible', icono: '⛽', componente: lazy(() => import('../components/combustible/CombustiblePanel')) },
+  { id: 'documentos', label: 'Documentos', icono: '📄', componente: lazy(() => import('../components/documentos/DocumentosTable')) },
+  { id: 'equipos', label: 'Equipos', icono: '🚜', componente: lazy(() => import('../components/equipos/EquiposTable')) },
+  { id: 'checklists', label: 'Checklists', icono: '✅', componente: lazy(() => import('../components/checklists/ChecklistsView')) },
+  { id: 'iperc', label: 'IPERC', icono: '⚠️', componente: lazy(() => import('../components/iperc/IpercView')) },
+];

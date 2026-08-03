@@ -4,6 +4,8 @@ import { Request, Response } from "express";
 import { withTenant } from "../../server/config/database";
 import { getTenantId } from "../../server/shared/utils/request";
 import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/utils/pagination";
+import { contextoAuditoriaModulo } from "../../server/shared/utils/moduleAudit";
+import { registrarAuditoria } from "../../server/services/platformAudit.service";
 import { EquiposService } from "./equipos.service";
 
 export const EquiposController = {
@@ -23,6 +25,13 @@ export const EquiposController = {
     try {
       const tenantId = getTenantId(req);
       const nuevo = await withTenant(tenantId, (client) => EquiposService.create(client, tenantId, req.body));
+      await registrarAuditoria({
+        accion: "equipos.crear",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { equipoId: nuevo.id },
+        contexto: contextoAuditoriaModulo(req),
+      });
       res.status(201).json(nuevo);
     } catch {
       res.status(500).json({ message: "Error al crear equipo" });
@@ -39,6 +48,13 @@ export const EquiposController = {
         res.status(404).json({ message: "Equipo no encontrado" });
         return;
       }
+      await registrarAuditoria({
+        accion: "equipos.actualizar",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { equipoId: id },
+        contexto: contextoAuditoriaModulo(req),
+      });
       res.json(actualizado);
     } catch {
       res.status(500).json({ message: "Error al actualizar equipo" });
@@ -48,12 +64,20 @@ export const EquiposController = {
   async delete(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const eliminado = await withTenant(tenantId, (client) => EquiposService.delete(client, tenantId, Number(req.params.id)));
+      const id = Number(req.params.id);
+      const eliminado = await withTenant(tenantId, (client) => EquiposService.delete(client, tenantId, id));
 
       if (!eliminado) {
         res.status(404).json({ message: "Equipo no encontrado" });
         return;
       }
+      await registrarAuditoria({
+        accion: "equipos.eliminar",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { equipoId: id },
+        contexto: contextoAuditoriaModulo(req),
+      });
       res.json({ message: "Eliminado" });
     } catch {
       res.status(500).json({ message: "Error al eliminar equipo" });
