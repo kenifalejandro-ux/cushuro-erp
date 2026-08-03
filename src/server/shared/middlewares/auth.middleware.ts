@@ -3,7 +3,7 @@
 import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { env } from "../../config/env";
-import { pool } from "../../config/database";
+import { withTenant } from "../../config/database";
 import { getRedis } from "../../config/redis";
 import { logger } from "../../config/logger";
 import type { UsuarioPayload } from "../../services/auth.service";
@@ -33,11 +33,17 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     // propaga un logout o una revocación de admin.
     let versionActual = await getCachedTokenVersion(payload.id);
     if (versionActual === undefined) {
-      const resultado = await pool.query(
-        `SELECT u.token_version FROM usuarios u
-         JOIN tenants t ON t.id = u.tenant_id
-         WHERE u.id = $1 AND u.activo = true AND t.activo = true`,
-        [payload.id]
+      // usuarios tiene RLS (ver migrations/0010_usuarios_rls.sql) — el
+      // tenantId ya viene verificado dentro del propio JWT, así que abrir
+      // la transacción con withTenant() acá es seguro: no es un dato que
+      // el cliente pueda manipular sin invalidar la firma del token.
+      const resultado = await withTenant(payload.tenantId, (client) =>
+        client.query(
+          `SELECT u.token_version FROM usuarios u
+           JOIN tenants t ON t.id = u.tenant_id
+           WHERE u.id = $1 AND u.tenant_id = $2 AND u.activo = true AND t.activo = true`,
+          [payload.id, payload.tenantId]
+        )
       );
       if (resultado.rows.length === 0) {
         return res.status(401).json({ ok: false, message: "Sesión inválida" });

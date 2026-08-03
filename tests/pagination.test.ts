@@ -11,7 +11,7 @@ describe("paginación de repuestos", () => {
   beforeAll(async () => {
     const creado = await crearTenantDePrueba(password);
     tenantId = creado.tenant.id;
-    await agent.post("/api/auth/login").send({ email: creado.usuario.email, password });
+    await agent.post("/api/auth/login").send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
 
     const filas = Array.from({ length: 55 }, (_, i) => ({
       codigo: `PAG-${String(i + 1).padStart(3, "0")}`,

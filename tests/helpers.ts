@@ -8,11 +8,27 @@ import request from "supertest";
 import { createApp } from "../src/server/app";
 import { pool } from "../src/server/config/database";
 import { env } from "../src/server/config/env";
+import { getRedis } from "../src/server/config/redis";
 
 export const app = createApp();
 
 export function idUnico(prefijo: string) {
   return `${prefijo}-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+}
+
+/** ioredis usa lazyConnect — getRedis() puede devolver null todavía un
+ *  instante después de que el proceso arrancó, aunque termine habiendo
+ *  Redis, mientras la conexión inicial no terminó. Se espera un toque.
+ *  Compartido entre archivos de test que necesitan saber si corren con
+ *  Redis real (ver tests/global-setup.redis.ts) para activar/saltear
+ *  bloques enteros de tests que lo requieren. */
+export async function redisDisponible(): Promise<boolean> {
+  if (!env.redisHost && !env.redisUrl) return false;
+  for (let intento = 0; intento < 20; intento++) {
+    if (getRedis()) return true;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
 }
 
 /** Saca el valor crudo de una cookie de un array de headers Set-Cookie —
@@ -55,7 +71,10 @@ export async function crearTenantDePrueba(adminPassword = "ClaveDePrueba123"): P
 
 /** Borra todo lo creado por un tenant de prueba. Usa set_config igual que
  *  withTenant() de la app — nunca toca FORCE ROW LEVEL SECURITY, así los
- *  tests pueden correr en paralelo sin bajar la guardia de RLS para nadie. */
+ *  tests pueden correr en paralelo sin bajar la guardia de RLS para nadie.
+ *  `usuarios` entra en esta misma transacción desde que tiene RLS (ver
+ *  migrations/0010_usuarios_rls.sql) — antes se borraba aparte, sin
+ *  necesitarlo. */
 export async function borrarTenantDePrueba(tenantId: string) {
   const client = await pool.connect();
   try {
@@ -72,6 +91,9 @@ export async function borrarTenantDePrueba(tenantId: string) {
     await client.query("DELETE FROM ipercs WHERE tenant_id = $1", [tenantId]);
     await client.query("DELETE FROM iperc_lineas_base WHERE tenant_id = $1", [tenantId]);
     await client.query("DELETE FROM equipos WHERE tenant_id = $1", [tenantId]);
+    // refresh_tokens/usuario_modulos se borran solos (ON DELETE CASCADE
+    // desde usuarios) — borrar usuarios alcanza.
+    await client.query("DELETE FROM usuarios WHERE tenant_id = $1", [tenantId]);
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -80,12 +102,8 @@ export async function borrarTenantDePrueba(tenantId: string) {
     client.release();
   }
 
-  // usuarios/tenants no tienen RLS (ver plan de RLS: usuarios queda fuera
-  // hasta rediseñar el login), se borran directo.
-  await pool.query(
-    "DELETE FROM refresh_tokens WHERE usuario_id IN (SELECT id FROM usuarios WHERE tenant_id = $1)",
-    [tenantId]
-  );
-  await pool.query("DELETE FROM usuarios WHERE tenant_id = $1", [tenantId]);
+  // tenants/tenant_modulos no tienen RLS, se borran directo fuera de la
+  // transacción de arriba.
+  await pool.query("DELETE FROM tenant_modulos WHERE tenant_id = $1", [tenantId]);
   await pool.query("DELETE FROM tenants WHERE id = $1", [tenantId]);
 }

@@ -22,8 +22,8 @@ describe("aislamiento entre tenants (RLS + filtrado explícito)", () => {
     emailA = a.usuario.email;
     emailB = b.usuario.email;
 
-    await agentA.post("/api/auth/login").send({ email: emailA, password });
-    await agentB.post("/api/auth/login").send({ email: emailB, password });
+    await agentA.post("/api/auth/login").send({ tenantSlug: a.tenant.slug, email: emailA, password });
+    await agentB.post("/api/auth/login").send({ tenantSlug: b.tenant.slug, email: emailB, password });
   });
 
   afterAll(async () => {

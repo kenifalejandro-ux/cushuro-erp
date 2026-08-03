@@ -14,7 +14,7 @@ describe("IPERC: Línea Base + Continuo/Específico referenciando el catálogo",
   beforeAll(async () => {
     const creado = await crearTenantDePrueba(password);
     tenantId = creado.tenant.id;
-    await agentAdmin.post("/api/auth/login").send({ email: creado.usuario.email, password });
+    await agentAdmin.post("/api/auth/login").send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
   });
 
   afterAll(async () => {

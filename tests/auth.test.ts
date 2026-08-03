@@ -1,16 +1,18 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import { app, crearTenantDePrueba, borrarTenantDePrueba, extraerCookie } from "./helpers";
-import { pool, closeDatabase } from "../src/server/config/database";
+import { closeDatabase, withTenant } from "../src/server/config/database";
 
 describe("auth", () => {
   let tenantId: string;
+  let tenantSlug: string;
   let email: string;
   const password = "ClaveDePrueba123";
 
   beforeAll(async () => {
     const creado = await crearTenantDePrueba(password);
     tenantId = creado.tenant.id;
+    tenantSlug = creado.tenant.slug;
     email = creado.usuario.email;
   });
 
@@ -20,7 +22,7 @@ describe("auth", () => {
   });
 
   it("login con credenciales correctas devuelve 200 y cookies de sesión", async () => {
-    const res = await request(app).post("/api/auth/login").send({ email, password });
+    const res = await request(app).post("/api/auth/login").send({ tenantSlug, email, password });
     expect(res.status).toBe(200);
     expect(res.body.usuario.email).toBe(email);
     expect(extraerCookie(res.headers["set-cookie"], "erp_token")).toBeDefined();
@@ -28,30 +30,36 @@ describe("auth", () => {
   });
 
   it("login con password incorrecto falla con 401 y mensaje genérico", async () => {
-    const res = await request(app).post("/api/auth/login").send({ email, password: "incorrecta123" });
+    const res = await request(app).post("/api/auth/login").send({ tenantSlug, email, password: "incorrecta123" });
     expect(res.status).toBe(401);
     expect(res.body.message).toBe("Credenciales inválidas");
   });
 
   it("login con email inexistente falla con el MISMO mensaje genérico (anti-enumeración)", async () => {
-    const res = await request(app).post("/api/auth/login").send({ email: "no-existe@test.local", password });
+    const res = await request(app).post("/api/auth/login").send({ tenantSlug, email: "no-existe@test.local", password });
     expect(res.status).toBe(401);
     expect(res.body.message).toBe("Credenciales inválidas");
   });
 
   it("un usuario desactivado no puede loguear", async () => {
-    await pool.query("UPDATE usuarios SET activo = false WHERE email = $1", [email]);
+    // usuarios tiene RLS: hasta un UPDATE de test necesita pasar por
+    // withTenant() con el tenantId correcto seteado en la transacción.
+    await withTenant(tenantId, (client) =>
+      client.query("UPDATE usuarios SET activo = false WHERE tenant_id = $1 AND email = $2", [tenantId, email])
+    );
     try {
-      const res = await request(app).post("/api/auth/login").send({ email, password });
+      const res = await request(app).post("/api/auth/login").send({ tenantSlug, email, password });
       expect(res.status).toBe(401);
     } finally {
-      await pool.query("UPDATE usuarios SET activo = true WHERE email = $1", [email]);
+      await withTenant(tenantId, (client) =>
+        client.query("UPDATE usuarios SET activo = true WHERE tenant_id = $1 AND email = $2", [tenantId, email])
+      );
     }
   });
 
   it("logout revoca la sesión: el mismo cookie ya no sirve para requests autenticados", async () => {
     const agent = request.agent(app);
-    const login = await agent.post("/api/auth/login").send({ email, password });
+    const login = await agent.post("/api/auth/login").send({ tenantSlug, email, password });
     expect(login.status).toBe(200);
 
     const meAntes = await agent.get("/api/auth/me");
@@ -66,7 +74,7 @@ describe("auth", () => {
 
   it("reusar un refresh token ya rotado tumba toda la sesión (detección de robo)", async () => {
     const agent = request.agent(app);
-    const login = await agent.post("/api/auth/login").send({ email, password });
+    const login = await agent.post("/api/auth/login").send({ tenantSlug, email, password });
     const refreshViejo = extraerCookie(login.headers["set-cookie"], "erp_token_refresh");
     expect(refreshViejo).toBeDefined();
 

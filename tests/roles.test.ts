@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import { app, crearTenantDePrueba, borrarTenantDePrueba, idUnico } from "./helpers";
 import { crearUsuarioService } from "../src/server/services/auth.service";
-import { closeDatabase } from "../src/server/config/database";
+import { closeDatabase, withTenant } from "../src/server/config/database";
 
 describe("permisos por rol (requireRole en rutas de negocio)", () => {
   let tenantId: string;
@@ -20,24 +20,18 @@ describe("permisos por rol (requireRole en rutas de negocio)", () => {
     const emailOperador = `${idUnico("operador")}@test.local`;
     const emailLectura = `${idUnico("lectura")}@test.local`;
 
-    await crearUsuarioService({
-      tenantId,
-      nombre: "Usuario Operador",
-      email: emailOperador,
-      password,
-      rol: "operador",
-    });
-    await crearUsuarioService({
-      tenantId,
-      nombre: "Usuario Lectura",
-      email: emailLectura,
-      password,
-      rol: "lectura",
-    });
+    // usuarios tiene RLS: crearUsuarioService necesita el client de una
+    // transacción withTenant(), no el pool por default.
+    await withTenant(tenantId, (client) =>
+      crearUsuarioService({ tenantId, nombre: "Usuario Operador", email: emailOperador, password, rol: "operador" }, client)
+    );
+    await withTenant(tenantId, (client) =>
+      crearUsuarioService({ tenantId, nombre: "Usuario Lectura", email: emailLectura, password, rol: "lectura" }, client)
+    );
 
-    await agentAdmin.post("/api/auth/login").send({ email: creado.usuario.email, password });
-    await agentOperador.post("/api/auth/login").send({ email: emailOperador, password });
-    await agentLectura.post("/api/auth/login").send({ email: emailLectura, password });
+    await agentAdmin.post("/api/auth/login").send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
+    await agentOperador.post("/api/auth/login").send({ tenantSlug: creado.tenant.slug, email: emailOperador, password });
+    await agentLectura.post("/api/auth/login").send({ tenantSlug: creado.tenant.slug, email: emailLectura, password });
 
     const creadoRepuesto = await agentAdmin.post("/api/erp/repuestos").send({
       codigo: "ROL-001",

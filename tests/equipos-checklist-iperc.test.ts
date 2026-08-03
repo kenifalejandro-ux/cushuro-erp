@@ -2,10 +2,11 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import { app, crearTenantDePrueba, borrarTenantDePrueba } from "./helpers";
 import { crearUsuarioService } from "../src/server/services/auth.service";
-import { closeDatabase } from "../src/server/config/database";
+import { closeDatabase, withTenant } from "../src/server/config/database";
 
 describe("equipos + checklist de pre-uso + IPERC continuo", () => {
   let tenantId: string;
+  let tenantSlug: string;
   let equipoId: number;
   let plantillaId: number;
   let ipercId: number;
@@ -16,7 +17,8 @@ describe("equipos + checklist de pre-uso + IPERC continuo", () => {
   beforeAll(async () => {
     const creado = await crearTenantDePrueba(password);
     tenantId = creado.tenant.id;
-    await agentAdmin.post("/api/auth/login").send({ email: creado.usuario.email, password });
+    tenantSlug = creado.tenant.slug;
+    await agentAdmin.post("/api/auth/login").send({ tenantSlug, email: creado.usuario.email, password });
   });
 
   afterAll(async () => {
@@ -90,10 +92,12 @@ describe("equipos + checklist de pre-uso + IPERC continuo", () => {
 
   it("un operador puede crear IPERC pero no aprobarlo (403); admin sí puede", async () => {
     const emailOperador = `operador-iperc-${Date.now()}@test.local`;
-    await crearUsuarioService({ tenantId, nombre: "Operador", email: emailOperador, password, rol: "operador" });
+    await withTenant(tenantId, (client) =>
+      crearUsuarioService({ tenantId, nombre: "Operador", email: emailOperador, password, rol: "operador" }, client)
+    );
 
     const agentOperador = request.agent(app);
-    await agentOperador.post("/api/auth/login").send({ email: emailOperador, password });
+    await agentOperador.post("/api/auth/login").send({ tenantSlug, email: emailOperador, password });
 
     const intentoOperador = await agentOperador.patch(`/api/erp/iperc/${ipercId}/estado`).send({ estado: "aprobado" });
     expect(intentoOperador.status).toBe(403);
@@ -122,8 +126,8 @@ describe("aislamiento entre tenants: equipos e IPERC", () => {
 
     const agentA = request.agent(app);
     const agentB = request.agent(app);
-    await agentA.post("/api/auth/login").send({ email: a.usuario.email, password });
-    await agentB.post("/api/auth/login").send({ email: b.usuario.email, password });
+    await agentA.post("/api/auth/login").send({ tenantSlug: a.tenant.slug, email: a.usuario.email, password });
+    await agentB.post("/api/auth/login").send({ tenantSlug: b.tenant.slug, email: b.usuario.email, password });
 
     await agentA.post("/api/erp/equipos").send({ placa_codigo: "AAA-111", tipo: "Camioneta" });
     await agentB.post("/api/erp/equipos").send({ placa_codigo: "AAA-111", tipo: "Camioneta" });
