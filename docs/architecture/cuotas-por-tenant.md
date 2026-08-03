@@ -15,7 +15,7 @@ Limita el **volumen** que un tenant puede acumular:
 | `backup_bytes` | Suma de `tamano_bytes` de sus backups existentes | 5 GiB |
 | Uno por módulo | Filas en la tabla que el módulo declare | Ver el registry |
 
-**No** limita frecuencia de requests: eso es rate limiting, un sistema aparte que va por IP y devuelve 429. Y **no cobra nada**: los planes segmentan y aplican límites, pero no hay billing. Levantar un límite es una decisión que se toma en el panel, no pagando.
+**No** limita frecuencia de requests: eso es rate limiting, un sistema aparte (ver más abajo). Y **no cobra nada**: los planes segmentan y aplican límites, pero no hay billing. Levantar un límite es una decisión que se toma en el panel, no pagando.
 
 ### Los defaults por módulo viven en el registry
 
@@ -190,10 +190,39 @@ El `PUT` exige super_admin por el mismo criterio que el toggle global de módulo
 
 ---
 
+## Cuotas vs. rate limiting: dos sistemas distintos
+
+Se confunden seguido, así que conviene tenerlo explícito:
+
+| | Cuotas | Rate limiting |
+|---|---|---|
+| Limita | **Volumen** acumulado | **Frecuencia** de requests |
+| Clave | Tenant | Tenant + IP (`/api/erp/*`) o ruta + IP (auth y panel) |
+| Respuesta | `403 cuota_excedida` | `429 rate_limit_excedido` |
+| Se resuelve | Pidiendo más cupo / subiendo de plan | Esperando |
+| Se configura | Panel, plan, o registry | Variables de entorno |
+
+Un cliente puede chocar con los dos por motivos totalmente distintos, por eso el `error` del cuerpo los distingue sin que haya que parsear texto.
+
+### Rate limit de `/api/erp/*`
+
+Hasta la migración a este esquema, **las rutas de negocio no tenían ningún rate limit**: el limitador genérico solo cubría auth y el panel. Las cuotas frenaban cuántos registros podía acumular un tenant, pero nada le impedía miles de `GET` por segundo.
+
+Ahora `erpRateLimiter` aplica un presupuesto **compartido por todo el tráfico del tenant** (`ERP_RATE_LIMIT_MAX_REQUESTS`, 300/min por default), con clave `erp:{tenantId}:{ip}`. La componente de tenant es lo que evita que un cliente abusivo consuma el cupo de otro detrás del mismo proxy.
+
+A diferencia del limitador genérico —que cuenta **por ruta**, para frenar fuerza bruta contra un endpoint— este cuenta todo junto, porque el abuso que interesa frenar es el volumen total de tráfico.
+
+> **Caso real a tener en cuenta**: un tenant cuyos usuarios salen todos por una IP corporativa (NAT) comparte **un** presupuesto entre todo el personal. Con 300/min y 50 usuarios activos son 6 requests/minuto cada uno, que para un ERP en uso puede quedar corto. Si un cliente reporta 429 en uso normal, **hay que subir el límite: no es un ataque, es NAT.** Por eso es configurable y no una constante.
+
+En `0` queda desactivado, como escotilla de emergencia.
+
+---
+
 ## Fuera de alcance
 
 - **Billing.** Los planes segmentan y aplican límites, pero no cobran nada: no hay integración de pagos, ni fechas de vigencia, ni upgrade automático al excederse. Levantar un límite es una acción del panel, no un pago.
 - **ABM de planes desde el panel.** Se pueden listar, ver y asignar; crear/editar/borrar planes se hace por SQL. Los 4 iniciales cubren la segmentación pensada, y agregar uno es raro.
 - **Avisar al cliente al acercarse al límite.** Hoy la señal es la alerta en la salud del tenant, visible para el dueño de la plataforma, no para el cliente.
+- **Rate limit por PLAN.** El presupuesto de `/api/erp/*` es global (una sola variable de entorno), no un límite por segmento como sí lo son las cuotas de volumen. Diferenciarlo por plan es posible con lo que ya existe —sería otro recurso en `plan_limites`— pero no se hizo: primero conviene medir el tráfico real de un cliente antes de fijar números por tier.
 - **Rate limiting por tenant.** Es otro problema (frecuencia, no volumen) y ya hay rate limiters aparte.
 - **Cuota de almacenamiento de archivos de usuario.** Hoy no existen: `documentos` guarda solo metadata, no archivos. La única superficie de almacenamiento real son los backups.

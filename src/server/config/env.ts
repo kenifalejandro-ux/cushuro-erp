@@ -45,6 +45,15 @@ export const env = {
   recaptchaMinScore: readNumber(process.env.RECAPTCHA_MIN_SCORE, 0.5),
   rateLimitWindowMs: readNumber(process.env.RATE_LIMIT_WINDOW_MS, 60_000),
   rateLimitMaxRequests: readNumber(process.env.RATE_LIMIT_MAX_REQUESTS, 5),
+  // Rate limit de /api/erp/* (middleware/erpRateLimiter.ts) — separado del
+  // genérico de arriba porque miden cosas distintas: aquél es por RUTA (para
+  // frenar fuerza bruta contra un endpoint), éste es un presupuesto
+  // compartido por todo el tráfico de un tenant. En 0 queda desactivado.
+  // Ojo: un tenant detrás de una IP corporativa (NAT) comparte UN
+  // presupuesto entre todo su personal — si reporta 429 en uso normal, hay
+  // que subir este número, no es un ataque.
+  erpRateLimitWindowMs: readNumber(process.env.ERP_RATE_LIMIT_WINDOW_MS, 60_000),
+  erpRateLimitMaxRequests: readNumber(process.env.ERP_RATE_LIMIT_MAX_REQUESTS, 300),
   emailHost: process.env.EMAIL_HOST || "",
   emailPort: readNumber(process.env.EMAIL_PORT, 465),
   emailUser: process.env.EMAIL_USER || "",
