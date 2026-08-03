@@ -6,16 +6,14 @@
  * tenant, y puede restaurar ese export sobre un tenant (vacío, o como
  * "punto de restauración" que reemplaza lo que ese tenant tenga hoy).
  *
- * TABLAS: la misma lista y el mismo orden de dependencias que ya usa
- * tests/helpers.ts (borrarTenantDePrueba) para limpiar un tenant de
- * prueba — se reutiliza ese orden porque ya está probado contra las FK
- * reales, en vez de derivarlo de nuevo acá. A diferencia de ese helper
- * (que no necesita tocar las tablas "hijas" de detalle porque tienen ON
- * DELETE CASCADE desde su padre), acá SÍ hace falta listarlas
- * explícitamente: un backup que omitiera checklist_items/iperc_items/
- * iperc_linea_base_items/checklist_plantilla_items estaría incompleto —
- * ahí vive el contenido real de un checklist o un IPERC, no solo su
- * encabezado.
+ * TABLAS: cada módulo declara sus propias tablas (ver `tablas` en
+ * ModuloDefinicion, src/modules/registry.ts) en orden seguro de INSERT
+ * (padres antes que hijos) — este archivo ya no mantiene esa lista a
+ * mano. Antes de este cambio, un módulo nuevo cuyas tablas no se
+ * agregaran acá quedaba fuera del backup en silencio (sin error, solo sin
+ * exportar esas filas); ahora es automático mientras el módulo declare
+ * `tablas` correctamente en el registry (parte del Contrato de Módulo,
+ * ver docs/adr/0002-contrato-de-modulo.md).
  *
  * SEGURIDAD: el JSON de un backup incluye usuarios.password_hash (bcrypt,
  * nunca en texto plano) — mismo nivel de sensibilidad que tenerlo en la
@@ -25,54 +23,30 @@
 import { randomUUID } from "crypto";
 import type { PoolClient } from "pg";
 import { pool, withTenant } from "../config/database";
+import { logger } from "../config/logger";
 import { AppError } from "../shared/middlewares/error.middleware";
+import { MODULOS } from "../../modules/registry";
+import type { TablaBackupMeta } from "../../modules/types";
 import { registrarAuditoria, type ContextoAuditoria } from "./platformAudit.service";
-import { guardarArchivoBackup, leerArchivoBackup } from "./platformBackupStorage";
+import { guardarBackup, leerBackup, driverDeEscritura, type DriverStorage } from "./platformBackupStorage";
+import { construirKeyTenant } from "./platformBackupS3";
 
-interface MetaTabla {
-  nombre: string;
-  pk: "serial" | "uuid";
-  // Columnas GENERATED ALWAYS AS (...) STORED — Postgres rechaza un
-  // INSERT que las mencione explícitamente.
-  columnasExcluidasAlRestaurar?: string[];
-  // Columnas FK hacia otra tabla de este mismo backup — solo hace falta
-  // declararlas cuando se restaura con remapeo de ids (ver
-  // restaurarTablas): { columnaFK: tablaReferenciada }.
-  fks?: Record<string, string>;
-}
+type MetaTabla = TablaBackupMeta;
 
-// Orden de INSERT en restore: padres antes que hijos, respetando cada FK
-// real (ver migrations/0001, 0002, 0006, 0007). El wipe (DELETE) en
-// restaurarBackupService recorre esta misma lista al revés.
-const TABLAS_TENANT: MetaTabla[] = [
-  { nombre: "usuarios", pk: "uuid" },
-  { nombre: "equipos", pk: "serial" },
-  { nombre: "checklist_plantillas", pk: "serial" },
-  { nombre: "checklist_plantilla_items", pk: "serial", fks: { plantilla_id: "checklist_plantillas" } },
-  { nombre: "checklists", pk: "serial", fks: { equipo_id: "equipos", plantilla_id: "checklist_plantillas", usuario_id: "usuarios" } },
-  { nombre: "checklist_items", pk: "serial", fks: { checklist_id: "checklists" } },
-  { nombre: "iperc_lineas_base", pk: "serial", fks: { aprobado_por: "usuarios", creado_por: "usuarios" } },
-  {
-    nombre: "iperc_linea_base_items",
-    pk: "serial",
-    columnasExcluidasAlRestaurar: ["nivel_riesgo"],
-    fks: { linea_base_id: "iperc_lineas_base" },
-  },
-  {
-    nombre: "ipercs",
-    pk: "serial",
-    fks: { equipo_id: "equipos", usuario_id: "usuarios", aprobado_por: "usuarios", linea_base_id: "iperc_lineas_base" },
-  },
-  {
-    nombre: "iperc_items",
-    pk: "serial",
-    columnasExcluidasAlRestaurar: ["nivel_riesgo"],
-    fks: { iperc_id: "ipercs", linea_base_item_id: "iperc_linea_base_items" },
-  },
-  { nombre: "repuestos", pk: "serial" },
-  { nombre: "combustible", pk: "serial" },
-  { nombre: "documentos", pk: "serial" },
-];
+// usuarios no es tabla de ningún módulo (es parte del núcleo de auth) —
+// va primero porque checklists/ipercs la referencian por FK (usuario_id).
+// El resto se concatena en el orden del registry; equipos antes de
+// checklists antes de iperc ya queda garantizado por ese orden (ver
+// registry.ts) — módulos independientes entre sí (repuestos, combustible,
+// documentos) pueden ir en cualquier posición relativa.
+const TABLAS_TENANT: MetaTabla[] = [{ nombre: "usuarios", pk: "uuid" }, ...MODULOS.flatMap((m) => m.tablas)];
+
+// Orden de DELETE al vaciar un tenant: el inverso del orden de "raíces"
+// declarado por cada módulo (ver `raices` en ModuloDefinicion) — invertir
+// un orden válido de INSERT (padres antes que hijos) siempre da un orden
+// válido de DELETE (hijos antes que padres). usuarios se borra al final,
+// por la misma razón que se inserta primero.
+const RAICES_WIPE: string[] = [...MODULOS.flatMap((m) => m.raices)].reverse();
 
 interface ContenidoBackup {
   version: 1;
@@ -87,10 +61,28 @@ export interface TenantBackup {
   id: string;
   tenantId: string;
   archivo: string;
+  /** Driver con el que se escribió ESTE backup — no el configurado hoy.
+   *  Ver platformBackupStorage.ts sobre por qué son cosas distintas. */
+  storage: DriverStorage;
+  storageKey: string;
   tamanoBytes: number;
   tablas: Record<string, number>;
   estado: "completo" | "fallido";
   creadoEn: string;
+}
+
+/** `tamano_bytes` es BIGINT y node-pg devuelve los BIGINT como STRING (no
+ *  como number), porque un int64 no siempre entra en un double de JS. Sin
+ *  esta conversión el tipo de arriba miente: cualquier consumidor que
+ *  sumara tamaños obtendría concatenación de strings ("100"+"200"="100200")
+ *  y cualquier comparación estricta contra un number fallaría en silencio.
+ *  Se detectó comparando el ContentLength real de S3 contra el valor
+ *  guardado en la base: imprimían igual y `===` daba false.
+ *
+ *  Number() es seguro acá: pierde precisión recién por encima de 2^53
+ *  bytes (9 PB), y un backup de un tenant no se acerca ni de lejos. */
+function normalizarFilaBackup<T extends { tamanoBytes: unknown }>(fila: T): T & { tamanoBytes: number } {
+  return { ...fila, tamanoBytes: Number(fila.tamanoBytes) };
 }
 
 export async function exportarTenantService(tenantId: string, contexto: ContextoAuditoria): Promise<TenantBackup> {
@@ -99,47 +91,85 @@ export async function exportarTenantService(tenantId: string, contexto: Contexto
     throw new AppError(404, "Tenant no encontrado");
   }
 
-  // withTenant() por las tablas con RLS (todas, salvo la propia
-  // tenants) — una sola transacción de solo lectura para todo el export.
-  const tablas: Record<string, Record<string, unknown>[]> = await withTenant(tenantId, async (client) => {
-    const resultado: Record<string, Record<string, unknown>[]> = {};
-    for (const { nombre } of TABLAS_TENANT) {
-      const filas = await client.query(`SELECT * FROM ${nombre} WHERE tenant_id = $1 ORDER BY id`, [tenantId]);
-      resultado[nombre] = filas.rows;
-    }
-    return resultado;
-  });
+  // Todo lo que pueda fallar de acá en adelante (leer la base, comprimir/
+  // cifrar, hablar con S3) queda envuelto: un backup que falla en silencio
+  // es peor que no tener backups, porque genera confianza infundada. Cada
+  // fallo deja rastro en platform_audit_log con resultado 'failure' Y un
+  // log estructurado de nivel ERROR — ver el catch.
+  try {
+    // withTenant() por las tablas con RLS (todas, salvo la propia
+    // tenants) — una sola transacción de solo lectura para todo el export.
+    const tablas: Record<string, Record<string, unknown>[]> = await withTenant(tenantId, async (client) => {
+      const resultado: Record<string, Record<string, unknown>[]> = {};
+      for (const { nombre } of TABLAS_TENANT) {
+        const filas = await client.query(`SELECT * FROM ${nombre} WHERE tenant_id = $1 ORDER BY id`, [tenantId]);
+        resultado[nombre] = filas.rows;
+      }
+      return resultado;
+    });
 
-  const backup: ContenidoBackup = {
-    version: 1,
-    tenantId,
-    tenantSlug: tenant.rows[0].slug,
-    tenantNombre: tenant.rows[0].nombre,
-    creadoEn: new Date().toISOString(),
-    tablas,
-  };
+    const backup: ContenidoBackup = {
+      version: 1,
+      tenantId,
+      tenantSlug: tenant.rows[0].slug,
+      tenantNombre: tenant.rows[0].nombre,
+      creadoEn: new Date().toISOString(),
+      tablas,
+    };
 
-  const resumenTablas = Object.fromEntries(Object.entries(tablas).map(([nombre, filas]) => [nombre, filas.length]));
-  const contenidoSerializado = JSON.stringify(backup);
-  const nombreArchivo = `${tenantId}-${Date.now()}.json`;
+    const resumenTablas = Object.fromEntries(Object.entries(tablas).map(([nombre, filas]) => [nombre, filas.length]));
+    const contenidoSerializado = JSON.stringify(backup);
+    const key = construirKeyTenant(tenantId);
 
-  await guardarArchivoBackup(nombreArchivo, contenidoSerializado);
+    // `bytes` es el tamaño YA comprimido y cifrado (lo que realmente ocupa
+    // en el bucket), no el del JSON original — es el número que importa
+    // para costos y para detectar un backup sospechosamente chico.
+    const { ubicacion, bytes } = await guardarBackup(key, contenidoSerializado, {
+      tenant_id: tenantId,
+      tenant_slug: tenant.rows[0].slug,
+    });
 
-  const registro = await pool.query(
-    `INSERT INTO tenant_backups (tenant_id, archivo, tamano_bytes, tablas, estado)
-     VALUES ($1, $2, $3, $4, 'completo')
-     RETURNING id, tenant_id AS "tenantId", archivo, tamano_bytes AS "tamanoBytes", tablas, estado, creado_en AS "creadoEn"`,
-    [tenantId, nombreArchivo, Buffer.byteLength(contenidoSerializado), JSON.stringify(resumenTablas)]
-  );
+    const registro = await pool.query(
+      `INSERT INTO tenant_backups (tenant_id, archivo, storage, storage_key, tamano_bytes, tablas, estado)
+       VALUES ($1, $2, $3, $4, $5, $6, 'completo')
+       RETURNING id, tenant_id AS "tenantId", archivo, storage, storage_key AS "storageKey",
+                 tamano_bytes AS "tamanoBytes", tablas, estado, creado_en AS "creadoEn"`,
+      [tenantId, key, ubicacion.storage, key, bytes, JSON.stringify(resumenTablas)]
+    );
 
-  await registrarAuditoria({
-    accion: "crear_backup_tenant",
-    tenantId,
-    detalle: { backupId: registro.rows[0].id, archivo: nombreArchivo, tablas: resumenTablas },
-    contexto,
-  });
+    await registrarAuditoria({
+      accion: "crear_backup_tenant",
+      tenantId,
+      detalle: {
+        backupId: registro.rows[0].id,
+        storage: ubicacion.storage,
+        storageKey: key,
+        tamanoBytes: bytes,
+        tablas: resumenTablas,
+      },
+      contexto,
+    });
 
-  return registro.rows[0];
+    return normalizarFilaBackup(registro.rows[0]);
+  } catch (err) {
+    // Nivel ERROR, no warn: quedarse sin backup de un tenant es un
+    // incidente operativo, tiene que despertar a alguien.
+    logger.error({ err, tenantId, storage: driverDeEscritura() }, "Falló la creación del backup de un tenant");
+
+    await registrarAuditoria({
+      accion: "crear_backup_tenant",
+      tenantId,
+      detalle: { storage: driverDeEscritura(), error: err instanceof Error ? err.message : String(err) },
+      contexto,
+      resultado: "failure",
+    });
+
+    // Un AppError ya trae el status correcto (503 si falta configuración de
+    // cifrado, etc.) y se propaga tal cual; cualquier otra cosa se
+    // normaliza a 500 sin filtrar el mensaje interno al cliente.
+    if (err instanceof AppError) throw err;
+    throw new AppError(500, "No se pudo crear el backup del tenant");
+  }
 }
 
 export async function listarBackupsTenantService(tenantId: string): Promise<TenantBackup[]> {
@@ -149,26 +179,21 @@ export async function listarBackupsTenantService(tenantId: string): Promise<Tena
   }
 
   const result = await pool.query(
-    `SELECT id, tenant_id AS "tenantId", archivo, tamano_bytes AS "tamanoBytes", tablas, estado, creado_en AS "creadoEn"
+    `SELECT id, tenant_id AS "tenantId", archivo, storage, storage_key AS "storageKey",
+            tamano_bytes AS "tamanoBytes", tablas, estado, creado_en AS "creadoEn"
      FROM tenant_backups WHERE tenant_id = $1 ORDER BY creado_en DESC`,
     [tenantId]
   );
-  return result.rows;
+  return result.rows.map(normalizarFilaBackup);
 }
 
-/** Wipe en orden que respeta las FK — el reverso del orden de inserción
- *  de TABLAS_TENANT. Se apoya en ON DELETE CASCADE de las tablas "hijas"
- *  (checklist_items, checklist_plantilla_items, iperc_items,
- *  iperc_linea_base_items) igual que tests/helpers.ts. */
+/** Wipe en orden que respeta las FK — ver RAICES_WIPE. Se apoya en ON
+ *  DELETE CASCADE de las tablas "hijas" de cada módulo (las que no
+ *  aparecen en `raices`) igual que tests/helpers.ts. */
 async function vaciarDatosDeTenant(client: PoolClient, tenantId: string): Promise<void> {
-  await client.query(`DELETE FROM checklists WHERE tenant_id = $1`, [tenantId]);
-  await client.query(`DELETE FROM checklist_plantillas WHERE tenant_id = $1`, [tenantId]);
-  await client.query(`DELETE FROM ipercs WHERE tenant_id = $1`, [tenantId]);
-  await client.query(`DELETE FROM iperc_lineas_base WHERE tenant_id = $1`, [tenantId]);
-  await client.query(`DELETE FROM equipos WHERE tenant_id = $1`, [tenantId]);
-  await client.query(`DELETE FROM repuestos WHERE tenant_id = $1`, [tenantId]);
-  await client.query(`DELETE FROM combustible WHERE tenant_id = $1`, [tenantId]);
-  await client.query(`DELETE FROM documentos WHERE tenant_id = $1`, [tenantId]);
+  for (const tabla of RAICES_WIPE) {
+    await client.query(`DELETE FROM ${tabla} WHERE tenant_id = $1`, [tenantId]);
+  }
   await client.query(`DELETE FROM usuarios WHERE tenant_id = $1`, [tenantId]);
 }
 
@@ -277,29 +302,72 @@ export async function restaurarBackupService(
     throw new AppError(404, "Tenant destino no encontrado");
   }
 
-  const crudo = await leerArchivoBackup(backupRow.rows[0].archivo);
-  const backup = JSON.parse(crudo) as ContenidoBackup;
-  const remapearIds = targetTenantId !== backup.tenantId;
+  // storage/storage_key vienen de la fila, NO del entorno: un backup escrito
+  // en disco antes de migrar a S3 se sigue leyendo de disco (y viceversa).
+  // El `?? archivo` cubre cualquier fila anterior a la migración 0032 que
+  // no hubiera pasado por el backfill.
+  const ubicacion = {
+    storage: (backupRow.rows[0].storage ?? "local") as DriverStorage,
+    key: backupRow.rows[0].storage_key ?? backupRow.rows[0].archivo,
+  };
 
-  const tablasRestauradas = await withTenant(targetTenantId, async (client) => {
-    await vaciarDatosDeTenant(client, targetTenantId);
-    const resultado = await restaurarTablas(client, backup, targetTenantId, remapearIds);
+  try {
+    const crudo = await leerBackup(ubicacion);
+    const backup = JSON.parse(crudo) as ContenidoBackup;
+    const remapearIds = targetTenantId !== backup.tenantId;
 
-    if (resultado.usuarios > 0) {
-      await client.query(`UPDATE usuarios SET token_version = token_version + 1000 WHERE tenant_id = $1`, [
-        targetTenantId,
-      ]);
-    }
+    const tablasRestauradas = await withTenant(targetTenantId, async (client) => {
+      await vaciarDatosDeTenant(client, targetTenantId);
+      const resultado = await restaurarTablas(client, backup, targetTenantId, remapearIds);
 
-    return resultado;
-  });
+      if (resultado.usuarios > 0) {
+        await client.query(`UPDATE usuarios SET token_version = token_version + 1000 WHERE tenant_id = $1`, [
+          targetTenantId,
+        ]);
+      }
 
-  await registrarAuditoria({
-    accion: "restaurar_backup_tenant",
-    tenantId: targetTenantId,
-    detalle: { backupId, backupTenantOriginal: backup.tenantId, tablasRestauradas },
-    contexto,
-  });
+      return resultado;
+    });
 
-  return { tablasRestauradas };
+    await registrarAuditoria({
+      accion: "restaurar_backup_tenant",
+      tenantId: targetTenantId,
+      detalle: {
+        backupId,
+        backupTenantOriginal: backup.tenantId,
+        storage: ubicacion.storage,
+        storageKey: ubicacion.key,
+        tablasRestauradas,
+      },
+      contexto,
+    });
+
+    return { tablasRestauradas };
+  } catch (err) {
+    // Un restore fallido es más grave que un backup fallido: pasa durante
+    // un incidente, y si falló DESPUÉS del vaciado el tenant puede haber
+    // quedado a medias. No es el caso —restaurarTablas corre dentro de la
+    // transacción de withTenant(), así que un fallo ahí hace ROLLBACK
+    // completo—, pero el registro tiene que permitir reconstruir qué pasó.
+    logger.error(
+      { err, backupId, targetTenantId, storage: ubicacion.storage, storageKey: ubicacion.key },
+      "Falló la restauración de un backup de tenant"
+    );
+
+    await registrarAuditoria({
+      accion: "restaurar_backup_tenant",
+      tenantId: targetTenantId,
+      detalle: {
+        backupId,
+        storage: ubicacion.storage,
+        storageKey: ubicacion.key,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      contexto,
+      resultado: "failure",
+    });
+
+    if (err instanceof AppError) throw err;
+    throw new AppError(500, "No se pudo restaurar el backup");
+  }
 }

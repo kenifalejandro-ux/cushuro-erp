@@ -129,6 +129,49 @@ export const env = {
   // propósito, para que pasar a S3-compatible el día que haga falta sea
   // cambiar ese archivo, no el resto del flujo de export/restore.
   backupsDir: process.env.BACKUPS_DIR || path.resolve(rootDir, "backups"),
+  // --- BACKUPS EN S3 (ver docs/architecture/backups-s3.md) ---
+  // "local" (default) o "s3". Deliberadamente explícito en vez de inferir
+  // el driver de "¿hay S3_BUCKET_NAME?": una variable de S3 a medio
+  // configurar no debe cambiar en silencio dónde se guardan los backups.
+  // El driver solo decide dónde se ESCRIBE lo nuevo — la lectura siempre
+  // respeta el driver con el que se escribió cada backup (columna
+  // `storage` en tenant_backups/platform_backups), así los backups viejos
+  // en disco se siguen pudiendo restaurar después de migrar a S3.
+  backupStorageDriver: (process.env.BACKUP_STORAGE_DRIVER || "local").toLowerCase(),
+  s3BucketName: process.env.S3_BUCKET_NAME || "",
+  s3Region: process.env.S3_REGION || process.env.AWS_REGION || "us-east-1",
+  // Vacío = AWS real. Seteado = S3-compatible (Cloudflare R2, MinIO,
+  // Backblaze B2): ahí también suele hacer falta S3_FORCE_PATH_STYLE=true,
+  // porque el virtual-host style (bucket.endpoint) no siempre existe.
+  s3Endpoint: process.env.S3_ENDPOINT || "",
+  s3ForcePathStyle: process.env.S3_FORCE_PATH_STYLE === "true",
+  // Vacías = el SDK resuelve credenciales por su cadena estándar (IAM role
+  // de la instancia/task, ~/.aws/credentials, etc.) — el camino preferible
+  // en AWS real, porque evita tener secretos de larga vida en el entorno.
+  s3AccessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
+  s3SecretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
+  // Cifrado del lado del cliente, ANTES de subir (ver backupCrypto.ts) —
+  // no reemplaza SSE-S3, se combina con él. Separada de APP_ENCRYPTION_KEY
+  // a propósito: un backup cifrado tiene que poder restaurarse en un
+  // entorno nuevo (DR) donde la clave de secretos de la app puede haber
+  // rotado. Base64 de 32 bytes: `openssl rand -base64 32`.
+  backupEncryptionKey: process.env.BACKUP_ENCRYPTION_KEY || "",
+  // Server-side encryption que se le pide a S3 además del cifrado de
+  // cliente. "AES256" (SSE-S3) por default; "aws:kms" requiere además
+  // S3_SSE_KMS_KEY_ID. Vacío lo desactiva (algunos S3-compatible no lo
+  // soportan y rechazan el header).
+  s3ServerSideEncryption: process.env.S3_SERVER_SIDE_ENCRYPTION ?? "AES256",
+  s3SseKmsKeyId: process.env.S3_SSE_KMS_KEY_ID || "",
+  // Retención de backups (platformBackupRetention.worker.ts). En 0
+  // (default) el worker no borra NADA — mismo criterio que la retención de
+  // auditoría: activar el borrado automático de backups es una decisión de
+  // negocio, no algo que este código deba asumir solo.
+  backupRetentionDiarioDias: readNumber(process.env.BACKUP_RETENTION_DIARIO_DIAS, 0),
+  backupRetentionMensualMeses: readNumber(process.env.BACKUP_RETENTION_MENSUAL_MESES, 0),
+  backupRetentionCheckIntervalMs: readNumber(
+    process.env.BACKUP_RETENTION_CHECK_INTERVAL_MS,
+    24 * 60 * 60_000
+  ),
   // Clave de cifrado reversible para secretos de plataforma (hoy: el
   // client_secret OIDC de tenant_sso_config) — ver platformCrypto.ts.
   // Deliberadamente separada de JWT_SECRET: son cosas distintas (firmar vs

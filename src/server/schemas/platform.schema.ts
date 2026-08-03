@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MODULOS_ERP as MODULOS_ERP_REGISTRY } from "../../modules/registry";
 
 export const crearTenantSchema = z.object({
   tenantNombre: z.string().trim().min(1, "Nombre de tenant requerido").max(200),
@@ -23,18 +24,11 @@ export const cambiarEstadoTenantSchema = z.object({
 
 export type CambiarEstadoTenantInput = z.infer<typeof cambiarEstadoTenantSchema>;
 
-// Mismo set de 7 módulos que el enum modulo_erp en
-// migrations/0008_platform_modulos.sql — mantenerlos sincronizados si se
-// agrega un módulo nuevo.
-export const MODULOS_ERP = [
-  "repuestos",
-  "combustible",
-  "documentos",
-  "dashboard",
-  "equipos",
-  "checklists",
-  "iperc",
-] as const;
+// Derivado de src/modules/registry.ts — la fuente única de qué módulos
+// existen (ver docs/adr/0002-contrato-de-modulo.md). El cast solo satisface
+// la forma que z.enum() exige (tupla no vacía); tests/module-registry.test.ts
+// verifica que este set siga coincidiendo con el enum modulo_erp de Postgres.
+export const MODULOS_ERP = MODULOS_ERP_REGISTRY as [string, ...string[]];
 
 // Para /tenants/:tenantId/usuarios/:usuarioId/modulos — asignación cruda,
 // sin estado propio (ver usuario_modulos, sigue siendo solo presencia).
@@ -153,6 +147,17 @@ export const restaurarBackupSchema = z.object({
 });
 
 export type RestaurarBackupInput = z.infer<typeof restaurarBackupSchema>;
+
+// Restaurar un backup de plataforma es aditivo (nunca borra, ver
+// restaurarBackupPlataformaService) — pero igual exige confirmar:true,
+// mismo criterio que el restore de tenant: reinsertar tenants/admins que
+// alguien borró a propósito tiene que ser una decisión explícita. No lleva
+// targetTenantId porque no aplica a ningún tenant en particular.
+export const restaurarBackupPlataformaSchema = z.object({
+  confirmar: z.literal(true, { message: "Hay que mandar confirmar: true para restaurar" }),
+});
+
+export type RestaurarBackupPlataformaInput = z.infer<typeof restaurarBackupPlataformaSchema>;
 
 // SSO por tenant (ver tenant_sso_config, migrations/0026). clientSecret es
 // obligatorio en cada guardado a propósito — ver el comentario en

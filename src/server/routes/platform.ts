@@ -25,6 +25,7 @@ import { consultarIdempotencia, liberarIdempotencia } from "../services/platform
 import { buscarRespuestaPorClave, escribirEventoOutbox } from "../services/platformOutbox.service";
 import "../services/platformOutbox.worker"; // se activa solo con importarse (setInterval + .unref())
 import "../services/platformAuditRetention.worker"; // ídem — deshabilitado si PLATFORM_AUDIT_RETENTION_DAYS no está seteado
+import "../services/platformBackupRetention.worker"; // ídem — deshabilitado si las dos BACKUP_RETENTION_* no están seteadas
 import {
   crearTenantSchema,
   cambiarEstadoTenantSchema,
@@ -40,6 +41,7 @@ import {
   crearPlatformAdminSchema,
   cambiarEstadoPlatformAdminSchema,
   restaurarBackupSchema,
+  restaurarBackupPlataformaSchema,
   type ActualizarModuloGlobalInput,
 } from "../schemas/platform.schema";
 import {
@@ -70,6 +72,11 @@ import {
   listarBackupsTenantService,
   restaurarBackupService,
 } from "../services/platformBackup.service";
+import {
+  exportarPlataformaService,
+  listarBackupsPlataformaService,
+  restaurarBackupPlataformaService,
+} from "../services/platformBackupPlataforma.service";
 import {
   verificarCredencialesPlatformAdminService,
   listarPlatformAdminsService,
@@ -513,6 +520,52 @@ export function createPlatformRouter() {
       try {
         const { targetTenantId } = req.validatedBody as { targetTenantId: string; confirmar: true };
         const resultado = await restaurarBackupService(req.params.backupId, targetTenantId, contextoDe(req));
+        res.status(200).json({ ok: true, ...resultado });
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // ── Backups de la capa de plataforma ──────────────────────────────────
+  // Rutas separadas de /tenants/:id/backups a propósito: no pertenecen a
+  // ningún tenant y su contenido es el más sensible del sistema
+  // (password_hash de admins, secretos de SSO) — ver
+  // platformBackupPlataforma.service.ts.
+
+  router.get("/backups/plataforma", async (_req, res, next) => {
+    try {
+      const backups = await listarBackupsPlataformaService();
+      res.status(200).json({ ok: true, backups });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Crear el backup exige super_admin: a diferencia del backup de un
+  // tenant (que solo copia datos que ese admin ya puede ver por el panel),
+  // éste materializa en un solo archivo los hashes de contraseña de TODOS
+  // los admins de plataforma y los secretos de SSO de todos los clientes.
+  router.post("/backups/plataforma", platformSuperAdminMiddleware, async (req, res, next) => {
+    try {
+      const backup = await exportarPlataformaService(contextoDe(req));
+      res.status(201).json({ ok: true, backup });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Aditivo, nunca destructivo (ver restaurarBackupPlataformaService), pero
+  // igual gateado a super_admin + confirmar:true: reinsertar tenants o
+  // admins borrados es una operación de recuperación ante desastre, no algo
+  // que deba poder dispararse de un click distraído.
+  router.post(
+    "/backups/plataforma/:backupId/restaurar",
+    platformSuperAdminMiddleware,
+    validate(restaurarBackupPlataformaSchema),
+    async (req, res, next) => {
+      try {
+        const resultado = await restaurarBackupPlataformaService(req.params.backupId, contextoDe(req));
         res.status(200).json({ ok: true, ...resultado });
       } catch (err) {
         next(err);
