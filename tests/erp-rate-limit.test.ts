@@ -1,10 +1,9 @@
 /** tests/erp-rate-limit.test.ts
  *
- * Rate limit de /api/erp/* en dos niveles (middleware/erpRateLimiter.ts).
- * Ver docs/architecture/cuotas-por-tenant.md.
+ * Rate limit de /api/erp/* en dos niveles (middleware/erpRateLimiter.ts +
+ * platformRateLimitCuota.ts). Ver docs/architecture/cuotas-por-tenant.md.
  *
- * Lo importante a blindar son las dos propiedades que hacen que este diseño
- * sirva y que no son obvias:
+ * Tres propiedades que hacen que este diseño sirva y que no son obvias:
  *
  *   1. Se cuenta por USUARIO, no por IP. En este despliegue la IP no
  *      identifica a nadie: los de oficina comparten el NAT de la empresa y
@@ -13,24 +12,29 @@
  *      separados.
  *
  *   2. Un usuario que choca contra su fusible NO consume el presupuesto del
- *      tenant. Si lo hiciera, un script descontrolado bloquearía a los
- *      compañeros — el daño que el nivel por usuario existe para contener.
+ *      tenant, o un script descontrolado bloquearía a sus compañeros.
  *
- * Los límites se ajustan mutando `env` (el middleware los lee en cada
- * request) en vez de mandar cientos de requests: mismo patrón que los tests
- * de backups con el driver de storage.
+ *   3. El techo del tenant se cachea (Redis, TTL 300s) para no consultar
+ *      Postgres en cada request — pero se invalida al guardarlo, o cambiarlo
+ *      en el panel no tendría efecto por 5 minutos.
+ *
+ * El fusible personal se ajusta mutando `env` (el middleware lo lee en cada
+ * request); el techo del tenant, guardando el override real en la base, que
+ * es como funciona en producción.
  */
 import { describe, it, expect, afterAll, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import { app, crearTenantDePrueba, borrarTenantDePrueba, idUnico } from "./helpers";
 import { env } from "../src/server/config/env";
 import { closeDatabase } from "../src/server/config/database";
+import { fijarCuotaTenant } from "../src/server/services/platformCuotas.service";
+import { RECURSO_RATE_LIMIT, resolverRateLimitTenant } from "../src/server/services/platformRateLimitCuota";
 
 const password = "ClaveDePrueba123";
 const BEARER = `Bearer ${env.platformAdminToken}`;
 const tenantsCreados: string[] = [];
 const usuarioMaxOriginal = env.erpRateLimitUsuarioMax;
-const tenantMaxOriginal = env.erpRateLimitTenantMax;
+const tenantDefaultOriginal = env.erpRateLimitTenantDefault;
 
 async function nuevoTenantConAgente() {
   const { tenant, usuario } = await crearTenantDePrueba(password);
@@ -56,20 +60,27 @@ async function segundoUsuarioDe(tenant: { id: string; slug: string }) {
   return agente;
 }
 
+/** El techo del tenant es un override real en tenant_cuotas, igual que en
+ *  producción — no una variable de entorno. `fijarCuotaTenant` invalida el
+ *  caché sola, que es justamente parte de lo que hay que probar. */
+async function fijarTecho(tenantId: string, rpm: number | null | undefined) {
+  await fijarCuotaTenant(tenantId, RECURSO_RATE_LIMIT, rpm, "test");
+}
+
 beforeEach(() => {
   env.erpRateLimitWindowMs = 60_000; // ventana larga: nada expira a mitad de un test
   env.erpRateLimitUsuarioMax = 100000;
-  env.erpRateLimitTenantMax = 100000;
+  env.erpRateLimitTenantDefault = 100000;
 });
 
 afterEach(() => {
   env.erpRateLimitUsuarioMax = usuarioMaxOriginal;
-  env.erpRateLimitTenantMax = tenantMaxOriginal;
+  env.erpRateLimitTenantDefault = tenantDefaultOriginal;
 });
 
 afterAll(async () => {
   env.erpRateLimitUsuarioMax = usuarioMaxOriginal;
-  env.erpRateLimitTenantMax = tenantMaxOriginal;
+  env.erpRateLimitTenantDefault = tenantDefaultOriginal;
   for (const id of tenantsCreados) await borrarTenantDePrueba(id);
   await closeDatabase();
 });
@@ -101,7 +112,6 @@ describe("nivel 1: fusible por usuario", () => {
     await primero.get("/api/erp/equipos");
     expect((await primero.get("/api/erp/equipos")).status).toBe(429);
 
-    // El segundo, misma empresa y misma IP, entra sin problema.
     expect((await segundo.get("/api/erp/equipos")).status).toBe(200);
   });
 
@@ -127,10 +137,45 @@ describe("nivel 1: fusible por usuario", () => {
   });
 });
 
-describe("nivel 2: techo del tenant", () => {
-  it("devuelve 429 con nivel 'tenant' y un mensaje distinto al personal", async () => {
-    const { agente } = await nuevoTenantConAgente();
-    env.erpRateLimitTenantMax = 2;
+describe("nivel 2: techo del tenant, resuelto en dos capas", () => {
+  it("sin override usa el fallback global", async () => {
+    const { tenant } = await nuevoTenantConAgente();
+    env.erpRateLimitTenantDefault = 4321;
+
+    expect(await resolverRateLimitTenant(tenant.id)).toBe(4321);
+  });
+
+  it("un override en tenant_cuotas manda sobre el fallback global", async () => {
+    const { tenant } = await nuevoTenantConAgente();
+    env.erpRateLimitTenantDefault = 4321;
+    await fijarTecho(tenant.id, 77);
+
+    expect(await resolverRateLimitTenant(tenant.id)).toBe(77);
+  });
+
+  it("borrar el override devuelve el tenant al fallback global", async () => {
+    const { tenant } = await nuevoTenantConAgente();
+    env.erpRateLimitTenantDefault = 4321;
+    await fijarTecho(tenant.id, 77);
+    expect(await resolverRateLimitTenant(tenant.id)).toBe(77);
+
+    await fijarTecho(tenant.id, undefined); // borra la fila
+    expect(await resolverRateLimitTenant(tenant.id)).toBe(4321);
+  });
+
+  it("un override en NULL significa SIN TECHO, no 'usá el default'", async () => {
+    // Si `null` se confundiera con ausencia, el tenant caería al fallback y
+    // terminaría con un tope que alguien quitó a propósito.
+    const { tenant } = await nuevoTenantConAgente();
+    env.erpRateLimitTenantDefault = 4321;
+    await fijarTecho(tenant.id, null);
+
+    expect(await resolverRateLimitTenant(tenant.id)).toBeNull();
+  });
+
+  it("el override efectivamente bloquea, con nivel 'tenant' y un mensaje distinto al personal", async () => {
+    const { agente, tenant } = await nuevoTenantConAgente();
+    await fijarTecho(tenant.id, 2);
 
     await agente.get("/api/erp/equipos");
     await agente.get("/api/erp/equipos");
@@ -139,37 +184,84 @@ describe("nivel 2: techo del tenant", () => {
     expect(bloqueado.status).toBe(429);
     expect(bloqueado.body.error).toBe("rate_limit_tenant");
     expect(bloqueado.body.nivel).toBe("tenant");
-    // Los mensajes tienen que ser distintos: uno se arregla esperando, el
-    // otro es señal de que la empresa necesita atención.
+    // Uno se arregla esperando, el otro es señal de que la empresa necesita
+    // atención: los mensajes tienen que ser distintos.
     expect(bloqueado.body.message).toMatch(/empresa/i);
   });
 
-  it("alcanza a TODOS los usuarios del tenant, aunque cada uno tenga cupo personal", async () => {
+  it("alcanza a TODOS los usuarios del tenant, aunque cada uno tenga cupo personal de sobra", async () => {
     const { agente: primero, tenant } = await nuevoTenantConAgente();
     const segundo = await segundoUsuarioDe(tenant);
     env.erpRateLimitUsuarioMax = 100; // el fusible personal no se toca
-    env.erpRateLimitTenantMax = 2;
+    await fijarTecho(tenant.id, 2);
 
     await primero.get("/api/erp/equipos");
     await primero.get("/api/erp/equipos");
 
-    // El segundo usuario tiene cupo personal de sobra, pero la empresa ya
-    // agotó el suyo.
     const bloqueado = await segundo.get("/api/erp/equipos");
     expect(bloqueado.status).toBe(429);
     expect(bloqueado.body.nivel).toBe("tenant");
   });
 
-  it("el techo de un tenant no afecta a otro", async () => {
+  it("DOS tenants con límites distintos funcionan en paralelo", async () => {
     const a = await nuevoTenantConAgente();
     const b = await nuevoTenantConAgente();
-    env.erpRateLimitTenantMax = 2;
+    await fijarTecho(a.tenant.id, 2); // apretado
+    await fijarTecho(b.tenant.id, 50); // holgado
 
     await a.agente.get("/api/erp/equipos");
     await a.agente.get("/api/erp/equipos");
     expect((await a.agente.get("/api/erp/equipos")).status).toBe(429);
 
-    expect((await b.agente.get("/api/erp/equipos")).status).toBe(200);
+    // B tiene su propio número y sigue trabajando.
+    for (let i = 0; i < 5; i++) {
+      expect((await b.agente.get("/api/erp/equipos")).status).toBe(200);
+    }
+  });
+});
+
+describe("caché del techo e invalidación", () => {
+  it("cambiar el límite tiene efecto INMEDIATO, no cuando vence el TTL", async () => {
+    // Sin invalidación explícita, el admin cambiaría el límite en el panel,
+    // no pasaría nada por 5 minutos, y volvería a cambiarlo pensando que
+    // falló. Este test es el que protege contra eso.
+    const { agente, tenant } = await nuevoTenantConAgente();
+    await fijarTecho(tenant.id, 100);
+
+    // Un request primero, para que el valor quede cacheado.
+    expect((await agente.get("/api/erp/equipos")).status).toBe(200);
+    expect(await resolverRateLimitTenant(tenant.id)).toBe(100);
+
+    // Se baja el techo: la invalidación tiene que hacerlo visible ya.
+    await fijarTecho(tenant.id, 1);
+    expect(await resolverRateLimitTenant(tenant.id)).toBe(1);
+  });
+
+  it("la invalidación también aplica al guardar desde el endpoint del panel", async () => {
+    const { tenant } = await nuevoTenantConAgente();
+    await fijarTecho(tenant.id, 500);
+    expect(await resolverRateLimitTenant(tenant.id)).toBe(500);
+
+    const res = await request(app)
+      .put(`/api/platform/tenants/${tenant.id}/cuotas`)
+      .set("Authorization", BEARER)
+      .send({ recurso: RECURSO_RATE_LIMIT, limite: 900, motivo: "ajuste comercial" });
+    expect(res.status).toBe(200);
+
+    expect(await resolverRateLimitTenant(tenant.id)).toBe(900);
+  });
+
+  it("el caché no mezcla tenants", async () => {
+    const a = await nuevoTenantConAgente();
+    const b = await nuevoTenantConAgente();
+    await fijarTecho(a.tenant.id, 11);
+    await fijarTecho(b.tenant.id, 22);
+
+    expect(await resolverRateLimitTenant(a.tenant.id)).toBe(11);
+    expect(await resolverRateLimitTenant(b.tenant.id)).toBe(22);
+    // Y de nuevo, ya cacheados, para descartar que la segunda lectura pise
+    // la primera.
+    expect(await resolverRateLimitTenant(a.tenant.id)).toBe(11);
   });
 });
 
@@ -178,16 +270,13 @@ describe("interacción entre los dos niveles", () => {
     // La propiedad menos obvia y la más importante: si los requests
     // rechazados del nivel 1 contaran para el nivel 2, un solo script
     // descontrolado se comería el presupuesto de toda la empresa y
-    // terminaría bloqueando a sus compañeros — justo el daño que el fusible
-    // personal existe para contener.
+    // terminaría bloqueando a sus compañeros.
     const { agente: descontrolado, tenant } = await nuevoTenantConAgente();
     const companiero = await segundoUsuarioDe(tenant);
 
     env.erpRateLimitUsuarioMax = 2;
-    env.erpRateLimitTenantMax = 6;
+    await fijarTecho(tenant.id, 6);
 
-    // El primero consume sus 2 y después se estrella 10 veces contra su
-    // fusible. Si esos 10 contaran, el tenant quedaría muy por encima de 6.
     await descontrolado.get("/api/erp/equipos");
     await descontrolado.get("/api/erp/equipos");
     for (let i = 0; i < 10; i++) {
@@ -201,38 +290,82 @@ describe("interacción entre los dos niveles", () => {
   });
 
   it("el fusible personal se evalúa ANTES que el techo del tenant", async () => {
-    const { agente } = await nuevoTenantConAgente();
-    // Los dos en 1: el que debe reportarse es el personal, que es el más
-    // específico y accionable para quien recibe el error.
+    const { agente, tenant } = await nuevoTenantConAgente();
     env.erpRateLimitUsuarioMax = 1;
-    env.erpRateLimitTenantMax = 1;
+    await fijarTecho(tenant.id, 1);
 
     await agente.get("/api/erp/equipos");
-    const bloqueado = await agente.get("/api/erp/equipos");
-    expect(bloqueado.body.nivel).toBe("usuario");
+    // Los dos en 1: debe reportarse el personal, que es el más específico y
+    // accionable para quien recibe el error.
+    expect((await agente.get("/api/erp/equipos")).body.nivel).toBe("usuario");
+  });
+});
+
+describe("sugerencia para el panel", () => {
+  it("GET /cuotas devuelve el límite vigente y una sugerencia con su justificación", async () => {
+    const { tenant } = await nuevoTenantConAgente();
+    env.erpRateLimitTenantDefault = 3000;
+
+    const res = await request(app).get(`/api/platform/tenants/${tenant.id}/cuotas`).set("Authorization", BEARER);
+
+    expect(res.status).toBe(200);
+    expect(res.body.rateLimit.recurso).toBe(RECURSO_RATE_LIMIT);
+    expect(res.body.rateLimit.limiteRpm).toBe(3000); // sin override: el fallback
+    expect(res.body.rateLimit.usuariosActivos).toBeGreaterThanOrEqual(1);
+    // El motivo tiene que explicar de dónde sale el número: el objetivo del
+    // diseño es que el límite sea explicable, no una fórmula opaca.
+    expect(typeof res.body.rateLimit.motivo).toBe("string");
+    expect(res.body.rateLimit.motivo.length).toBeGreaterThan(0);
+  });
+
+  it("la sugerencia nunca queda por debajo del fallback global", async () => {
+    // Un tenant chico no debe recibir una sugerencia que le RECORTE el
+    // límite con el que hoy funciona bien.
+    const { tenant } = await nuevoTenantConAgente();
+    env.erpRateLimitTenantDefault = 3000;
+
+    const res = await request(app).get(`/api/platform/tenants/${tenant.id}/cuotas`).set("Authorization", BEARER);
+    expect(res.body.rateLimit.limiteSugeridoRpm).toBeGreaterThanOrEqual(3000);
+  });
+
+  it("el límite vigente refleja el override cuando existe", async () => {
+    const { tenant } = await nuevoTenantConAgente();
+    await fijarTecho(tenant.id, 7777);
+
+    const res = await request(app).get(`/api/platform/tenants/${tenant.id}/cuotas`).set("Authorization", BEARER);
+    expect(res.body.rateLimit.limiteRpm).toBe(7777);
+  });
+
+  it("el rate limit NO aparece en la tabla de cuotas de volumen", async () => {
+    // Un ritmo (req/min) y un acumulado no pertenecen a la misma tabla: la
+    // columna "uso" no significa nada para el primero.
+    const { tenant } = await nuevoTenantConAgente();
+    const res = await request(app).get(`/api/platform/tenants/${tenant.id}/cuotas`).set("Authorization", BEARER);
+
+    expect(res.body.cuotas.some((c: any) => c.recurso === RECURSO_RATE_LIMIT)).toBe(false);
   });
 });
 
 describe("configuración", () => {
   it("cada nivel se desactiva por separado con 0", async () => {
-    const { agente } = await nuevoTenantConAgente();
+    const { agente, tenant } = await nuevoTenantConAgente();
+    env.erpRateLimitUsuarioMax = 0; // sin fusible personal
+    await fijarTecho(tenant.id, 2);
 
-    // Sin fusible personal, pero con techo de empresa.
-    env.erpRateLimitUsuarioMax = 0;
-    env.erpRateLimitTenantMax = 2;
     await agente.get("/api/erp/equipos");
     await agente.get("/api/erp/equipos");
     expect((await agente.get("/api/erp/equipos")).body.nivel).toBe("tenant");
   });
 
-  it("los dos en 0 desactivan el rate limit por completo (escotilla de emergencia)", async () => {
-    const { agente } = await nuevoTenantConAgente();
-    env.erpRateLimitUsuarioMax = 0;
-    env.erpRateLimitTenantMax = 0;
+  it("sin techo (null) el tenant solo queda limitado por el fusible personal", async () => {
+    const { agente, tenant } = await nuevoTenantConAgente();
+    env.erpRateLimitUsuarioMax = 3;
+    await fijarTecho(tenant.id, null);
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 3; i++) {
       expect((await agente.get("/api/erp/equipos")).status).toBe(200);
     }
+    expect((await agente.get("/api/erp/equipos")).body.nivel).toBe("usuario");
   });
 
   it("no toca las rutas de plataforma ni de auth (tienen sus propios límites)", async () => {

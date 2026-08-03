@@ -50,6 +50,7 @@ import type { NextFunction, Request, Response } from "express";
 import { env } from "../config/env";
 import { getRedis } from "../config/redis";
 import { getClientIp, getRequestId } from "../shared/utils/request";
+import { resolverRateLimitTenant } from "../services/platformRateLimitCuota";
 
 type EntradaMemoria = { count: number; resetAt: number };
 
@@ -134,7 +135,7 @@ function responder429(res: Response, nivel: "usuario" | "tenant", retryAfterSeco
 export default async function erpRateLimiter(req: Request, res: Response, next: NextFunction) {
   // Se leen de env en cada request y no al cargar el módulo: permite
   // ajustarlos en tests sin recargar módulos, igual que el driver de backups.
-  const { erpRateLimitWindowMs: windowMs, erpRateLimitUsuarioMax, erpRateLimitTenantMax } = env;
+  const { erpRateLimitWindowMs: windowMs, erpRateLimitUsuarioMax } = env;
 
   // authMiddleware ya corrió, así que req.usuario existe siempre. El fallback
   // a IP es defensa en profundidad por si alguien monta este middleware en
@@ -157,10 +158,17 @@ export default async function erpRateLimiter(req: Request, res: Response, next: 
   }
 
   // ── Nivel 2: el techo de la empresa ───────────────────────────────────
-  if (erpRateLimitTenantMax > 0) {
-    const tenant = await consumirCupo(`erp:t:${idTenant}`, erpRateLimitTenantMax, windowMs, req);
+  // El techo sale de tenant_cuotas (override de ESE cliente) o del default
+  // global, resuelto con caché en Redis para no consultar Postgres en cada
+  // request — ver platformRateLimitCuota.ts. `null` = sin techo.
+  const techoTenant = await resolverRateLimitTenant(idTenant);
+  if (techoTenant !== null && techoTenant > 0) {
+    const tenant = await consumirCupo(`erp:t:${idTenant}`, techoTenant, windowMs, req);
     if (tenant.excedido) {
-      req.log?.warn({ tenantId: req.tenantId, nivel: "tenant" }, "Rate limit del ERP: tenant excedido");
+      req.log?.warn(
+        { tenantId: req.tenantId, nivel: "tenant", techo: techoTenant },
+        "Rate limit del ERP: tenant excedido"
+      );
       return responder429(res, "tenant", tenant.retryAfterSeconds);
     }
   }

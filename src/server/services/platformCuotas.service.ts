@@ -32,6 +32,7 @@ import type { PoolClient } from "pg";
 import { pool, withTenant } from "../config/database";
 import { AppError } from "../shared/middlewares/error.middleware";
 import { MODULOS, obtenerModulo } from "../../modules/registry";
+import { RECURSO_RATE_LIMIT, invalidarCacheRateLimit } from "./platformRateLimitCuota";
 
 /** Recursos que no pertenecen a ningún módulo. Los de módulo se derivan del
  *  registry, así que un módulo nuevo con `cuota` declarada aparece acá solo,
@@ -276,12 +277,19 @@ export async function fijarCuotaTenant(
   limite: number | null | undefined,
   motivo?: string
 ): Promise<void> {
-  if (!definicionDe(recurso)) {
+  // rate_limit_rpm se guarda en la misma tabla y se resuelve con la misma
+  // lógica de override, pero NO está en recursosConCuota() a propósito: ese
+  // catálogo alimenta la tabla de cuotas de VOLUMEN del panel y las alertas
+  // de salud, donde una columna "uso" no significa nada para un ritmo por
+  // minuto. Mezclarlos confundiría a quien lee el panel.
+  const esRateLimit = recurso === RECURSO_RATE_LIMIT;
+  if (!esRateLimit && !definicionDe(recurso)) {
     throw new AppError(400, `Recurso de cuota desconocido: ${recurso}`);
   }
 
   if (limite === undefined) {
     await pool.query(`DELETE FROM tenant_cuotas WHERE tenant_id = $1 AND recurso = $2`, [tenantId, recurso]);
+    if (esRateLimit) await invalidarCacheRateLimit(tenantId);
     return;
   }
 
@@ -292,4 +300,9 @@ export async function fijarCuotaTenant(
      DO UPDATE SET limite = EXCLUDED.limite, motivo = EXCLUDED.motivo, actualizado_en = now()`,
     [tenantId, recurso, limite, motivo ?? null]
   );
+
+  // Sin esto el cambio no tendría efecto hasta que venciera el TTL: el admin
+  // lo guardaría, no pasaría nada por 5 minutos, y volvería a intentarlo
+  // pensando que falló.
+  if (esRateLimit) await invalidarCacheRateLimit(tenantId);
 }

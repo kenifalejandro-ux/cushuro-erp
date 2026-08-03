@@ -76,6 +76,11 @@ import {
 } from "../services/platformBackup.service";
 import { resumenCuotasTenant, fijarCuotaTenant } from "../services/platformCuotas.service";
 import {
+  resolverRateLimitTenant,
+  sugerirRateLimitTenant,
+  RECURSO_RATE_LIMIT,
+} from "../services/platformRateLimitCuota";
+import {
   listarPlanesService,
   obtenerPlanService,
   obtenerPlanDeTenantService,
@@ -596,8 +601,26 @@ export function createPlatformRouter() {
 
   router.get("/tenants/:id/cuotas", async (req, res, next) => {
     try {
-      const cuotas = await resumenCuotasTenant(req.params.id);
-      res.status(200).json({ ok: true, cuotas });
+      // El rate limit va SEPARADO de `cuotas` a propósito: es un ritmo
+      // (req/min), no un acumulado, y meterlo en la misma tabla obligaría a
+      // inventar un valor de "uso" que no significa nada. Se devuelve con su
+      // sugerencia y los datos que la justifican, para que quien lo configure
+      // decida mirando el tráfico real y no adivinando.
+      const [cuotas, rateLimitRpm, sugerencia] = await Promise.all([
+        resumenCuotasTenant(req.params.id),
+        resolverRateLimitTenant(req.params.id),
+        sugerirRateLimitTenant(req.params.id),
+      ]);
+
+      res.status(200).json({
+        ok: true,
+        cuotas,
+        rateLimit: {
+          recurso: RECURSO_RATE_LIMIT,
+          limiteRpm: rateLimitRpm, // null = sin techo
+          ...sugerencia,
+        },
+      });
     } catch (err) {
       next(err);
     }

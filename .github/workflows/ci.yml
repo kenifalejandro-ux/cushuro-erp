@@ -79,7 +79,7 @@ jobs:
       # los tests se bloquearían entre sí. tests/erp-rate-limit.test.ts baja
       # estos valores en runtime para probar el comportamiento real.
       ERP_RATE_LIMIT_USUARIO_MAX: 100000
-      ERP_RATE_LIMIT_TENANT_MAX: 100000
+      ERP_RATE_LIMIT_TENANT_DEFAULT: 100000
       # Con Redis real (arriba), estos dos son de verdad compartidos entre
       # TODOS los archivos de test dentro del mismo run (a diferencia del
       # fallback en memoria, que queda aislado por worker) — la suite crea

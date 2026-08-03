@@ -55,11 +55,16 @@ export const env = {
   // es absurdo para un humano (2 por segundo sostenidos) y evidente para un
   // bucle, que es justo lo que tiene que atrapar.
   erpRateLimitUsuarioMax: readNumber(process.env.ERP_RATE_LIMIT_USUARIO_MAX, 120),
-  // Techo de la empresa. No protege al cliente de sí mismo: protege a los
-  // DEMÁS tenants de que uno solo desbocado degrade el servicio de todos.
-  // 3000/min deja muchísimo margen incluso para el pico de cambio de turno
-  // (50 operarios entrando a la vez son ~400 requests).
-  erpRateLimitTenantMax: readNumber(process.env.ERP_RATE_LIMIT_TENANT_MAX, 3000),
+  // Techo de la empresa POR DEFECTO. No protege al cliente de sí mismo:
+  // protege a los DEMÁS tenants de que uno solo desbocado degrade el
+  // servicio de todos. 3000/min deja margen incluso para el pico de cambio
+  // de turno (50 operarios entrando a la vez son ~400 requests).
+  //
+  // Es el fallback: un tenant puede tener su propio número en tenant_cuotas
+  // (recurso 'rate_limit_rpm'), que se configura desde el panel con el
+  // tráfico medido a la vista — ver resolverRateLimitTenant() en
+  // platformCuotas.service.ts.
+  erpRateLimitTenantDefault: readNumber(process.env.ERP_RATE_LIMIT_TENANT_DEFAULT, 3000),
   emailHost: process.env.EMAIL_HOST || "",
   emailPort: readNumber(process.env.EMAIL_PORT, 465),
   emailUser: process.env.EMAIL_USER || "",

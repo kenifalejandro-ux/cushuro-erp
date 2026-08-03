@@ -211,7 +211,7 @@ Hasta este esquema, **las rutas de negocio no tenían ningún rate limit**: el l
 | Nivel | Clave | Default | Para qué |
 |---|---|---:|---|
 | 1 — fusible personal | `erp:u:{usuarioId}` | 120/min | Cortar un script en loop o una cuenta comprometida |
-| 2 — techo de empresa | `erp:t:{tenantId}` | 3.000/min | Que un tenant desbocado no degrade el servicio de los demás |
+| 2 — techo de empresa | `erp:t:{tenantId}` | 3.000/min (configurable **por cliente**) | Que un tenant desbocado no degrade el servicio de los demás |
 
 Cualquiera en `0` desactiva ese nivel.
 
@@ -240,10 +240,59 @@ Cuando alguien choca contra su fusible, el request **no** incrementa el contador
 
 Con un solo mensaje, un cliente que necesita atención recibiría lo mismo que uno que solo tiene que esperar dos segundos.
 
+#### El techo del tenant es configurable por cliente
+
+Se resuelve en **dos capas**:
+
+| # | Capa | |
+|---|---|---|
+| 1 | Override en `tenant_cuotas`, recurso `rate_limit_rpm` | El número de **ese** cliente |
+| 2 | `ERP_RATE_LIMIT_TENANT_DEFAULT` | Fallback global (3.000/min) |
+
+`limite = NULL` en el override significa **sin techo** (el fusible personal sigue aplicando), no "usá el default" — misma semántica que el resto de las cuotas.
+
+**No hay un nivel por plan ni una fórmula en vivo, y es una decisión.** Se evaluó `usuarios_activos * 100` y se descartó por tres motivos:
+
+1. **Invertía los límites en tenants chicos.** Con 1 usuario activo daba 100 req/min, **por debajo** del fusible personal de 120: el techo de la empresa habría disparado antes que el de una sola persona, devolviendo además el mensaje equivocado ("tu empresa alcanzó el límite" cuando era él solo).
+2. **Era un blanco móvil.** El límite cambiaba solo al activar o desactivar usuarios. Dar de baja a 3 operarios un viernes bajaba 300 req/min el lunes sin que nadie tocara la configuración.
+3. **Metía un `COUNT` sobre `usuarios`** (que tiene RLS, o sea conexión dedicada) justo en el camino que el caché existe para evitar.
+
+#### La fórmula sobrevive como sugerencia, no como regla
+
+`GET /api/platform/tenants/:id/cuotas` devuelve, aparte de las cuotas de volumen:
+
+```jsonc
+"rateLimit": {
+  "recurso": "rate_limit_rpm",
+  "limiteRpm": 3000,            // vigente (override o fallback); null = sin techo
+  "limiteSugeridoRpm": 4700,
+  "usuariosActivos": 47,
+  "picoRpmEstimado": 216,
+  "motivo": "Basado en 47 usuarios activos (100 req/min por usuario)."
+}
+```
+
+Un humano lo mira, lo ajusta si hace falta, y lo guarda. **El número queda explícito, auditado y explicable** — se puede justificar ante el cliente ("te pusimos 5.000 porque tu pico medido fue 3.240") en vez de ser el resultado de una fórmula que cambia sola.
+
+`picoRpmEstimado` sale de `tenant_metricas_horarias` multiplicado por un factor de ráfaga (×4). Es necesario porque esa tabla agrega **por hora**: dividir por 60 da un promedio, no un pico, y una ráfaga de cambio de turno queda diluida entre los otros 59 minutos. **Es una estimación, no una medición** — otra razón para que sea sugerencia y no regla.
+
+La sugerencia nunca queda por debajo del fallback global: a un cliente que hoy funciona bien no se le sugiere un recorte.
+
+#### El caché
+
+El techo se cachea en **Redis** (TTL 300s) **e** se invalida explícitamente al guardarlo desde el panel. Hacen falta las dos cosas:
+
+- Solo TTL → cambiás el límite y no pasa nada por 5 minutos; el admin cree que falló y lo cambia de nuevo.
+- Solo invalidación → si se pierde (Redis caído en ese instante), el valor viejo queda para siempre.
+
+**Redis y no memoria**: con más de una instancia, un caché en memoria haría que la invalidación no se propague — una instancia respetaría el límite nuevo y otra el viejo. El costo marginal es casi nulo porque el rate limiter ya le pega a Redis para el `INCR`.
+
+Sin Redis se degrada a un caché en memoria con TTL de 30s: la invalidación no cruza instancias, pero evita pegarle a Postgres en cada request, que es lo inaceptable.
+
 #### Limitaciones conocidas
 
 - **Ventana fija, no deslizante** (`INCR` + `PEXPIRE`, igual que el limitador genérico del proyecto). Tiene el problema clásico de borde: 120 requests al final de una ventana y 120 al principio de la siguiente son 240 en pocos segundos, ninguno bloqueado. Aceptable para el propósito (cortar bucles, no medir con precisión), pero conviene saberlo al elegir los números.
-- **No hay ajuste por cliente.** Los dos niveles son constantes globales de entorno; si un tenant necesita más, hay que subirlo para todos. Se decidió así a propósito para no acoplar rate limiting a planes. Agregarlo después es barato: `tenant_cuotas` ya resuelve overrides por tenant, y solo haría falta cachear el valor (no se puede consultar la base en cada request).
+- **El fusible personal sí es global.** Solo el techo del tenant se puede ajustar por cliente; los 120 req/min por persona son iguales para todos, a propósito (es un fusible técnico, no una diferenciación comercial).
 - **No frena un DoS volumétrico real.** Para cuando el request llega acá ya consumió una conexión, ya pasó por Express, ya validó un JWT y ya tocó Redis. Eso se frena antes de Node: reverse proxy, CDN o infraestructura. Este limitador protege de **abuso autenticado**, que es un problema distinto.
 
 ---
