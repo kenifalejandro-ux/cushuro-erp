@@ -10,65 +10,20 @@ function manualChunks(id) {
   if (
     id.includes("/react/") ||
     id.includes("/react-dom/") ||
-    id.includes("/scheduler/") ||
-    id.includes("/react-router/") ||
-    id.includes("/react-router-dom/")
+    id.includes("/scheduler/")
   ) {
     return "vendor-react";
   }
 
-  if (id.includes("/gsap/")) {
-    return "vendor-gsap";
-  }
-
-  if (
-    id.includes("/three/") ||
-    id.includes("/@react-three/") ||
-    id.includes("/meshoptimizer/")
-  ) {
-    return "vendor-three";
-  }
-
-  if (id.includes("/framer-motion/") || id.includes("/motion/")) {
-    return "vendor-motion";
-  }
-
-  if (
-    id.includes("/react-slick/") ||
-    id.includes("/slick-carousel/") ||
-    id.includes("/embla-carousel-react/")
-  ) {
-    return "vendor-carousel";
-  }
-
-  if (id.includes("/chart.js/") || id.includes("/recharts/")) {
+  if (id.includes("/recharts/")) {
     return "vendor-charts";
   }
 
-  if (
-    id.includes("/@radix-ui/") ||
-    id.includes("/cmdk/") ||
-    id.includes("/input-otp/") ||
-    id.includes("/sonner/") ||
-    id.includes("/vaul/") ||
-    id.includes("/react-day-picker/") ||
-    id.includes("/react-hook-form/") ||
-    id.includes("/class-variance-authority/") ||
-    id.includes("/clsx/") ||
-    id.includes("/tailwind-merge/")
-  ) {
-    return "vendor-ui";
-  }
-
-  if (
-    id.includes("/@fortawesome/") ||
-    id.includes("/lucide-react/")
-  ) {
-    return "vendor-icons";
-  }
-
-  if (id.includes("/lodash/")) {
-    return "vendor-utils";
+  // xlsx solo se importa dinámicamente (carga masiva de repuestos): se deja
+  // fuera de vendor-misc para que Rollup le arme su propio chunk on-demand,
+  // en vez de agruparlo con código que sí viaja en la carga inicial.
+  if (id.includes("/xlsx/")) {
+    return;
   }
 
   return "vendor-misc";
@@ -83,16 +38,15 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
-      "three-examples": path.resolve(__dirname, "node_modules/three/examples/jsm"),
     },
   },
   server: {
     host: true,        // 🔥 ESTO ES LA CLAVE
-    port: 5173,
+    port: 5174,
     open: false,
     proxy: {
       "/api": {
-        target: "http://localhost:3000",
+        target: "http://localhost:3001",
         changeOrigin: true,
       },
     },

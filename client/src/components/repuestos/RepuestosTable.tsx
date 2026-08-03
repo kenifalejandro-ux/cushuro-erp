@@ -1,7 +1,6 @@
 /**client/src/components/repuestos/repuestostable.tsx */
 
 import { useState, useEffect } from 'react';
-import * as XLSX from 'xlsx';
 import { apiFetch } from '../../services/apiClient';
 
 // 1. ESTRUCTURA DE DATOS: Define qué campos tiene un repuesto
@@ -93,13 +92,16 @@ const handleDelete = async (id: number) => {
 
 
   // 4. CARGA MASIVA EXCEL: Procesa archivos .xlsx
+  // xlsx se carga on-demand (import dinámico) para que su chunk no viaje
+  // en el bundle inicial: solo hace falta cuando se usa esta importación.
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       const bstr = evt.target?.result;
+      const XLSX = await import('xlsx');
       const wb = XLSX.read(bstr, { type: 'binary' });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const data = XLSX.utils.sheet_to_json(ws);
