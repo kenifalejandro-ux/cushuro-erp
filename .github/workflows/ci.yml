@@ -75,9 +75,11 @@ jobs:
       REDIS_PORT: 6379
       RATE_LIMIT_WINDOW_MS: 60000
       RATE_LIMIT_MAX_REQUESTS: 1000
-      # La suite entera pega contra /api/erp/* desde la misma IP; con el
-      # default de producción (300/min) los tests se bloquearían entre sí.
-      ERP_RATE_LIMIT_MAX_REQUESTS: 100000
+      # La suite entera pega contra /api/erp/*; con los defaults de producción
+      # los tests se bloquearían entre sí. tests/erp-rate-limit.test.ts baja
+      # estos valores en runtime para probar el comportamiento real.
+      ERP_RATE_LIMIT_USUARIO_MAX: 100000
+      ERP_RATE_LIMIT_TENANT_MAX: 100000
       # Con Redis real (arriba), estos dos son de verdad compartidos entre
       # TODOS los archivos de test dentro del mismo run (a diferencia del
       # fallback en memoria, que queda aislado por worker) — la suite crea

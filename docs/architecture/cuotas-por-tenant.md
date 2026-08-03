@@ -197,24 +197,54 @@ Se confunden seguido, así que conviene tenerlo explícito:
 | | Cuotas | Rate limiting |
 |---|---|---|
 | Limita | **Volumen** acumulado | **Frecuencia** de requests |
-| Clave | Tenant | Tenant + IP (`/api/erp/*`) o ruta + IP (auth y panel) |
-| Respuesta | `403 cuota_excedida` | `429 rate_limit_excedido` |
+| Clave | Tenant | Usuario y tenant (`/api/erp/*`) o ruta + IP (auth y panel) |
+| Respuesta | `403 cuota_excedida` | `429 rate_limit_usuario` / `rate_limit_tenant` |
 | Se resuelve | Pidiendo más cupo / subiendo de plan | Esperando |
 | Se configura | Panel, plan, o registry | Variables de entorno |
 
 Un cliente puede chocar con los dos por motivos totalmente distintos, por eso el `error` del cuerpo los distingue sin que haya que parsear texto.
 
-### Rate limit de `/api/erp/*`
+### Rate limit de `/api/erp/*`: dos niveles, por usuario
 
-Hasta la migración a este esquema, **las rutas de negocio no tenían ningún rate limit**: el limitador genérico solo cubría auth y el panel. Las cuotas frenaban cuántos registros podía acumular un tenant, pero nada le impedía miles de `GET` por segundo.
+Hasta este esquema, **las rutas de negocio no tenían ningún rate limit**: el limitador genérico solo cubría auth y el panel. Las cuotas frenaban cuántos registros podía acumular un tenant, pero nada le impedía miles de `GET` por segundo.
 
-Ahora `erpRateLimiter` aplica un presupuesto **compartido por todo el tráfico del tenant** (`ERP_RATE_LIMIT_MAX_REQUESTS`, 300/min por default), con clave `erp:{tenantId}:{ip}`. La componente de tenant es lo que evita que un cliente abusivo consuma el cupo de otro detrás del mismo proxy.
+| Nivel | Clave | Default | Para qué |
+|---|---|---:|---|
+| 1 — fusible personal | `erp:u:{usuarioId}` | 120/min | Cortar un script en loop o una cuenta comprometida |
+| 2 — techo de empresa | `erp:t:{tenantId}` | 3.000/min | Que un tenant desbocado no degrade el servicio de los demás |
 
-A diferencia del limitador genérico —que cuenta **por ruta**, para frenar fuerza bruta contra un endpoint— este cuenta todo junto, porque el abuso que interesa frenar es el volumen total de tráfico.
+Cualquiera en `0` desactiva ese nivel.
 
-> **Caso real a tener en cuenta**: un tenant cuyos usuarios salen todos por una IP corporativa (NAT) comparte **un** presupuesto entre todo el personal. Con 300/min y 50 usuarios activos son 6 requests/minuto cada uno, que para un ERP en uso puede quedar corto. Si un cliente reporta 429 en uso normal, **hay que subir el límite: no es un ataque, es NAT.** Por eso es configurable y no una constante.
+#### Por qué por usuario y no por IP
 
-En `0` queda desactivado, como escotilla de emergencia.
+**La IP no identifica a nadie en este despliegue.** Los operarios en oficina salen por el NAT de la empresa (una IP para 50 personas), y los de planta usan datos móviles, donde la operadora hace **CGNAT** (una IP para miles de abonados) y la IP además **cambia** al moverse entre antenas. Es demasiado gruesa y demasiado inestable a la vez.
+
+Con población mixta el efecto es peor que un límite mal calibrado: el **mismo** límite se comportaría distinto según desde dónde se conecte cada uno — los de oficina bloqueándose de más, los de planta casi nunca. Imposible de explicar a un cliente y muy difícil de diagnosticar.
+
+El argumento que cierra la discusión: **este middleware corre después de `authMiddleware`**, así que nunca ve tráfico anónimo (sin credenciales el request muere con 401 antes de llegar). No protege de un desconocido — protege de un cliente **autenticado** descontrolado. Y en ese caso siempre hay un usuario identificado, que es la identidad correcta para contar. La IP no aportaría nada.
+
+#### El fusible personal no depende del plan
+
+Un operario hace clic a la misma velocidad en una MYPE que en una Corporativo. Que el límite personal variara por plan sería castigar a la persona por el tamaño de su empresa. Es un **fusible técnico**, no una diferenciación comercial: 120/min es absurdo para un humano y evidente para un bucle.
+
+#### Un usuario bloqueado no consume el presupuesto de su empresa
+
+Cuando alguien choca contra su fusible, el request **no** incrementa el contador del tenant. Si lo hiciera, un solo script descontrolado se comería el presupuesto de toda la empresa y terminaría bloqueando a sus compañeros — exactamente el daño que el nivel 1 existe para contener. Por eso se evalúa usuario primero y se corta ahí.
+
+#### Dos respuestas distintas
+
+| | `rate_limit_usuario` | `rate_limit_tenant` |
+|---|---|---|
+| Qué pasó | Esta persona va muy rápido | La empresa agotó su cupo |
+| Cómo se resuelve | Esperar | Revisar integraciones o pedir más capacidad |
+
+Con un solo mensaje, un cliente que necesita atención recibiría lo mismo que uno que solo tiene que esperar dos segundos.
+
+#### Limitaciones conocidas
+
+- **Ventana fija, no deslizante** (`INCR` + `PEXPIRE`, igual que el limitador genérico del proyecto). Tiene el problema clásico de borde: 120 requests al final de una ventana y 120 al principio de la siguiente son 240 en pocos segundos, ninguno bloqueado. Aceptable para el propósito (cortar bucles, no medir con precisión), pero conviene saberlo al elegir los números.
+- **No hay ajuste por cliente.** Los dos niveles son constantes globales de entorno; si un tenant necesita más, hay que subirlo para todos. Se decidió así a propósito para no acoplar rate limiting a planes. Agregarlo después es barato: `tenant_cuotas` ya resuelve overrides por tenant, y solo haría falta cachear el valor (no se puede consultar la base en cada request).
+- **No frena un DoS volumétrico real.** Para cuando el request llega acá ya consumió una conexión, ya pasó por Express, ya validó un JWT y ya tocó Redis. Eso se frena antes de Node: reverse proxy, CDN o infraestructura. Este limitador protege de **abuso autenticado**, que es un problema distinto.
 
 ---
 
@@ -223,6 +253,6 @@ En `0` queda desactivado, como escotilla de emergencia.
 - **Billing.** Los planes segmentan y aplican límites, pero no cobran nada: no hay integración de pagos, ni fechas de vigencia, ni upgrade automático al excederse. Levantar un límite es una acción del panel, no un pago.
 - **ABM de planes desde el panel.** Se pueden listar, ver y asignar; crear/editar/borrar planes se hace por SQL. Los 4 iniciales cubren la segmentación pensada, y agregar uno es raro.
 - **Avisar al cliente al acercarse al límite.** Hoy la señal es la alerta en la salud del tenant, visible para el dueño de la plataforma, no para el cliente.
-- **Rate limit por PLAN.** El presupuesto de `/api/erp/*` es global (una sola variable de entorno), no un límite por segmento como sí lo son las cuotas de volumen. Diferenciarlo por plan es posible con lo que ya existe —sería otro recurso en `plan_limites`— pero no se hizo: primero conviene medir el tráfico real de un cliente antes de fijar números por tier.
+- **Rate limit por plan o por tenant.** Los dos niveles son constantes globales. Se evaluó atarlos a los planes y se descartó: el fusible personal no debe variar por plan (castigaría a la persona por el tamaño de su empresa), y para el techo de empresa conviene medir el tráfico real antes de fijar números por tier. `tenant_metricas_horarias.requests_total` ya tiene esos datos.
 - **Rate limiting por tenant.** Es otro problema (frecuencia, no volumen) y ya hay rate limiters aparte.
 - **Cuota de almacenamiento de archivos de usuario.** Hoy no existen: `documentos` guarda solo metadata, no archivos. La única superficie de almacenamiento real son los backups.

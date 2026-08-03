@@ -115,18 +115,23 @@ describe("exportarTenantService / POST .../backups", () => {
  *     desarrollo; no rompe ningún test, pero explica por qué pueden
  *     aparecer tenants de prueba viejos.
  *
- *  ⚠ FLAKE CONOCIDO, NO CERRADO — "saltea usuario_modulos..." falló 1 vez
- *  cada ~20 corridas de la suite completa (nunca aislado). Diagnosticar la
- *  primera versión del flake destapó un bug REAL de producción: el restore
- *  de plataforma no corría en una transacción y podía quedar a medias (ya
- *  corregido, ver restaurarTablasPlataforma). Después de ese arreglo la
- *  frecuencia bajó mucho —16 corridas seguidas en verde— pero se observó
- *  un fallo más cuyo log no se llegó a capturar, así que la causa raíz
- *  restante NO está confirmada. Sospecha principal: contención de locks
- *  entre esta transacción y los borrados de tenants de otros archivos que
- *  corren en paralelo. Si vuelve a fallar, capturá el log ANTES de
- *  reintentar — el mensaje de Postgres (deadlock vs violación de FK) es lo
- *  que distingue "artefacto del test" de "otro bug real". */
+ *  ⚠ HISTORIAL DEL FLAKE DE ESTE BLOQUE — cerrado, vale la pena leerlo
+ *  porque el patrón se repite:
+ *
+ *  Este describe falló ~1 de cada 20 corridas de la suite completa (nunca
+ *  aislado), por DOS causas distintas encontradas en momentos distintos:
+ *
+ *    1. El restore de plataforma no corría en una transacción y podía
+ *       quedar a medias. Ese fue un bug REAL de producción que el flake
+ *       destapó — ver restaurarTablasPlataforma().
+ *    2. Los tests afirmaban sobre los CONTADORES GLOBALES del resultado
+ *       (`filasInsertadas.tenants === 1`), que dependen de lo que otros
+ *       archivos estén borrando en paralelo. Es exactamente lo que advierte
+ *       el punto 1 de arriba, y aun así se coló.
+ *
+ *  Moraleja para el próximo que toque esto: perseguir un test flaky en vez
+ *  de reintentarlo encontró un bug de producción. Y la regla de no afirmar
+ *  sobre contadores globales hay que aplicarla, no solo escribirla. */
 describe("backup de plataforma / POST /backups/plataforma", () => {
   it("exporta las tablas de la capa de plataforma, sin datos de negocio de ningún tenant", async () => {
     const { tenant, usuario } = await nuevoTenant();
@@ -184,7 +189,12 @@ describe("backup de plataforma / POST /backups/plataforma", () => {
       .send({ confirmar: true });
 
     expect(res.status).toBe(200);
-    expect(res.body.filasInsertadas.tenants).toBe(1); // solo el que faltaba
+    // NO se afirma `=== 1`: el backup de plataforma captura TODOS los
+    // tenants, así que si otro archivo de test borró el suyo entre el backup
+    // y este restore, éste también lo reinserta y el contador da 2. Lo que
+    // este test tiene que probar es el comportamiento sobre SUS dos tenants,
+    // y eso lo verifican las dos afirmaciones de abajo.
+    expect(res.body.filasInsertadas.tenants).toBeGreaterThanOrEqual(1);
 
     const restaurado = await pool.query(`SELECT nombre FROM tenants WHERE id = $1`, [aBorrar.id]);
     expect(restaurado.rows).toHaveLength(1);
