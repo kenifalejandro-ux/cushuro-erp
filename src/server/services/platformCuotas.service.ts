@@ -80,21 +80,68 @@ function definicionDe(recurso: string): DefinicionRecurso | undefined {
   return recursosConCuota().find((r) => r.recurso === recurso);
 }
 
-/** `null` = ilimitado (ver los tres estados en la migración 0033). */
-export async function limiteEfectivo(tenantId: string, recurso: string): Promise<number | null> {
-  const definicion = definicionDe(recurso);
-  if (!definicion) return null; // recurso desconocido: sin límite que aplicar
+/** De dónde salió el límite que se está aplicando. Se expone en el panel
+ *  porque "500 equipos" sin saber si viene del plan o de una excepción
+ *  negociada es un dato a medias: cambiar el plan mueve uno y no el otro. */
+export type OrigenLimite = "override" | "plan" | "registry";
 
-  const override = await pool.query<{ limite: string | null }>(
-    `SELECT limite FROM tenant_cuotas WHERE tenant_id = $1 AND recurso = $2`,
+export interface LimiteResuelto {
+  limite: number | null;
+  origen: OrigenLimite;
+}
+
+/** Resuelve el límite de UN recurso con los tres niveles de precedencia:
+ *
+ *    1. tenant_cuotas   → excepción negociada con ese cliente
+ *    2. plan del tenant → MYPE / Pequeña / Mediana / Corporativo
+ *    3. registry        → default de última instancia
+ *
+ *  En los niveles 1 y 2, `NULL` significa ILIMITADO a propósito y no "sin
+ *  dato" — por eso lo que decide es la EXISTENCIA de la fila, no que el
+ *  valor sea distinto de null. Confundir esos dos casos haría que
+ *  "ilimitado" cayera al nivel siguiente y terminara aplicando un tope.
+ *
+ *  Una sola query para los dos primeros niveles: esto corre en cada POST
+ *  (ver requireCuota), así que no puede costar dos round trips. */
+export async function resolverLimite(tenantId: string, recurso: string): Promise<LimiteResuelto> {
+  const definicion = definicionDe(recurso);
+  if (!definicion) return { limite: null, origen: "registry" }; // recurso desconocido: nada que aplicar
+
+  const fila = await pool.query<{
+    hay_override: boolean;
+    limite_override: string | null;
+    hay_plan: boolean;
+    limite_plan: string | null;
+  }>(
+    `SELECT
+       EXISTS (SELECT 1 FROM tenant_cuotas WHERE tenant_id = $1 AND recurso = $2) AS hay_override,
+       (SELECT limite FROM tenant_cuotas WHERE tenant_id = $1 AND recurso = $2) AS limite_override,
+       EXISTS (
+         SELECT 1 FROM tenants t JOIN plan_limites pl ON pl.plan_id = t.plan_id
+         WHERE t.id = $1 AND pl.recurso = $2
+       ) AS hay_plan,
+       (SELECT pl.limite FROM tenants t JOIN plan_limites pl ON pl.plan_id = t.plan_id
+        WHERE t.id = $1 AND pl.recurso = $2) AS limite_plan`,
     [tenantId, recurso]
   );
 
-  if (override.rows.length === 0) return definicion.limitePorDefecto;
-  // La fila existe: NULL significa ilimitado a propósito, no "sin dato".
+  const r = fila.rows[0];
+
   // BIGINT vuelve como string desde node-pg (mismo caso que tamano_bytes en
   // platformBackup.service.ts), por eso el Number() explícito.
-  return override.rows[0].limite === null ? null : Number(override.rows[0].limite);
+  if (r.hay_override) {
+    return { limite: r.limite_override === null ? null : Number(r.limite_override), origen: "override" };
+  }
+  if (r.hay_plan) {
+    return { limite: r.limite_plan === null ? null : Number(r.limite_plan), origen: "plan" };
+  }
+  return { limite: definicion.limitePorDefecto, origen: "registry" };
+}
+
+/** `null` = ilimitado. Envoltorio de resolverLimite() para los llamadores a
+ *  los que no les interesa de qué nivel salió. */
+export async function limiteEfectivo(tenantId: string, recurso: string): Promise<number | null> {
+  return (await resolverLimite(tenantId, recurso)).limite;
 }
 
 /** Cuánto consume HOY el tenant de ese recurso.
@@ -144,6 +191,8 @@ export interface EstadoCuota {
   recurso: string;
   unidad: "cantidad" | "bytes";
   limite: number | null;
+  /** De qué nivel salió el límite: excepción del tenant, plan, o default. */
+  origen: OrigenLimite;
   uso: number;
   /** null cuando el recurso es ilimitado. */
   porcentaje: number | null;
@@ -155,14 +204,16 @@ export interface EstadoCuota {
 export async function resumenCuotasTenant(tenantId: string): Promise<EstadoCuota[]> {
   const estados: EstadoCuota[] = [];
   for (const definicion of recursosConCuota()) {
-    const [limite, uso] = await Promise.all([
-      limiteEfectivo(tenantId, definicion.recurso),
+    const [resuelto, uso] = await Promise.all([
+      resolverLimite(tenantId, definicion.recurso),
       usoActual(tenantId, definicion.recurso),
     ]);
+    const { limite, origen } = resuelto;
     estados.push({
       recurso: definicion.recurso,
       unidad: definicion.unidad,
       limite,
+      origen,
       uso,
       porcentaje: limite === null || limite === 0 ? null : Math.round((uso / limite) * 100),
       excedido: limite !== null && uso >= limite,
@@ -200,7 +251,7 @@ export async function verificarCuota(
   incremento = 1,
   client?: PoolClient
 ): Promise<void> {
-  const limite = await limiteEfectivo(tenantId, recurso);
+  const { limite } = await resolverLimite(tenantId, recurso);
   if (limite === null) return;
 
   const uso = await usoActual(tenantId, recurso, client);

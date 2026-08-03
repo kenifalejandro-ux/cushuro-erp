@@ -188,3 +188,13 @@ export const fijarCuotaTenantSchema = z.object({
 });
 
 export type FijarCuotaTenantInput = z.infer<typeof fijarCuotaTenantSchema>;
+
+// Asignar plan a un tenant (ver planes, migración 0034). Acepta el `codigo`
+// del plan ("mype", "pequena", ...) o su UUID; `null` desasigna y devuelve
+// al tenant a los defaults del registry.
+export const asignarPlanTenantSchema = z.object({
+  plan: z.string().trim().min(1).max(80).nullable(),
+  motivo: z.string().trim().max(500).optional(),
+});
+
+export type AsignarPlanTenantInput = z.infer<typeof asignarPlanTenantSchema>;

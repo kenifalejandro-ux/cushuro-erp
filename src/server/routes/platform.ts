@@ -43,6 +43,7 @@ import {
   restaurarBackupSchema,
   restaurarBackupPlataformaSchema,
   fijarCuotaTenantSchema,
+  asignarPlanTenantSchema,
   type ActualizarModuloGlobalInput,
 } from "../schemas/platform.schema";
 import {
@@ -74,6 +75,12 @@ import {
   restaurarBackupService,
 } from "../services/platformBackup.service";
 import { resumenCuotasTenant, fijarCuotaTenant } from "../services/platformCuotas.service";
+import {
+  listarPlanesService,
+  obtenerPlanService,
+  obtenerPlanDeTenantService,
+  asignarPlanATenantService,
+} from "../services/platformPlanes.service";
 import {
   exportarPlataformaService,
   listarBackupsPlataformaService,
@@ -522,6 +529,58 @@ export function createPlatformRouter() {
       try {
         const { targetTenantId } = req.validatedBody as { targetTenantId: string; confirmar: true };
         const resultado = await restaurarBackupService(req.params.backupId, targetTenantId, contextoDe(req));
+        res.status(200).json({ ok: true, ...resultado });
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // ── Planes ────────────────────────────────────────────────────────────
+  // Ver docs/architecture/cuotas-por-tenant.md. Un plan es un conjunto con
+  // nombre de límites por recurso; el escalón intermedio entre la excepción
+  // puntual de un tenant y el default global del registry.
+
+  router.get("/planes", async (req, res, next) => {
+    try {
+      // ?soloActivos=true para el selector del panel: un plan dado de baja
+      // no debe ofrecerse para asignar, pero sí seguir siendo visible en el
+      // listado completo (los tenants que ya lo tienen lo conservan).
+      const planes = await listarPlanesService(req.query.soloActivos === "true");
+      res.status(200).json({ ok: true, planes });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get("/planes/:idOCodigo", async (req, res, next) => {
+    try {
+      res.status(200).json({ ok: true, plan: await obtenerPlanService(req.params.idOCodigo) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get("/tenants/:id/plan", async (req, res, next) => {
+    try {
+      res.status(200).json({ ok: true, plan: await obtenerPlanDeTenantService(req.params.id) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // super_admin, mismo criterio que el ajuste de cuotas: cambia lo que un
+  // cliente puede consumir. La respuesta incluye `recursosExcedidos` para
+  // que el panel advierta EN EL MOMENTO si bajar de plan dejó al tenant por
+  // encima de sus nuevos topes — no se borra nada, pero deja de poder crear.
+  router.put(
+    "/tenants/:id/plan",
+    platformSuperAdminMiddleware,
+    validate(asignarPlanTenantSchema),
+    async (req, res, next) => {
+      try {
+        const { plan, motivo } = req.validatedBody as { plan: string | null; motivo?: string };
+        const resultado = await asignarPlanATenantService(req.params.id, plan, contextoDe(req), motivo);
         res.status(200).json({ ok: true, ...resultado });
       } catch (err) {
         next(err);

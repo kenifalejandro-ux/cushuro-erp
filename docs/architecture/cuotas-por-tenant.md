@@ -1,6 +1,6 @@
 # Cuotas operativas por tenant
 
-- **Estado**: vigente desde 2026-08-03 (migración `0033_tenant_cuotas.sql`).
+- **Estado**: vigente desde 2026-08-03 (migraciones `0033_tenant_cuotas.sql` y `0034_planes.sql`).
 - **Relacionado**: [ADR-0002](../adr/0002-contrato-de-modulo.md) (cada módulo declara su cuota en el registry), [backups en S3](backups-s3.md) (la cuota de almacenamiento existe por el costo que introdujo S3).
 
 ---
@@ -15,7 +15,7 @@ Limita el **volumen** que un tenant puede acumular:
 | `backup_bytes` | Suma de `tamano_bytes` de sus backups existentes | 5 GiB |
 | Uno por módulo | Filas en la tabla que el módulo declare | Ver el registry |
 
-**No** limita frecuencia de requests (eso es rate limiting, que ya existe aparte y resuelve otro problema), ni introduce planes, ni cobra nada. Sin billing, una cuota es un tope operativo — no monetización. Levantar un límite es una decisión que se toma en el panel, no pagando.
+**No** limita frecuencia de requests: eso es rate limiting, un sistema aparte que va por IP y devuelve 429. Y **no cobra nada**: los planes segmentan y aplican límites, pero no hay billing. Levantar un límite es una decisión que se toma en el panel, no pagando.
 
 ### Los defaults por módulo viven en el registry
 
@@ -35,9 +35,51 @@ Un módulo sin `cuota` no tiene límite — correcto para `dashboard`, que no cr
 
 ---
 
+## Planes: los tres niveles de resolución
+
+El límite efectivo de un tenant se resuelve en **tres niveles**, en este orden:
+
+| # | Nivel | Para qué sirve |
+|---|---|---|
+| 1 | `tenant_cuotas` | Excepción negociada con **ese** cliente |
+| 2 | Plan del tenant (`tenants.plan_id`) | Segmento comercial: MYPE, Pequeña, Mediana, Corporativo |
+| 3 | `src/modules/registry.ts` | Default de última instancia |
+
+Sin el nivel 2, dar de alta una PYME era cargar ~8 overrides a mano, sin que quedara registrado **qué categoría** es ese cliente — y cambiar los límites de un segmento obligaba a actualizar cliente por cliente.
+
+El campo `origen` de cada cuota (en `GET /tenants/:id/cuotas` y en la salud del tenant) dice de qué nivel salió el número. Importa: "500 equipos" sin saber si viene del plan o de una excepción es un dato a medias, porque cambiar el plan mueve uno y no el otro.
+
+### Planes iniciales
+
+| código | usuarios | equipos | checklists / iperc | combustible | repuestos | documentos | backups |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `mype` | 10 | 20 | 40.000 | 20.000 | 10.000 | 5.000 | 1 GiB |
+| `pequena` | 50 | 100 | 200.000 | 100.000 | 50.000 | 20.000 | 5 GiB |
+| `mediana` | 200 | 500 | 1.000.000 | 500.000 | 200.000 | 50.000 | 20 GiB |
+| `corporativo` | ∞ | ∞ | ∞ | ∞ | ∞ | ∞ | 100 GiB |
+
+Los números salen de que **casi todo escala con la cantidad de equipos**: un checklist de pre-uso es ~1 por equipo por turno, así que 20 equipos × 2 turnos × 365 días ≈ 14.600/año. Por eso `equipos` define cada segmento y el resto se deriva con holgura de varios años. Son un punto de partida ajustable desde el panel sin tocar código.
+
+**Corporativo topea solo `backup_bytes`** porque es el único recurso con costo directo y recurrente (S3 se paga por GB-mes); el resto son filas en una base que ya se paga igual.
+
+### Por qué `plan_limites` y no una columna por recurso
+
+Con columnas, agregar el módulo 8 exigiría una migración para sumar la columna **más** actualizar el seed de cada plan — justo el trabajo repartido que el Contrato de Módulo ([ADR-0002](../adr/0002-contrato-de-modulo.md)) existe para eliminar. Normalizado, un módulo nuevo simplemente no tiene fila en ningún plan y su límite cae al nivel 3. Eso no es un agujero: es la resolución funcionando.
+
+### Cambiar de plan nunca destruye datos
+
+- **Subir de plan** solo levanta topes.
+- **Bajar de plan** puede dejar al tenant **excedido**: no se borra nada, solo deja de poder crear hasta que baje volumen o vuelva a subir.
+
+`PUT /tenants/:id/plan` devuelve `recursosExcedidos` justamente para que el panel lo advierta **en el momento**, en vez de que aparezca después como creaciones rechazadas sin explicación.
+
+**Desactivar un plan** impide asignarlo a clientes nuevos; los que ya lo tienen conservan sus límites. Lo contrario cambiaría en silencio los topes de clientes que nadie tocó. **Borrar un plan** deja a sus tenants sin plan (`ON DELETE SET NULL`), cayendo al nivel 3 — nunca se lleva puesto a un tenant.
+
+---
+
 ## Los tres estados de una cuota
 
-`tenant_cuotas` guarda **solo excepciones**. Para un tenant y recurso dados:
+Aplican igual en `tenant_cuotas` (nivel 1) y en `plan_limites` (nivel 2). Para un tenant/plan y recurso dados:
 
 | Estado en la tabla | Significado |
 |---|---|
@@ -135,6 +177,10 @@ Cada bloqueo se audita en `platform_audit_log` con `accion = 'cuota.bloqueo'` y 
 
 | Método | Ruta | Permiso |
 |---|---|---|
+| `GET` | `/api/platform/planes` | platform admin (`?soloActivos=true` para el selector) |
+| `GET` | `/api/platform/planes/:idOCodigo` | platform admin (acepta código o UUID) |
+| `GET` | `/api/platform/tenants/:id/plan` | platform admin |
+| `PUT` | `/api/platform/tenants/:id/plan` | **super_admin** |
 | `GET` | `/api/platform/tenants/:id/cuotas` | platform admin |
 | `PUT` | `/api/platform/tenants/:id/cuotas` | **super_admin** |
 
@@ -146,7 +192,8 @@ El `PUT` exige super_admin por el mismo criterio que el toggle global de módulo
 
 ## Fuera de alcance
 
-- **Planes / tiers.** Sin billing, un plan es una etiqueta. Cuando exista cobro, un plan puede ser una capa que fija defaults por encima del registry, sin cambiar nada de lo de acá.
+- **Billing.** Los planes segmentan y aplican límites, pero no cobran nada: no hay integración de pagos, ni fechas de vigencia, ni upgrade automático al excederse. Levantar un límite es una acción del panel, no un pago.
+- **ABM de planes desde el panel.** Se pueden listar, ver y asignar; crear/editar/borrar planes se hace por SQL. Los 4 iniciales cubren la segmentación pensada, y agregar uno es raro.
+- **Avisar al cliente al acercarse al límite.** Hoy la señal es la alerta en la salud del tenant, visible para el dueño de la plataforma, no para el cliente.
 - **Rate limiting por tenant.** Es otro problema (frecuencia, no volumen) y ya hay rate limiters aparte.
 - **Cuota de almacenamiento de archivos de usuario.** Hoy no existen: `documentos` guarda solo metadata, no archivos. La única superficie de almacenamiento real son los backups.
-- **Avisar al cliente por email al acercarse al límite.** Hoy la señal es la alerta en la salud del tenant, visible para el dueño de la plataforma, no para el cliente.

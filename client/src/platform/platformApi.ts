@@ -432,3 +432,78 @@ export async function ssoPlatformAdminDisponibleApi(): Promise<boolean> {
   const data = await parseOrThrow(res);
   return data.disponible;
 }
+
+// ── Planes y cuotas ────────────────────────────────────────────────────
+// El límite efectivo se resuelve en tres niveles (override del tenant >
+// plan > default del registry); `origen` dice de cuál salió, que es lo que
+// permite mostrar "500 equipos (por plan Mediana)" en vez de un número
+// suelto. Ver docs/architecture/cuotas-por-tenant.md.
+
+export interface Plan {
+  id: string;
+  codigo: string;
+  nombre: string;
+  descripcion: string | null;
+  activo: boolean;
+  /** null = ilimitado en ese plan; recurso ausente = el plan no opina. */
+  limites: Record<string, number | null>;
+}
+
+export interface PlanDeTenant {
+  planId: string | null;
+  codigo: string | null;
+  nombre: string | null;
+}
+
+export interface EstadoCuota {
+  recurso: string;
+  unidad: "cantidad" | "bytes";
+  limite: number | null;
+  origen: "override" | "plan" | "registry";
+  uso: number;
+  porcentaje: number | null;
+  excedido: boolean;
+}
+
+export async function listarPlanesApi(soloActivos = false): Promise<Plan[]> {
+  const res = await platformFetch(`/planes${soloActivos ? "?soloActivos=true" : ""}`);
+  return (await parseOrThrow(res)).planes;
+}
+
+export async function obtenerPlanDeTenantApi(tenantId: string): Promise<PlanDeTenant> {
+  const res = await platformFetch(`/tenants/${tenantId}/plan`);
+  return (await parseOrThrow(res)).plan;
+}
+
+/** Devuelve también qué recursos quedan EXCEDIDOS con el plan nuevo — para
+ *  poder advertirlo en el momento del cambio y no que aparezca después como
+ *  creaciones rechazadas sin explicación. Nada se borra al bajar de plan. */
+export async function asignarPlanTenantApi(
+  tenantId: string,
+  plan: string | null,
+  motivo?: string
+): Promise<{ plan: PlanDeTenant; recursosExcedidos: string[] }> {
+  const res = await platformFetch(`/tenants/${tenantId}/plan`, jsonInit("PUT", { plan, motivo }));
+  const data = await parseOrThrow(res);
+  return { plan: data.plan, recursosExcedidos: data.recursosExcedidos };
+}
+
+export async function obtenerCuotasTenantApi(tenantId: string): Promise<EstadoCuota[]> {
+  const res = await platformFetch(`/tenants/${tenantId}/cuotas`);
+  return (await parseOrThrow(res)).cuotas;
+}
+
+export async function fijarCuotaTenantApi(
+  tenantId: string,
+  recurso: string,
+  limite: number | null | undefined,
+  motivo?: string
+): Promise<EstadoCuota[]> {
+  // `limite` ausente en el body = borrar el override y volver al plan/registry;
+  // `null` = ilimitado. Los dos casos se distinguen por la PRESENCIA de la
+  // clave, así que no se puede mandar siempre.
+  const body: Record<string, unknown> = { recurso, motivo };
+  if (limite !== undefined) body.limite = limite;
+  const res = await platformFetch(`/tenants/${tenantId}/cuotas`, jsonInit("PUT", body));
+  return (await parseOrThrow(res)).cuotas;
+}

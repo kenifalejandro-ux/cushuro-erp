@@ -45,38 +45,49 @@ afterAll(async () => {
 });
 
 describe("resolución del límite efectivo", () => {
+  // Comparten un tenant: ninguno crea registros, solo leen/escriben su
+  // propio override, y cada uno lo fija explícitamente antes de afirmar.
+  // Crear uno por test son 6 altas contra POST /tenants, la operación más
+  // cara de la suite (tiene rate limit propio).
+  let compartido: Awaited<ReturnType<typeof nuevoTenant>>;
+  async function tenantLimpio() {
+    compartido ??= await nuevoTenant();
+    await fijarCuotaTenant(compartido.tenant.id, "equipos", undefined);
+    return compartido.tenant;
+  }
+
   it("sin override usa el default declarado en el registry", async () => {
-    const { tenant } = await nuevoTenant();
+    const tenant = await tenantLimpio();
     // equipos declara porDefecto: 2_000 en src/modules/registry.ts
     expect(await limiteEfectivo(tenant.id, "equipos")).toBe(2000);
   });
 
   it("un override por tenant pisa el default", async () => {
-    const { tenant } = await nuevoTenant();
+    const tenant = await tenantLimpio();
     await fijarCuotaTenant(tenant.id, "equipos", 5, "plan reducido de prueba");
     expect(await limiteEfectivo(tenant.id, "equipos")).toBe(5);
   });
 
   it("limite=null significa ILIMITADO, distinto de no tener override", async () => {
-    const { tenant } = await nuevoTenant();
+    const tenant = await tenantLimpio();
     await fijarCuotaTenant(tenant.id, "equipos", null, "cliente enterprise");
     expect(await limiteEfectivo(tenant.id, "equipos")).toBeNull();
   });
 
   it("borrar el override devuelve al default del código, no a ilimitado", async () => {
-    const { tenant } = await nuevoTenant();
+    const tenant = await tenantLimpio();
     await fijarCuotaTenant(tenant.id, "equipos", 5);
     await fijarCuotaTenant(tenant.id, "equipos", undefined);
     expect(await limiteEfectivo(tenant.id, "equipos")).toBe(2000);
   });
 
   it("rechaza fijar una cuota sobre un recurso que no existe", async () => {
-    const { tenant } = await nuevoTenant();
+    const tenant = await tenantLimpio();
     await expect(fijarCuotaTenant(tenant.id, "recurso_inventado", 10)).rejects.toThrow(/desconocido/i);
   });
 
   it("dashboard no tiene cuota: no crea registros propios", async () => {
-    const { tenant } = await nuevoTenant();
+    const tenant = await tenantLimpio();
     const recursos = (await resumenCuotasTenant(tenant.id)).map((c) => c.recurso);
     expect(recursos).not.toContain("dashboard");
     expect(recursos).toContain("equipos");
