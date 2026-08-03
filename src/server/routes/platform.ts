@@ -42,6 +42,7 @@ import {
   cambiarEstadoPlatformAdminSchema,
   restaurarBackupSchema,
   restaurarBackupPlataformaSchema,
+  fijarCuotaTenantSchema,
   type ActualizarModuloGlobalInput,
 } from "../schemas/platform.schema";
 import {
@@ -72,6 +73,7 @@ import {
   listarBackupsTenantService,
   restaurarBackupService,
 } from "../services/platformBackup.service";
+import { resumenCuotasTenant, fijarCuotaTenant } from "../services/platformCuotas.service";
 import {
   exportarPlataformaService,
   listarBackupsPlataformaService,
@@ -521,6 +523,57 @@ export function createPlatformRouter() {
         const { targetTenantId } = req.validatedBody as { targetTenantId: string; confirmar: true };
         const resultado = await restaurarBackupService(req.params.backupId, targetTenantId, contextoDe(req));
         res.status(200).json({ ok: true, ...resultado });
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // ── Cuotas por tenant ─────────────────────────────────────────────────
+  // Ver docs/architecture/cuotas-por-tenant.md. El GET devuelve uso Y
+  // límite juntos a propósito: el límite solo se puede interpretar contra
+  // el consumo real, y pedirlos por separado invitaría a mostrar uno sin
+  // el otro.
+
+  router.get("/tenants/:id/cuotas", async (req, res, next) => {
+    try {
+      const cuotas = await resumenCuotasTenant(req.params.id);
+      res.status(200).json({ ok: true, cuotas });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Subirle la cuota a UN cliente es una decisión comercial puntual; subir
+  // el default de TODOS es cambiar el registry y desplegar (ver la
+  // migración 0033). Va a super_admin por el mismo criterio que el toggle
+  // global de módulos: cambia lo que un cliente puede consumir.
+  router.put(
+    "/tenants/:id/cuotas",
+    platformSuperAdminMiddleware,
+    validate(fijarCuotaTenantSchema),
+    async (req, res, next) => {
+      try {
+        const { recurso, limite, motivo } = req.validatedBody as {
+          recurso: string;
+          limite?: number | null;
+          motivo?: string;
+        };
+        // `limite` ausente en el body = borrar el override. Se distingue de
+        // `limite: null` (ilimitado) mirando la clave, no el valor.
+        const nuevoLimite = "limite" in (req.validatedBody as object) ? limite : undefined;
+
+        await fijarCuotaTenant(req.params.id, recurso, nuevoLimite, motivo);
+
+        await registrarAuditoria({
+          accion: "actualizar_cuota_tenant",
+          tenantId: req.params.id,
+          detalle: { recurso, limite: nuevoLimite === undefined ? "(default)" : nuevoLimite, motivo: motivo ?? null },
+          contexto: contextoDe(req),
+        });
+
+        const cuotas = await resumenCuotasTenant(req.params.id);
+        res.status(200).json({ ok: true, cuotas });
       } catch (err) {
         next(err);
       }

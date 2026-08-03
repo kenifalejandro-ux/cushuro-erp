@@ -37,6 +37,7 @@ export const MODULOS: ModuloDefinicion[] = [
     router: repuestosRoutes,
     tablas: [{ nombre: "repuestos", pk: "serial" }],
     raices: ["repuestos"],
+    cuota: { tabla: "repuestos", porDefecto: 50_000 },
   },
   {
     id: "combustible",
@@ -46,6 +47,7 @@ export const MODULOS: ModuloDefinicion[] = [
     router: combustibleRoutes,
     tablas: [{ nombre: "combustible", pk: "serial" }],
     raices: ["combustible"],
+    cuota: { tabla: "combustible", porDefecto: 100_000 },
   },
   {
     id: "documentos",
@@ -55,6 +57,7 @@ export const MODULOS: ModuloDefinicion[] = [
     router: documentosRoutes,
     tablas: [{ nombre: "documentos", pk: "serial" }],
     raices: ["documentos"],
+    cuota: { tabla: "documentos", porDefecto: 20_000 },
   },
   {
     id: "dashboard",
@@ -74,6 +77,7 @@ export const MODULOS: ModuloDefinicion[] = [
     router: equiposRoutes,
     tablas: [{ nombre: "equipos", pk: "serial" }],
     raices: ["equipos"],
+    cuota: { tabla: "equipos", porDefecto: 2_000 },
   },
   {
     id: "checklists",
@@ -94,6 +98,10 @@ export const MODULOS: ModuloDefinicion[] = [
     // checklist_plantilla_items y checklist_items cascadean desde su padre
     // (ON DELETE CASCADE, ver migrations/0006) — no necesitan DELETE propio.
     raices: ["checklist_plantillas", "checklists"],
+    // Se cuentan los checklists LLENADOS, no las plantillas: las plantillas
+    // son configuración (unas pocas por tenant), los llenados crecen a
+    // razón de uno por equipo por turno.
+    cuota: { tabla: "checklists", porDefecto: 200_000 },
   },
   {
     id: "iperc",
@@ -123,6 +131,9 @@ export const MODULOS: ModuloDefinicion[] = [
     ],
     // iperc_linea_base_items e iperc_items cascadean desde su padre.
     raices: ["iperc_lineas_base", "ipercs"],
+    // Ídem: se cuentan los IPERC, no las líneas base (que son el catálogo
+    // de riesgos aprobado, deliberadamente acotado).
+    cuota: { tabla: "ipercs", porDefecto: 200_000 },
   },
 ];
 

@@ -30,6 +30,7 @@ import type { TablaBackupMeta } from "../../modules/types";
 import { registrarAuditoria, type ContextoAuditoria } from "./platformAudit.service";
 import { guardarBackup, leerBackup, driverDeEscritura, type DriverStorage } from "./platformBackupStorage";
 import { construirKeyTenant } from "./platformBackupS3";
+import { verificarCuota, RECURSO_BACKUP_BYTES } from "./platformCuotas.service";
 
 type MetaTabla = TablaBackupMeta;
 
@@ -97,6 +98,12 @@ export async function exportarTenantService(tenantId: string, contexto: Contexto
   // fallo deja rastro en platform_audit_log con resultado 'failure' Y un
   // log estructurado de nivel ERROR — ver el catch.
   try {
+    // La cuota se chequea ANTES de leer nada: exportar un tenant grande es
+    // caro (arma el JSON entero en memoria) y no tiene sentido pagarlo para
+    // después rechazar la subida. Se mide sobre los backups que EXISTEN, así
+    // que la retención GFS libera espacio sola al podar los viejos.
+    await verificarCuota(tenantId, RECURSO_BACKUP_BYTES);
+
     // withTenant() por las tablas con RLS (todas, salvo la propia
     // tenants) — una sola transacción de solo lectura para todo el export.
     const tablas: Record<string, Record<string, unknown>[]> = await withTenant(tenantId, async (client) => {

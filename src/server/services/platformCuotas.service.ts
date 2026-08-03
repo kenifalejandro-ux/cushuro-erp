@@ -1,0 +1,244 @@
+/** src/server/services/platformCuotas.service.ts
+ *
+ * Cuotas operativas por tenant: cuántos usuarios activos, cuántos registros
+ * por módulo y cuánto ocupan sus backups. Ver
+ * docs/architecture/cuotas-por-tenant.md.
+ *
+ * ── Qué garantiza y qué no ───────────────────────────────────────────────
+ *
+ * Al excederse se BLOQUEA la creación del recurso siguiente. Nunca se borra,
+ * oculta ni degrada nada de lo ya cargado: una cuota es un tope de
+ * crecimiento, no una excusa para tocarle los datos a un cliente. Leer y
+ * borrar siguen funcionando siempre — si no, un tenant en el límite quedaría
+ * atrapado sin forma de bajar por debajo.
+ *
+ * El chequeo es "contar y después insertar", así que bajo concurrencia real
+ * dos requests simultáneos pueden ver el mismo conteo y pasar los dos: el
+ * exceso posible está acotado a la cantidad de requests en vuelo, no es
+ * ilimitado. Cerrar esa ventana del todo exigiría una fila contador con
+ * lock (o un trigger) por tenant y recurso, serializando todas las altas de
+ * ese tenant — un costo permanente en el camino caliente para evitar un
+ * desvío de unas pocas filas sobre límites de decenas de miles. No vale la
+ * pena, y se documenta en vez de fingir una exactitud que no hay.
+ *
+ * ── Dónde vive cada límite ───────────────────────────────────────────────
+ *
+ * El default está en código (registry para módulos, las constantes de acá
+ * para usuarios/backups); tenant_cuotas (migración 0033) solo guarda
+ * EXCEPCIONES. Ver el encabezado de esa migración sobre por qué "sin fila",
+ * "fila con número" y "fila con NULL" son tres estados distintos.
+ */
+import type { PoolClient } from "pg";
+import { pool, withTenant } from "../config/database";
+import { AppError } from "../shared/middlewares/error.middleware";
+import { MODULOS, obtenerModulo } from "../../modules/registry";
+
+/** Recursos que no pertenecen a ningún módulo. Los de módulo se derivan del
+ *  registry, así que un módulo nuevo con `cuota` declarada aparece acá solo,
+ *  sin tocar este archivo (parte del Contrato de Módulo, ADR-0002). */
+export const RECURSO_USUARIOS = "usuarios";
+export const RECURSO_BACKUP_BYTES = "backup_bytes";
+
+/** Usuarios ACTIVOS, no filas en la tabla: desactivar a alguien tiene que
+ *  liberar su cupo, porque "eliminar" un usuario en este sistema es
+ *  desactivarlo (nunca un DELETE — hay historial que lo referencia). Si se
+ *  contaran las filas, un tenant con rotación de personal se quedaría sin
+ *  cupo para siempre. */
+const LIMITE_USUARIOS_POR_DEFECTO = 100;
+
+/** 5 GiB de backups acumulados por tenant. A diferencia de los otros
+ *  recursos, éste tiene un costo directo y recurrente desde que los backups
+ *  van a S3 (se paga por GB-mes almacenado). El tope se mide sobre la suma
+ *  de los backups que EXISTEN, así que la retención (GFS) lo baja sola al
+ *  podar los viejos. */
+const LIMITE_BACKUP_BYTES_POR_DEFECTO = 5 * 1024 * 1024 * 1024;
+
+export interface DefinicionRecurso {
+  recurso: string;
+  /** Para mostrar en el panel: 'cantidad' se muestra como número,
+   *  'bytes' se formatea como tamaño. */
+  unidad: "cantidad" | "bytes";
+  limitePorDefecto: number;
+}
+
+/** Catálogo completo de recursos con cuota. Los de módulo salen del
+ *  registry; los módulos sin `cuota` (ej. dashboard, que no crea nada
+ *  propio) quedan afuera solos. */
+export function recursosConCuota(): DefinicionRecurso[] {
+  return [
+    { recurso: RECURSO_USUARIOS, unidad: "cantidad", limitePorDefecto: LIMITE_USUARIOS_POR_DEFECTO },
+    { recurso: RECURSO_BACKUP_BYTES, unidad: "bytes", limitePorDefecto: LIMITE_BACKUP_BYTES_POR_DEFECTO },
+    ...MODULOS.filter((m) => m.cuota).map((m) => ({
+      recurso: m.id,
+      unidad: "cantidad" as const,
+      limitePorDefecto: m.cuota!.porDefecto,
+    })),
+  ];
+}
+
+function definicionDe(recurso: string): DefinicionRecurso | undefined {
+  return recursosConCuota().find((r) => r.recurso === recurso);
+}
+
+/** `null` = ilimitado (ver los tres estados en la migración 0033). */
+export async function limiteEfectivo(tenantId: string, recurso: string): Promise<number | null> {
+  const definicion = definicionDe(recurso);
+  if (!definicion) return null; // recurso desconocido: sin límite que aplicar
+
+  const override = await pool.query<{ limite: string | null }>(
+    `SELECT limite FROM tenant_cuotas WHERE tenant_id = $1 AND recurso = $2`,
+    [tenantId, recurso]
+  );
+
+  if (override.rows.length === 0) return definicion.limitePorDefecto;
+  // La fila existe: NULL significa ilimitado a propósito, no "sin dato".
+  // BIGINT vuelve como string desde node-pg (mismo caso que tamano_bytes en
+  // platformBackup.service.ts), por eso el Number() explícito.
+  return override.rows[0].limite === null ? null : Number(override.rows[0].limite);
+}
+
+/** Cuánto consume HOY el tenant de ese recurso.
+ *
+ *  `client` opcional: si se pasa, la medición corre dentro de esa misma
+ *  transacción (con app.tenant_id ya seteado) en vez de abrir otra. Es lo
+ *  que permite contar y después insertar sin soltar la transacción — no
+ *  elimina la carrera descrita arriba, pero evita medir contra un estado
+ *  distinto del que se va a escribir. */
+export async function usoActual(tenantId: string, recurso: string, client?: PoolClient): Promise<number> {
+  if (recurso === RECURSO_BACKUP_BYTES) {
+    // tenant_backups no tiene RLS (es tabla de plataforma), así que va por
+    // pool directo aunque nos pasen un client de tenant.
+    const resultado = await pool.query<{ total: string }>(
+      `SELECT COALESCE(sum(tamano_bytes), 0)::text AS total FROM tenant_backups WHERE tenant_id = $1`,
+      [tenantId]
+    );
+    return Number(resultado.rows[0].total);
+  }
+
+  const contar = async (c: PoolClient): Promise<number> => {
+    if (recurso === RECURSO_USUARIOS) {
+      const r = await c.query<{ total: string }>(
+        `SELECT count(*)::text AS total FROM usuarios WHERE tenant_id = $1 AND activo = true`,
+        [tenantId]
+      );
+      return Number(r.rows[0].total);
+    }
+
+    const modulo = obtenerModulo(recurso);
+    if (!modulo?.cuota) return 0;
+    // La tabla sale del registry, nunca de un parámetro del request: no hay
+    // forma de que un valor del cliente termine interpolado acá.
+    const r = await c.query<{ total: string }>(
+      `SELECT count(*)::text AS total FROM ${modulo.cuota.tabla} WHERE tenant_id = $1`,
+      [tenantId]
+    );
+    return Number(r.rows[0].total);
+  };
+
+  // usuarios y las tablas de módulo tienen RLS: sin app.tenant_id seteado la
+  // policy evalúa ''::uuid y la query falla (ver ADR-0001).
+  return client ? contar(client) : withTenant(tenantId, contar);
+}
+
+export interface EstadoCuota {
+  recurso: string;
+  unidad: "cantidad" | "bytes";
+  limite: number | null;
+  uso: number;
+  /** null cuando el recurso es ilimitado. */
+  porcentaje: number | null;
+  excedido: boolean;
+}
+
+/** Uso vs. límite de todos los recursos de un tenant — para el panel y para
+ *  la salud del tenant. */
+export async function resumenCuotasTenant(tenantId: string): Promise<EstadoCuota[]> {
+  const estados: EstadoCuota[] = [];
+  for (const definicion of recursosConCuota()) {
+    const [limite, uso] = await Promise.all([
+      limiteEfectivo(tenantId, definicion.recurso),
+      usoActual(tenantId, definicion.recurso),
+    ]);
+    estados.push({
+      recurso: definicion.recurso,
+      unidad: definicion.unidad,
+      limite,
+      uso,
+      porcentaje: limite === null || limite === 0 ? null : Math.round((uso / limite) * 100),
+      excedido: limite !== null && uso >= limite,
+    });
+  }
+  return estados;
+}
+
+export class CuotaExcedidaError extends AppError {
+  constructor(
+    public readonly recurso: string,
+    public readonly limite: number,
+    public readonly uso: number,
+    public readonly incremento: number
+  ) {
+    // 403 y no 402 (Payment Required): 402 promete que pagando se
+    // desbloquea, y en este sistema no hay billing — un límite se levanta
+    // desde el panel, no pagando. Tampoco 429, que es para frecuencia de
+    // requests, no para volumen acumulado.
+    super(
+      403,
+      incremento > 1
+        ? `Cuota de "${recurso}" excedida: la operación agregaría ${incremento} registros y quedarían ${uso + incremento} sobre un límite de ${limite}.`
+        : `Cuota de "${recurso}" excedida: ${uso} de ${limite} en uso.`
+    );
+    this.name = "CuotaExcedidaError";
+  }
+}
+
+/** Tira CuotaExcedidaError si crear `incremento` unidades más pasaría el
+ *  límite. No hace nada si el recurso es ilimitado o desconocido. */
+export async function verificarCuota(
+  tenantId: string,
+  recurso: string,
+  incremento = 1,
+  client?: PoolClient
+): Promise<void> {
+  const limite = await limiteEfectivo(tenantId, recurso);
+  if (limite === null) return;
+
+  const uso = await usoActual(tenantId, recurso, client);
+  if (uso + incremento > limite) {
+    throw new CuotaExcedidaError(recurso, limite, uso, incremento);
+  }
+}
+
+export interface CuotaConfigurada {
+  recurso: string;
+  limite: number | null;
+  motivo: string | null;
+  actualizadoEn: string;
+}
+
+/** Fija (o quita) el override de un tenant. `limite: null` = ilimitado;
+ *  pasar `undefined` borra la fila y devuelve el tenant al default del
+ *  código — que NO es lo mismo (ver la migración 0033). */
+export async function fijarCuotaTenant(
+  tenantId: string,
+  recurso: string,
+  limite: number | null | undefined,
+  motivo?: string
+): Promise<void> {
+  if (!definicionDe(recurso)) {
+    throw new AppError(400, `Recurso de cuota desconocido: ${recurso}`);
+  }
+
+  if (limite === undefined) {
+    await pool.query(`DELETE FROM tenant_cuotas WHERE tenant_id = $1 AND recurso = $2`, [tenantId, recurso]);
+    return;
+  }
+
+  await pool.query(
+    `INSERT INTO tenant_cuotas (tenant_id, recurso, limite, motivo, actualizado_en)
+     VALUES ($1, $2, $3, $4, now())
+     ON CONFLICT (tenant_id, recurso)
+     DO UPDATE SET limite = EXCLUDED.limite, motivo = EXCLUDED.motivo, actualizado_en = now()`,
+    [tenantId, recurso, limite, motivo ?? null]
+  );
+}

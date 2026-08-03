@@ -21,6 +21,12 @@ import { pool, closeDatabase } from "../src/server/config/database";
 // ANTES de poder leer usuarios bajo RLS).
 const ALLOWLIST_SIN_RLS = new Set([
   "tenant_modulos",
+  // Límites de volumen por tenant (migración 0033). Mismo criterio que
+  // tenant_modulos: los administra el panel de plataforma para cualquier
+  // tenant, fuera de toda transacción con app.tenant_id seteado. Además,
+  // un tenant nunca lee su propia cuota directamente — la ve resuelta en
+  // la respuesta de la API cuando se le bloquea una creación.
+  "tenant_cuotas",
   "platform_audit_log",
   "tenant_scim_config",
   "refresh_tokens",

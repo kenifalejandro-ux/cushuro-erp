@@ -12,6 +12,7 @@
  * salió (`res.on("finish")`), puramente informativo.
  */
 import { pool, withTenant } from "../config/database";
+import { resumenCuotasTenant, type EstadoCuota } from "./platformCuotas.service";
 import { logger } from "../config/logger";
 import { AppError } from "../shared/middlewares/error.middleware";
 
@@ -44,6 +45,11 @@ export interface SaludTenant {
   errores5xxUltimas24h: number;
   tasaError: number;
   recursosCreadosUltimas24h: number;
+  /** Uso vs. límite de cada recurso con cuota — ver
+   *  docs/architecture/cuotas-por-tenant.md. Va en la salud y no en un
+   *  endpoint aparte porque "¿este tenant está bien?" incluye "¿está por
+   *  chocar contra un límite?": enterarse cuando ya se bloqueó es tarde. */
+  cuotas: EstadoCuota[];
   alertas: string[];
 }
 
@@ -53,6 +59,10 @@ export interface SaludTenant {
 const UMBRAL_TASA_ERROR = 0.05; // 5%
 const VOLUMEN_MINIMO_PARA_ALERTAR = 20; // no alertar con tráfico casi nulo (1 error de 2 requests = 50%, ruido)
 const UMBRAL_RECURSOS_CREADOS_24H = 500;
+// A partir de qué % de una cuota se avisa. 80% da margen para reaccionar
+// (ampliar el límite, hablar con el cliente) antes de que empiece a
+// rebotarle la creación de registros.
+const UMBRAL_CUOTA_CERCA = 80;
 
 async function calcularSalud(tenantId: string): Promise<SaludTenant> {
   // usuarios tiene RLS (migrations/0010_usuarios_rls.sql) — un pool.query()
@@ -61,7 +71,7 @@ async function calcularSalud(tenantId: string): Promise<SaludTenant> {
   // convive bien dentro del mismo Promise.all que las otras dos queries
   // (que sí van por pool.query porque refresh_tokens/tenant_metricas_horarias
   // no tienen RLS).
-  const [usuarios, ultimoAcceso, metricas] = await Promise.all([
+  const [usuarios, ultimoAcceso, metricas, cuotas] = await Promise.all([
     withTenant(tenantId, (client) =>
       client.query(
         `SELECT count(*) FILTER (WHERE activo) AS activos, count(*) AS total FROM usuarios WHERE tenant_id = $1`,
@@ -77,6 +87,7 @@ async function calcularSalud(tenantId: string): Promise<SaludTenant> {
        WHERE tenant_id = $1 AND hora >= now() - interval '24 hours'`,
       [tenantId]
     ),
+    resumenCuotasTenant(tenantId),
   ]);
 
   const requests = Number(metricas.rows[0].requests);
@@ -92,6 +103,16 @@ async function calcularSalud(tenantId: string): Promise<SaludTenant> {
     alertas.push("creacion_anomala_de_recursos");
   }
 
+  // Dos alertas distintas a propósito: "cerca" es una señal comercial (hay
+  // que hablar con el cliente antes de que le moleste), "excedida" ya es
+  // una operación bloqueada. Mezclarlas escondería la primera, que es
+  // justamente la que se puede accionar a tiempo.
+  if (cuotas.some((c) => c.excedido)) {
+    alertas.push("cuota_excedida");
+  } else if (cuotas.some((c) => c.porcentaje !== null && c.porcentaje >= UMBRAL_CUOTA_CERCA)) {
+    alertas.push("cuota_cerca_del_limite");
+  }
+
   return {
     tenantId,
     usuariosActivos: Number(usuarios.rows[0].activos),
@@ -101,6 +122,7 @@ async function calcularSalud(tenantId: string): Promise<SaludTenant> {
     errores5xxUltimas24h: errores,
     tasaError,
     recursosCreadosUltimas24h: recursos,
+    cuotas,
     alertas,
   };
 }

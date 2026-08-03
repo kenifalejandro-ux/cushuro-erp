@@ -33,7 +33,18 @@ export function contextoAuditoriaModulo(req: Request): ContextoAuditoria {
     requestId: getRequestId(req),
     userAgent: getUserAgent(req),
     actorType: "tenant_usuario",
-    actorId: usuario.id,
+    // actorId queda SIN setear a propósito: platform_audit_log.actor_id
+    // tiene FK contra platform_admins (migración 0016), y el autor de una
+    // acción de módulo es un usuario de TENANT, que vive en `usuarios`.
+    // Ponerlo acá violaba la FK en cada insert — y como registrarAuditoria
+    // nunca tira (traga el error y loguea un warning), la auditoría de
+    // TODOS los módulos de negocio se perdía en silencio. Se descubrió al
+    // escribir el test de auditoría de cuotas: 0 filas de equipos/
+    // checklists/iperc contra 4081 de plataforma.
+    //
+    // Quién fue va en `usuario_id` (FK contra usuarios, columna que existe
+    // desde la migración 0012 y que estos call sites ya llenaban) y su
+    // email en actor_label. No hace falta ninguna columna nueva.
     actorLabel: usuario.email,
   };
 }

@@ -29,6 +29,49 @@ describe("registry de módulos vs enum modulo_erp de Postgres", () => {
     expect(modulosEnCodigo).toEqual(modulosEnBd);
   });
 
+  it("la auditoría de un módulo de negocio realmente ESCRIBE la fila (no se pierde en silencio)", async () => {
+    // registrarAuditoria() nunca tira: si el INSERT falla, loguea un warning
+    // y sigue. Eso hace que un error de esquema en la fila de auditoría sea
+    // invisible salvo que un test verifique la fila del otro lado — que es
+    // exactamente lo que faltaba: durante un tiempo TODA la auditoría de
+    // módulos de negocio violaba la FK de actor_id y se descartaba, sin que
+    // nada fallara. Ver el comentario en shared/utils/moduleAudit.ts.
+    const { app, crearTenantDePrueba, borrarTenantDePrueba, idUnico } = await import("./helpers");
+    const request = (await import("supertest")).default;
+
+    const { tenant, usuario } = await crearTenantDePrueba("ClaveDePrueba123");
+    try {
+      const agente = request.agent(app);
+      await agente
+        .post("/api/auth/login")
+        .send({ tenantSlug: tenant.slug, email: usuario.email, password: "ClaveDePrueba123" });
+
+      const creado = await agente
+        .post("/api/erp/equipos")
+        .send({ placa_codigo: idUnico("EQ"), tipo: "Camioneta" });
+      expect(creado.status).toBe(201);
+
+      const auditoria = await pool.query(
+        `SELECT actor_type, actor_id, usuario_id, actor_label, detalle
+         FROM platform_audit_log
+         WHERE accion = 'equipos.crear' AND tenant_id = $1
+         ORDER BY creado_en DESC LIMIT 1`,
+        [tenant.id]
+      );
+
+      expect(auditoria.rows).toHaveLength(1);
+      expect(auditoria.rows[0].actor_type).toBe("tenant_usuario");
+      // El autor va en usuario_id, NO en actor_id (que tiene FK contra
+      // platform_admins y haría fallar el insert).
+      expect(auditoria.rows[0].actor_id).toBeNull();
+      expect(auditoria.rows[0].usuario_id).toBe(usuario.id);
+      expect(auditoria.rows[0].actor_label).toBe(usuario.email);
+      expect(auditoria.rows[0].detalle.equipoId).toBe(creado.body.id);
+    } finally {
+      await borrarTenantDePrueba(tenant.id);
+    }
+  });
+
   it("cada módulo del registry declara sus tablas de backup como subconjunto válido de raices", async () => {
     const { MODULOS } = await import("../src/modules/registry");
     for (const modulo of MODULOS) {

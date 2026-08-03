@@ -9,13 +9,17 @@
 -- ningún módulo de negocio auditaba nada; el panel de plataforma solo veía
 -- sus propias acciones.
 --
--- actor_id es el id de usuarios (RLS, migrations/0010) — NO lleva FK real
--- hacia esa tabla (a diferencia de platform_admins en actor_id de las
--- otras filas): platform_audit_log no tiene RLS a propósito y usuarios sí,
--- una FK cruzada obligaría a decidir en qué tenant validar el id en cada
--- INSERT. tenant_id (columna ya existente) es la referencia real; actor_id
--- queda como dato informativo, igual criterio que usuario_id en el resto
--- de la tabla.
+-- IMPORTANTE — actor_id queda NULL en estas filas. La columna tiene una FK
+-- contra platform_admins (migración 0016), así que NO puede guardar el id
+-- de un usuario de tenant: esos viven en `usuarios`. Quién actuó va en
+-- `usuario_id` (FK contra usuarios, ya existente desde la migración 0012) y
+-- su email en actor_label.
+--
+-- Una versión anterior de este comentario afirmaba que actor_id no tenía
+-- FK. Era falso, y el costo fue concreto: cada intento de auditar una
+-- acción de módulo violaba la FK, y como registrarAuditoria() nunca tira
+-- (traga el error y loguea un warning), la auditoría de los módulos de
+-- negocio se perdió en silencio hasta que un test la exigió.
 --
 -- EJECUTAR (después de 0029):
 --   psql -d mincoreerp -f migrations/0030_platform_audit_log_actor_tenant_usuario.sql

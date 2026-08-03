@@ -42,4 +42,19 @@ export interface ModuloDefinicion {
    *  aquí. Mismo orden que `tablas` (padres antes que hijos); el wipe se
    *  ejecuta en el orden inverso automáticamente. */
   raices: string[];
+  /** Límite de volumen por tenant para este módulo (ver
+   *  docs/architecture/cuotas-por-tenant.md). Omitirlo = el módulo no
+   *  tiene cuota: es lo correcto para uno que no crea registros propios
+   *  (dashboard solo agrega datos de otros).
+   *
+   *  `tabla` es cuál de las tablas del módulo se cuenta. Hace falta
+   *  declararla explícitamente porque un módulo suele tener varias y solo
+   *  una representa "el volumen del cliente": en checklists se cuentan los
+   *  checklists llenados, no las plantillas (que son configuración y son
+   *  pocas); en iperc se cuentan los IPERC, no las líneas base.
+   *
+   *  `porDefecto` aplica a todos los tenants salvo override en
+   *  tenant_cuotas (migración 0033). Subirlo para todos = cambiar este
+   *  número y desplegar. */
+  cuota?: { tabla: string; porDefecto: number };
 }

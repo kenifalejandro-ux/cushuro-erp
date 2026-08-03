@@ -172,3 +172,19 @@ export const configurarSsoTenantSchema = z.object({
 });
 
 export type ConfigurarSsoTenantInput = z.infer<typeof configurarSsoTenantSchema>;
+
+// Cuotas por tenant (ver tenant_cuotas, migración 0033). Los tres estados
+// posibles se expresan así en el body:
+//   { limite: 500 }   → ese tenant tiene 500
+//   { limite: null }  → ese tenant es ILIMITADO (override explícito)
+//   omitir `limite`   → borra el override y vuelve al default del código
+// Por eso `limite` es .optional().nullable() y no un simple number: los tres
+// casos tienen que poder distinguirse, y "sin límite" no es lo mismo que
+// "sin override".
+export const fijarCuotaTenantSchema = z.object({
+  recurso: z.string().trim().min(1, "Recurso requerido").max(60),
+  limite: z.number().int().min(0).nullable().optional(),
+  motivo: z.string().trim().max(500).optional(),
+});
+
+export type FijarCuotaTenantInput = z.infer<typeof fijarCuotaTenantSchema>;
