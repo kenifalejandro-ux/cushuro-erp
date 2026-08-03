@@ -50,6 +50,22 @@ jobs:
       SESSION_TTL_SECONDS: 2592000
       AUTH_COOKIE_NAME: erp_token
       PLATFORM_ADMIN_TOKEN: ci-only-not-a-real-secret
+      # Claves de cifrado — 32 bytes en base64, que es lo que exigen
+      # platformCrypto.ts y backupCrypto.ts (si no decodifican a 32 bytes
+      # tiran 500, y si faltan tiran 503). Valores fijos y públicos a
+      # propósito: solo cifran datos efímeros que se crean y se borran
+      # dentro del propio job, igual que JWT_SECRET de arriba.
+      #
+      # APP_ENCRYPTION_KEY faltaba desde que se implementó SSO por tenant
+      # (0cfa919): sin ella, configurarSsoTenantService responde 503 y los
+      # 7 tests de tests/tenant-sso.test.ts fallan. Esos tests nunca
+      # llegaron a correr en verde en CI porque se agregaron después de la
+      # última corrida exitosa.
+      APP_ENCRYPTION_KEY: Y2ktb25seS1hcHAta2V5LTMyLWJ5dGVzLWV4YWN0ISE=
+      # BACKUP_ENCRYPTION_KEY la exige tests/platform-backup-s3.test.ts,
+      # que corre con driver s3 (contra un bucket falso en memoria) — y con
+      # ese driver el cifrado de cliente es obligatorio y falla cerrado.
+      BACKUP_ENCRYPTION_KEY: Y2ktb25seS1iYWNrdXAta2V5LTMyLWJ5dGVzLW9rISE=
       PG_HOST: localhost
       PG_PORT: 5432
       PG_USER: mincoreerp_app
