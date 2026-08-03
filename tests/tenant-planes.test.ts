@@ -61,6 +61,15 @@ describe("seed de planes", () => {
     expect(porUuid.body.plan.codigo).toBe("mype");
   });
 
+  it("vienen ordenados de MENOR a MAYOR, no alfabéticamente", async () => {
+    // Por nombre quedaría "Corporativo, Mediana, MYPE, Pequeña": el plan más
+    // grande primero y el más chico tercero, que en un selector invita a
+    // asignar el equivocado. Ver migración 0035.
+    const res = await request(app).get("/api/platform/planes").set("Authorization", BEARER);
+    const nombres = res.body.planes.map((p: any) => p.nombre);
+    expect(nombres).toEqual(["MYPE", "Pequeña", "Mediana", "Corporativo"]);
+  });
+
   it("404 con un plan que no existe", async () => {
     const res = await request(app).get("/api/platform/planes/inexistente").set("Authorization", BEARER);
     expect(res.status).toBe(404);

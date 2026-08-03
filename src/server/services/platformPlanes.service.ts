@@ -22,6 +22,10 @@ export interface Plan {
   nombre: string;
   descripcion: string | null;
   activo: boolean;
+  /** Menor a mayor por tamaño de empresa. Existe porque ni el nombre
+   *  (alfabético) ni los límites (Corporativo los tiene en NULL) dan el
+   *  orden correcto en un selector — ver migración 0035. */
+  orden: number;
   /** recurso → límite. `null` = ilimitado en este plan. Un recurso ausente
    *  significa que el plan no opina y se cae al default del registry. */
   limites: Record<string, number | null>;
@@ -57,10 +61,10 @@ async function limitesDePlanes(planIds: string[]): Promise<Map<string, Record<st
  *  completo (los tenants que ya lo tienen lo conservan — ver la migración). */
 export async function listarPlanesService(soloActivos = false): Promise<Plan[]> {
   const filas = await pool.query(
-    `SELECT id, codigo, nombre, descripcion, activo,
+    `SELECT id, codigo, nombre, descripcion, activo, orden,
             creado_en AS "creadoEn", actualizado_en AS "actualizadoEn"
      FROM planes ${soloActivos ? "WHERE activo = true" : ""}
-     ORDER BY nombre`
+     ORDER BY orden, nombre`
   );
 
   const limites = await limitesDePlanes(filas.rows.map((p) => p.id));
@@ -72,7 +76,7 @@ export async function listarPlanesService(soloActivos = false): Promise<Plan[]> 
 export async function obtenerPlanService(idOCodigo: string): Promise<Plan> {
   const esUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOCodigo);
   const filas = await pool.query(
-    `SELECT id, codigo, nombre, descripcion, activo,
+    `SELECT id, codigo, nombre, descripcion, activo, orden,
             creado_en AS "creadoEn", actualizado_en AS "actualizadoEn"
      FROM planes WHERE ${esUuid ? "id = $1" : "codigo = $1"}`,
     [idOCodigo]

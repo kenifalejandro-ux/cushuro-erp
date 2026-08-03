@@ -445,6 +445,8 @@ export interface Plan {
   nombre: string;
   descripcion: string | null;
   activo: boolean;
+  /** Menor a mayor por tamaño de empresa (el backend ya los devuelve así). */
+  orden: number;
   /** null = ilimitado en ese plan; recurso ausente = el plan no opina. */
   limites: Record<string, number | null>;
 }
