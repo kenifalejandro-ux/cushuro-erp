@@ -14,3 +14,7 @@ client/.env.*
 # Backups de tenant (platformBackup.service.ts) — contienen datos reales
 # de clientes (incluidos password_hash), nunca van al repo.
 /backups
+
+# Estado interno de Vitest (qué test falló la última corrida) — cambia en
+# cada run, no aporta nada versionado.
+/test-results
