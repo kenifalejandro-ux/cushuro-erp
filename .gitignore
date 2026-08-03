@@ -10,3 +10,7 @@ client/.env.*
 # Datos operativos reales / documentos comerciales, no código
 /combustible
 /propuesta_cushuro_erp.html
+
+# Backups de tenant (platformBackup.service.ts) — contienen datos reales
+# de clientes (incluidos password_hash), nunca van al repo.
+/backups

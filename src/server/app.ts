@@ -16,6 +16,7 @@ import { authRouter } from "./routes/auth";
 import { createPublicRouter } from "./routes/public";
 import { createSystemRouter } from "./routes/system";
 import { createPlatformRouter } from "./routes/platform";
+import { createScimRouter } from "./routes/scim";
 import { createApiRouter } from "./routes";
 import { errorHandler } from "./shared/middlewares/error.middleware";
 
@@ -112,6 +113,13 @@ export function createApp() {
   // de plataforma), no por el JWT de usuario — no es una acción de un
   // tenant, es de quien opera el ERP.
   app.use("/api/platform", createPlatformRouter());
+
+  // Provisioning SCIM por tenant (ver platformScim.service.ts) — fuera de
+  // /api a propósito, mismo criterio que el resto del ecosistema SCIM: es
+  // la ruta que un IdP externo espera encontrar, no una convención propia
+  // de esta app. Autenticado por su propio bearer token (scim.middleware.ts),
+  // sin relación con el JWT de usuario ni con la sesión del panel.
+  app.use("/scim/v2", createScimRouter());
 
   // Rutas del ERP (con prefijo /api) — protegidas por authMiddleware/tenantMiddleware
   // dentro de cada módulo (ver routes/index.ts)

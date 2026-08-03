@@ -23,10 +23,26 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # Sin esto, todo lo que depende de Redis (sesiones revocables de
+      # platform_admin, dedupe de auditoría, idempotency-key, los rate
+      # limiters específicos) corre en su modo degradado sin Redis en
+      # cada CI run — nunca se prueba de punta a punta el camino real,
+      # solo el de fallback. Efímero, se borra al terminar el job, igual
+      # que Postgres arriba.
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     env:
-      # No son secretos reales: Postgres es un contenedor efímero que se
-      # borra al terminar el job, y estos valores nunca tocan producción.
+      # No son secretos reales: Postgres/Redis son contenedores efímeros
+      # que se borran al terminar el job, y estos valores nunca tocan
+      # producción.
       NODE_ENV: development
       PORT: 3001
       JWT_SECRET: ci-only-not-a-real-secret
@@ -39,8 +55,20 @@ jobs:
       PG_USER: mincoreerp_app
       PG_PASSWORD: ci_only_password
       PG_DATABASE: mincoreerp
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
       RATE_LIMIT_WINDOW_MS: 60000
       RATE_LIMIT_MAX_REQUESTS: 1000
+      # Con Redis real (arriba), estos dos son de verdad compartidos entre
+      # TODOS los archivos de test dentro del mismo run (a diferencia del
+      # fallback en memoria, que queda aislado por worker) — la suite crea
+      # decenas de tenants de prueba en total, muy por encima del default
+      # de producción (5 cada 15 min), así que sin esto CI empezaría a
+      # devolver 429 a mitad de la corrida.
+      PLATFORM_TENANT_CREATION_WINDOW_MS: 60000
+      PLATFORM_TENANT_CREATION_MAX_REQUESTS: 1000
+      PLATFORM_ADMIN_LOGIN_WINDOW_MS: 60000
+      PLATFORM_ADMIN_LOGIN_MAX_REQUESTS: 1000
 
     steps:
       - uses: actions/checkout@v4

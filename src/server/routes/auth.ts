@@ -5,8 +5,23 @@ import { env } from "../config/env";
 import { validate } from "../middleware/validate";
 import rateLimiter from "../middleware/rateLimiter";
 import { verifyRecaptcha } from "../middleware/verifyRecaptcha";
-import { loginSchema } from "../schemas/auth.schema";
-import { loginService, logoutService, refrescarTokenService, aPublico } from "../services/auth.service";
+import { resolveTenantSubdomain } from "../middleware/resolveTenantSubdomain";
+import { loginSchema, googleLoginSchema, forgotPasswordSchema, resetPasswordSchema } from "../schemas/auth.schema";
+import {
+  loginService,
+  googleLoginService,
+  logoutService,
+  refrescarTokenService,
+  solicitarRecuperacionService,
+  restablecerPasswordService,
+  aPublico,
+} from "../services/auth.service";
+import {
+  ssoDisponibleParaTenantService,
+  iniciarSsoTenantService,
+  manejarCallbackSsoTenantService,
+} from "../services/tenantSso.service";
+import { getClientIp, getRequestId, getUserAgent } from "../shared/utils/request";
 import { authMiddleware } from "../shared/middlewares/auth.middleware";
 
 export const authRouter = Router();
@@ -52,6 +67,7 @@ function limpiarCookiesSesion(res: Response) {
 authRouter.post(
   "/login",
   rateLimiter,
+  resolveTenantSubdomain,
   validate(loginSchema),
   ...(env.isProduction ? [verifyRecaptcha] : []),
   async (req, res, next) => {
@@ -69,6 +85,74 @@ authRouter.post(
     }
   }
 );
+
+authRouter.post(
+  "/google",
+  rateLimiter,
+  resolveTenantSubdomain,
+  validate(googleLoginSchema),
+  async (req, res, next) => {
+    try {
+      const result = await googleLoginService(req.validatedBody as any);
+      setCookieSesion(res, result.token);
+      setCookieRefresh(res, result.refreshToken);
+      res.status(200).json({ ok: true, usuario: aPublico(result.usuario) });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ── SSO por tenant (OIDC) ────────────────────────────────────────────────
+// Separado del resto (login/google) porque es un baile de redirects reales
+// de navegador, no un POST con JSON — ver tenantSso.service.ts.
+
+authRouter.get("/sso-disponible", rateLimiter, resolveTenantSubdomain, async (req, res, next) => {
+  try {
+    const tenantSlug = ((req.body as { tenantSlug?: string })?.tenantSlug || (req.query.tenantSlug as string) || "").trim();
+    if (!tenantSlug) return res.status(200).json({ ok: true, disponible: false });
+    const disponible = await ssoDisponibleParaTenantService(tenantSlug);
+    res.status(200).json({ ok: true, disponible });
+  } catch (err) {
+    next(err);
+  }
+});
+
+authRouter.get("/sso/iniciar", rateLimiter, resolveTenantSubdomain, async (req, res, next) => {
+  try {
+    const tenantSlug = ((req.body as { tenantSlug?: string })?.tenantSlug || (req.query.tenantSlug as string) || "").trim();
+    if (!tenantSlug) {
+      return res.status(400).json({ ok: false, message: "Falta identificar la empresa" });
+    }
+    const { redirectUrl } = await iniciarSsoTenantService(tenantSlug);
+    res.redirect(redirectUrl);
+  } catch (err) {
+    next(err);
+  }
+});
+
+authRouter.get("/sso/callback", rateLimiter, async (req, res) => {
+  const contexto = {
+    ip: getClientIp(req),
+    requestId: getRequestId(req),
+    userAgent: getUserAgent(req),
+    actorType: "unauthenticated" as const,
+    actorLabel: "sso-tenant",
+  };
+
+  try {
+    const state = typeof req.query.state === "string" ? req.query.state : "";
+    const currentUrl = new URL(`${req.protocol}://${req.get("host")}${req.originalUrl}`);
+    const resultado = await manejarCallbackSsoTenantService(state, currentUrl, contexto);
+
+    setCookieSesion(res, resultado.token);
+    setCookieRefresh(res, resultado.refreshToken);
+    res.redirect(resultado.urlDestino);
+  } catch (err) {
+    const mensaje = err instanceof Error ? err.message : "No se pudo iniciar sesión con SSO";
+    res.redirect(`${env.appPublicUrl}/login?ssoError=${encodeURIComponent(mensaje)}`);
+  }
+});
 
 authRouter.post(
   "/refresh",
@@ -97,9 +181,38 @@ authRouter.post(
   }
 );
 
+authRouter.post(
+  "/forgot-password",
+  rateLimiter,
+  resolveTenantSubdomain,
+  validate(forgotPasswordSchema),
+  async (req, res, next) => {
+    try {
+      const result = await solicitarRecuperacionService(req.validatedBody as any);
+      res.status(200).json({ ok: true, message: result.message });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+authRouter.post(
+  "/reset-password",
+  rateLimiter,
+  validate(resetPasswordSchema),
+  async (req, res, next) => {
+    try {
+      await restablecerPasswordService(req.validatedBody as any);
+      res.status(200).json({ ok: true, message: "Contraseña actualizada correctamente" });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 authRouter.post("/logout", authMiddleware, async (req, res, next) => {
   try {
-    await logoutService(req.usuario!.id);
+    await logoutService(req.usuario!.id, req.usuario!.tenantId);
     limpiarCookiesSesion(res);
     res.status(200).json({ ok: true, message: "Sesión cerrada correctamente" });
   } catch (err) {
