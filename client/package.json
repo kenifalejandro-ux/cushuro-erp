@@ -42,7 +42,7 @@
     "tailwindcss": "^4.1.18",
     "tailwindcss-animate": "^1.0.7",
     "terser": "^5.44.0",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vite": "^7.1.7",
     "vite-plugin-svgr": "^4.5.0"
   },
