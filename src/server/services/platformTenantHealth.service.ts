@@ -20,16 +20,22 @@ export async function registrarMetricaRequest(params: {
   tenantId: string;
   statusCode: number;
   esCreacion: boolean;
+  latenciaMs: number;
 }): Promise<void> {
   try {
+    const es5xx = params.statusCode >= 500 ? 1 : 0;
+    const es4xx = params.statusCode >= 400 && params.statusCode < 500 ? 1 : 0;
     await pool.query(
-      `INSERT INTO tenant_metricas_horarias (tenant_id, hora, requests_total, requests_error_5xx, recursos_creados)
-       VALUES ($1, date_trunc('hour', now()), 1, $2, $3)
+      `INSERT INTO tenant_metricas_horarias
+         (tenant_id, hora, requests_total, requests_error_5xx, requests_error_4xx, recursos_creados, latencia_total_ms)
+       VALUES ($1, date_trunc('hour', now()), 1, $2, $3, $4, $5)
        ON CONFLICT (tenant_id, hora) DO UPDATE SET
          requests_total = tenant_metricas_horarias.requests_total + 1,
          requests_error_5xx = tenant_metricas_horarias.requests_error_5xx + $2,
-         recursos_creados = tenant_metricas_horarias.recursos_creados + $3`,
-      [params.tenantId, params.statusCode >= 500 ? 1 : 0, params.esCreacion ? 1 : 0]
+         requests_error_4xx = tenant_metricas_horarias.requests_error_4xx + $3,
+         recursos_creados = tenant_metricas_horarias.recursos_creados + $4,
+         latencia_total_ms = tenant_metricas_horarias.latencia_total_ms + $5`,
+      [params.tenantId, es5xx, es4xx, params.esCreacion ? 1 : 0, Math.round(params.latenciaMs)]
     );
   } catch (err) {
     logger.warn({ err }, "No se pudo registrar la métrica de request del tenant");
@@ -43,7 +49,12 @@ export interface SaludTenant {
   ultimoAcceso: string | null;
   requestsUltimas24h: number;
   errores5xxUltimas24h: number;
+  errores4xxUltimas24h: number;
   tasaError: number;
+  /** null si no hubo tráfico en las últimas 24h — evita disfrazar "sin
+   *  datos" como "0ms de latencia", que se leería como una señal de que el
+   *  tenant está sano. */
+  latenciaPromedioMsUltimas24h: number | null;
   recursosCreadosUltimas24h: number;
   /** Uso vs. límite de cada recurso con cuota — ver
    *  docs/architecture/cuotas-por-tenant.md. Va en la salud y no en un
@@ -81,8 +92,10 @@ async function calcularSalud(tenantId: string): Promise<SaludTenant> {
     pool.query(`SELECT max(creado_en) AS ultimo FROM refresh_tokens WHERE tenant_id = $1`, [tenantId]),
     pool.query(
       `SELECT COALESCE(sum(requests_total), 0) AS requests,
-              COALESCE(sum(requests_error_5xx), 0) AS errores,
-              COALESCE(sum(recursos_creados), 0) AS recursos
+              COALESCE(sum(requests_error_5xx), 0) AS errores_5xx,
+              COALESCE(sum(requests_error_4xx), 0) AS errores_4xx,
+              COALESCE(sum(recursos_creados), 0) AS recursos,
+              COALESCE(sum(latencia_total_ms), 0) AS latencia_total_ms
        FROM tenant_metricas_horarias
        WHERE tenant_id = $1 AND hora >= now() - interval '24 hours'`,
       [tenantId]
@@ -91,9 +104,12 @@ async function calcularSalud(tenantId: string): Promise<SaludTenant> {
   ]);
 
   const requests = Number(metricas.rows[0].requests);
-  const errores = Number(metricas.rows[0].errores);
+  const errores = Number(metricas.rows[0].errores_5xx);
+  const errores4xx = Number(metricas.rows[0].errores_4xx);
   const recursos = Number(metricas.rows[0].recursos);
+  const latenciaTotalMs = Number(metricas.rows[0].latencia_total_ms);
   const tasaError = requests > 0 ? errores / requests : 0;
+  const latenciaPromedioMs = requests > 0 ? latenciaTotalMs / requests : null;
 
   const alertas: string[] = [];
   if (requests >= VOLUMEN_MINIMO_PARA_ALERTAR && tasaError > UMBRAL_TASA_ERROR) {
@@ -120,7 +136,9 @@ async function calcularSalud(tenantId: string): Promise<SaludTenant> {
     ultimoAcceso: ultimoAcceso.rows[0].ultimo,
     requestsUltimas24h: requests,
     errores5xxUltimas24h: errores,
+    errores4xxUltimas24h: errores4xx,
     tasaError,
+    latenciaPromedioMsUltimas24h: latenciaPromedioMs,
     recursosCreadosUltimas24h: recursos,
     cuotas,
     alertas,

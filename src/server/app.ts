@@ -19,6 +19,7 @@ import { createPlatformRouter } from "./routes/platform";
 import { createScimRouter } from "./routes/scim";
 import { createApiRouter } from "./routes";
 import { errorHandler } from "./shared/middlewares/error.middleware";
+import { requestContextMiddleware } from "./shared/middlewares/requestContext.middleware";
 
 
 const requestLogger = pinoHttp({
@@ -94,6 +95,11 @@ export function createApp() {
   app.set("trust proxy", 1);
 
   app.use(requestLogger);
+  // Después de requestLogger (necesita req.id ya asignado) y antes de todo
+  // lo demás: envuelve el resto de la cadena en el AsyncLocalStorage de
+  // requestContext.ts para que tenantId/usuarioId/requestId queden
+  // disponibles para el logger en cualquier punto, no solo vía req.log.
+  app.use(requestContextMiddleware);
   app.use(helmetMiddleware);
   app.use(compressionMiddleware);
   app.use(corsMiddleware);

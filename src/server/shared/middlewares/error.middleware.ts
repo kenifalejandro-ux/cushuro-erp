@@ -25,11 +25,15 @@ export const errorHandler: ErrorRequestHandler = (error, req, res, _next) => {
   const statusCode = error instanceof AppError ? error.statusCode : 500;
   const message = error instanceof AppError ? error.message : "Error interno del servidor.";
 
+  // requestId/tenantId/usuarioId ya no hace falta pasarlos a mano: el
+  // mixin de config/logger.ts los toma del AsyncLocalStorage de
+  // requestContext.ts y los agrega a cualquier log de este request,
+  // incluido este.
   if (req.log) {
     if (statusCode >= 500) {
-      req.log.error({ err: error, requestId }, "Error no controlado en la API");
+      req.log.error({ err: error }, "Error no controlado en la API");
     } else {
-      req.log.warn({ err: error, requestId }, "Error de negocio en la API");
+      req.log.warn({ err: error }, "Error de negocio en la API");
     }
   } else {
     console.error("Error en la API", error);
