@@ -75,6 +75,10 @@ export const IpercRepository = {
       ]
     );
     const ipercId = iperc.rows[0].id;
+    // ipercs está particionada por RANGE(creado_en) (migración 0037): la FK
+    // de iperc_items es compuesta (iperc_id, iperc_creado_en) →
+    // ipercs(id, creado_en). Ya vino gratis en el RETURNING de arriba.
+    const ipercCreadoEn = iperc.rows[0].creado_en;
 
     const items = [];
     for (const item of data.items) {
@@ -97,10 +101,10 @@ export const IpercRepository = {
       }
 
       const result = await client.query(
-        `INSERT INTO iperc_items (tenant_id, iperc_id, linea_base_item_id, etapa_actividad, peligro, riesgo, probabilidad, severidad, medidas_control)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `INSERT INTO iperc_items (tenant_id, iperc_id, iperc_creado_en, linea_base_item_id, etapa_actividad, peligro, riesgo, probabilidad, severidad, medidas_control)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING id, linea_base_item_id, etapa_actividad, peligro, riesgo, probabilidad, severidad, nivel_riesgo, medidas_control`,
-        [tenantId, ipercId, item.linea_base_item_id ?? null, etapa_actividad, peligro, riesgo, probabilidad, severidad, medidas_control]
+        [tenantId, ipercId, ipercCreadoEn, item.linea_base_item_id ?? null, etapa_actividad, peligro, riesgo, probabilidad, severidad, medidas_control]
       );
       items.push(result.rows[0]);
     }

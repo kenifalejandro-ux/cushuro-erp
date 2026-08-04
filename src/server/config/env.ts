@@ -144,6 +144,13 @@ export const env = {
     process.env.PLATFORM_AUDIT_RETENTION_CHECK_INTERVAL_MS,
     24 * 60 * 60_000
   ),
+  // Cada cuánto particionado.worker.ts asegura que existan las próximas
+  // particiones mensuales de checklists/ipercs (migración 0037). Una vez
+  // al día alcanza de sobra: cada corrida deja 3 meses de margen, así que
+  // ni una corrida atrasada por horas ni un server caído un par de días
+  // arriesgan quedarse sin partición donde insertar.
+  particionesCheckIntervalMs: readNumber(process.env.PARTICIONES_CHECK_INTERVAL_MS, 24 * 60 * 60_000),
+  particionesMesesAdelante: readNumber(process.env.PARTICIONES_MESES_ADELANTE, 3),
   // Backups de tenant (platformBackup.service.ts) — filesystem local por
   // default. El storage queda detrás de platformBackupStorage.ts a
   // propósito, para que pasar a S3-compatible el día que haga falta sea

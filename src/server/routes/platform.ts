@@ -26,6 +26,7 @@ import { buscarRespuestaPorClave, escribirEventoOutbox } from "../services/platf
 import "../services/platformOutbox.worker"; // se activa solo con importarse (setInterval + .unref())
 import "../services/platformAuditRetention.worker"; // ídem — deshabilitado si PLATFORM_AUDIT_RETENTION_DAYS no está seteado
 import "../services/platformBackupRetention.worker"; // ídem — deshabilitado si las dos BACKUP_RETENTION_* no están seteadas
+import "../services/particionado.worker"; // ídem — aprovisiona particiones futuras de checklists/ipercs (migración 0037)
 import {
   crearTenantSchema,
   cambiarEstadoTenantSchema,

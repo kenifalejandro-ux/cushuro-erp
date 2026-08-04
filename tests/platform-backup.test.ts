@@ -36,12 +36,14 @@ async function cargarDatosDePrueba(tenantId: string, usuarioId: string) {
       [tenantId]
     );
     const checklist = await client.query(
-      `INSERT INTO checklists (tenant_id, equipo_id, plantilla_id, usuario_id) VALUES ($1, $2, $3, $4) RETURNING id`,
+      `INSERT INTO checklists (tenant_id, equipo_id, plantilla_id, usuario_id) VALUES ($1, $2, $3, $4) RETURNING id, creado_en`,
       [tenantId, equipo.rows[0].id, plantilla.rows[0].id, usuarioId]
     );
+    // checklists está particionada por RANGE(creado_en) (migración 0037):
+    // checklist_items necesita checklist_creado_en para la FK compuesta.
     await client.query(
-      `INSERT INTO checklist_items (tenant_id, checklist_id, descripcion, estado) VALUES ($1, $2, 'Frenos', 'bien')`,
-      [tenantId, checklist.rows[0].id]
+      `INSERT INTO checklist_items (tenant_id, checklist_id, checklist_creado_en, descripcion, estado) VALUES ($1, $2, $3, 'Frenos', 'bien')`,
+      [tenantId, checklist.rows[0].id, checklist.rows[0].creado_en]
     );
     return { equipoId: equipo.rows[0].id, checklistId: checklist.rows[0].id };
   });

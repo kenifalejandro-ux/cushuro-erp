@@ -133,14 +133,19 @@ export const ChecklistsRepository = {
       [tenantId, data.equipo_id, data.plantilla_id, usuarioId, data.turno ?? null, resultado, data.observaciones_generales ?? null]
     );
     const checklistId = checklist.rows[0].id;
+    // checklists está particionada por RANGE(creado_en) (migración 0037):
+    // la FK de checklist_items es compuesta (checklist_id, checklist_creado_en)
+    // → checklists(id, creado_en), así que hace falta este valor acá. Ya
+    // vino gratis en el RETURNING del INSERT de arriba, sin query extra.
+    const checklistCreadoEn = checklist.rows[0].creado_en;
 
     const items = [];
     for (const item of data.items) {
       const result = await client.query(
-        `INSERT INTO checklist_items (tenant_id, checklist_id, descripcion, estado, observacion)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO checklist_items (tenant_id, checklist_id, checklist_creado_en, descripcion, estado, observacion)
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id, descripcion, estado, observacion`,
-        [tenantId, checklistId, item.descripcion, item.estado, item.observacion ?? null]
+        [tenantId, checklistId, checklistCreadoEn, item.descripcion, item.estado, item.observacion ?? null]
       );
       items.push(result.rows[0]);
     }
