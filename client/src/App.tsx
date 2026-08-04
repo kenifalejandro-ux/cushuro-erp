@@ -1,15 +1,12 @@
 // client/src/App.tsx
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Layout from './components/layout/Layout';
-import Dashboard from './components/dashboard/Dashboard';
-import RepuestosTable from './components/repuestos/RepuestosTable';
-import CombustiblePanel from './components/combustible/CombustiblePanel';
-import DocumentosTable from './components/documentos/DocumentosTable';
 import LoginPage from './pages/LoginPage';
 import { useAuth } from './context/AuthContext';
+import { MODULOS_CLIENTE } from './modules/registry';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'repuestos' | 'combustible' | 'documentos'>('dashboard');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const { cargando, estaAutenticado } = useAuth();
 
   if (cargando) {
@@ -24,12 +21,17 @@ function App() {
     return <LoginPage />;
   }
 
+  // El componente de cada módulo viaja al navegador recién cuando se abre
+  // (React.lazy, ver modules/registry.tsx) — agregar un módulo nuevo no
+  // infla el chunk inicial de los que ya existen.
+  const moduloActivo = MODULOS_CLIENTE.find((m) => m.id === activeTab);
+  const ComponenteActivo = moduloActivo?.componente;
+
   return (
     <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
-      {activeTab === 'dashboard' && <Dashboard />}
-      {activeTab === 'repuestos' && <RepuestosTable />}
-      {activeTab === 'combustible' && <CombustiblePanel />}
-      {activeTab === 'documentos' && <DocumentosTable />}
+      <Suspense fallback={<div className="p-20 text-center text-slate-500">Cargando...</div>}>
+        {ComponenteActivo && <ComponenteActivo />}
+      </Suspense>
     </Layout>
   );
 }

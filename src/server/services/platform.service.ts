@@ -27,6 +27,11 @@ import {
   type UsuarioPayload,
 } from "./auth.service";
 import { MODULOS_ERP } from "../schemas/platform.schema";
+import {
+  verificarCuota,
+  CuotaExcedidaError,
+  RECURSO_USUARIOS,
+} from "./platformCuotas.service";
 import type { CrearTenantInput, CrearUsuarioEnTenantInput } from "../schemas/platform.schema";
 import { registrarAuditoria, type ContextoAuditoria } from "./platformAudit.service";
 import { escribirEventoOutbox } from "./platformOutbox.service";
@@ -315,7 +320,25 @@ export async function crearUsuarioEnTenantService(
     throw new AppError(404, "Tenant no encontrado");
   }
 
-  const usuario = await withTenant(tenantId, (client) => crearUsuarioService({ tenantId, ...input }, client));
+  // Un solo punto cubre las DOS vías de alta: el panel y el aprovisionamiento
+  // automático por SCIM (routes/scim.ts llama a este mismo servicio). Si el
+  // IdP de un cliente empuja más usuarios de los contratados, se rechaza acá
+  // con el mismo criterio que un alta manual.
+  const usuario = await withTenant(tenantId, async (client) => {
+    await verificarCuota(tenantId, RECURSO_USUARIOS, 1, client);
+    return crearUsuarioService({ tenantId, ...input }, client);
+  }).catch(async (err) => {
+    if (err instanceof CuotaExcedidaError) {
+      await registrarAuditoria({
+        accion: "cuota.bloqueo",
+        tenantId,
+        detalle: { recurso: err.recurso, limite: err.limite, uso: err.uso, operacion: "crear_usuario" },
+        contexto,
+        resultado: "failure",
+      });
+    }
+    throw err;
+  });
 
   await registrarAuditoria({
     accion: "crear_usuario",

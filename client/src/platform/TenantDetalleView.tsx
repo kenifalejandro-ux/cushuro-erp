@@ -35,6 +35,7 @@ import {
 } from "./platformApi";
 import PasswordInput from "./PasswordInput";
 import CambiarEstadoDialog from "./CambiarEstadoDialog";
+import PlanYCuotasTenant from "./PlanYCuotasTenant";
 
 export default function TenantDetalleView({
   tenant,
@@ -140,6 +141,8 @@ export default function TenantDetalleView({
       <BackupsTenant tenantId={tenant.id} onError={setError} />
 
       <h3 className="text-sm font-light text-slate-400 mb-2">Módulos contratados</h3>
+      <PlanYCuotasTenant tenantId={tenant.id} onError={setError} />
+
       <ModulosTenant tenantId={tenant.id} modulos={modulos} onModulosChange={setModulos} onError={setError} />
 
       <div className="flex items-center justify-between mb-2">

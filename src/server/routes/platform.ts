@@ -25,6 +25,7 @@ import { consultarIdempotencia, liberarIdempotencia } from "../services/platform
 import { buscarRespuestaPorClave, escribirEventoOutbox } from "../services/platformOutbox.service";
 import "../services/platformOutbox.worker"; // se activa solo con importarse (setInterval + .unref())
 import "../services/platformAuditRetention.worker"; // ídem — deshabilitado si PLATFORM_AUDIT_RETENTION_DAYS no está seteado
+import "../services/platformBackupRetention.worker"; // ídem — deshabilitado si las dos BACKUP_RETENTION_* no están seteadas
 import {
   crearTenantSchema,
   cambiarEstadoTenantSchema,
@@ -40,6 +41,9 @@ import {
   crearPlatformAdminSchema,
   cambiarEstadoPlatformAdminSchema,
   restaurarBackupSchema,
+  restaurarBackupPlataformaSchema,
+  fijarCuotaTenantSchema,
+  asignarPlanTenantSchema,
   type ActualizarModuloGlobalInput,
 } from "../schemas/platform.schema";
 import {
@@ -70,6 +74,23 @@ import {
   listarBackupsTenantService,
   restaurarBackupService,
 } from "../services/platformBackup.service";
+import { resumenCuotasTenant, fijarCuotaTenant } from "../services/platformCuotas.service";
+import {
+  resolverRateLimitTenant,
+  sugerirRateLimitTenant,
+  RECURSO_RATE_LIMIT,
+} from "../services/platformRateLimitCuota";
+import {
+  listarPlanesService,
+  obtenerPlanService,
+  obtenerPlanDeTenantService,
+  asignarPlanATenantService,
+} from "../services/platformPlanes.service";
+import {
+  exportarPlataformaService,
+  listarBackupsPlataformaService,
+  restaurarBackupPlataformaService,
+} from "../services/platformBackupPlataforma.service";
 import {
   verificarCredencialesPlatformAdminService,
   listarPlatformAdminsService,
@@ -513,6 +534,173 @@ export function createPlatformRouter() {
       try {
         const { targetTenantId } = req.validatedBody as { targetTenantId: string; confirmar: true };
         const resultado = await restaurarBackupService(req.params.backupId, targetTenantId, contextoDe(req));
+        res.status(200).json({ ok: true, ...resultado });
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // ── Planes ────────────────────────────────────────────────────────────
+  // Ver docs/architecture/cuotas-por-tenant.md. Un plan es un conjunto con
+  // nombre de límites por recurso; el escalón intermedio entre la excepción
+  // puntual de un tenant y el default global del registry.
+
+  router.get("/planes", async (req, res, next) => {
+    try {
+      // ?soloActivos=true para el selector del panel: un plan dado de baja
+      // no debe ofrecerse para asignar, pero sí seguir siendo visible en el
+      // listado completo (los tenants que ya lo tienen lo conservan).
+      const planes = await listarPlanesService(req.query.soloActivos === "true");
+      res.status(200).json({ ok: true, planes });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get("/planes/:idOCodigo", async (req, res, next) => {
+    try {
+      res.status(200).json({ ok: true, plan: await obtenerPlanService(req.params.idOCodigo) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get("/tenants/:id/plan", async (req, res, next) => {
+    try {
+      res.status(200).json({ ok: true, plan: await obtenerPlanDeTenantService(req.params.id) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // super_admin, mismo criterio que el ajuste de cuotas: cambia lo que un
+  // cliente puede consumir. La respuesta incluye `recursosExcedidos` para
+  // que el panel advierta EN EL MOMENTO si bajar de plan dejó al tenant por
+  // encima de sus nuevos topes — no se borra nada, pero deja de poder crear.
+  router.put(
+    "/tenants/:id/plan",
+    platformSuperAdminMiddleware,
+    validate(asignarPlanTenantSchema),
+    async (req, res, next) => {
+      try {
+        const { plan, motivo } = req.validatedBody as { plan: string | null; motivo?: string };
+        const resultado = await asignarPlanATenantService(req.params.id, plan, contextoDe(req), motivo);
+        res.status(200).json({ ok: true, ...resultado });
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // ── Cuotas por tenant ─────────────────────────────────────────────────
+  // Ver docs/architecture/cuotas-por-tenant.md. El GET devuelve uso Y
+  // límite juntos a propósito: el límite solo se puede interpretar contra
+  // el consumo real, y pedirlos por separado invitaría a mostrar uno sin
+  // el otro.
+
+  router.get("/tenants/:id/cuotas", async (req, res, next) => {
+    try {
+      // El rate limit va SEPARADO de `cuotas` a propósito: es un ritmo
+      // (req/min), no un acumulado, y meterlo en la misma tabla obligaría a
+      // inventar un valor de "uso" que no significa nada. Se devuelve con su
+      // sugerencia y los datos que la justifican, para que quien lo configure
+      // decida mirando el tráfico real y no adivinando.
+      const [cuotas, rateLimitRpm, sugerencia] = await Promise.all([
+        resumenCuotasTenant(req.params.id),
+        resolverRateLimitTenant(req.params.id),
+        sugerirRateLimitTenant(req.params.id),
+      ]);
+
+      res.status(200).json({
+        ok: true,
+        cuotas,
+        rateLimit: {
+          recurso: RECURSO_RATE_LIMIT,
+          limiteRpm: rateLimitRpm, // null = sin techo
+          ...sugerencia,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Subirle la cuota a UN cliente es una decisión comercial puntual; subir
+  // el default de TODOS es cambiar el registry y desplegar (ver la
+  // migración 0033). Va a super_admin por el mismo criterio que el toggle
+  // global de módulos: cambia lo que un cliente puede consumir.
+  router.put(
+    "/tenants/:id/cuotas",
+    platformSuperAdminMiddleware,
+    validate(fijarCuotaTenantSchema),
+    async (req, res, next) => {
+      try {
+        const { recurso, limite, motivo } = req.validatedBody as {
+          recurso: string;
+          limite?: number | null;
+          motivo?: string;
+        };
+        // `limite` ausente en el body = borrar el override. Se distingue de
+        // `limite: null` (ilimitado) mirando la clave, no el valor.
+        const nuevoLimite = "limite" in (req.validatedBody as object) ? limite : undefined;
+
+        await fijarCuotaTenant(req.params.id, recurso, nuevoLimite, motivo);
+
+        await registrarAuditoria({
+          accion: "actualizar_cuota_tenant",
+          tenantId: req.params.id,
+          detalle: { recurso, limite: nuevoLimite === undefined ? "(default)" : nuevoLimite, motivo: motivo ?? null },
+          contexto: contextoDe(req),
+        });
+
+        const cuotas = await resumenCuotasTenant(req.params.id);
+        res.status(200).json({ ok: true, cuotas });
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // ── Backups de la capa de plataforma ──────────────────────────────────
+  // Rutas separadas de /tenants/:id/backups a propósito: no pertenecen a
+  // ningún tenant y su contenido es el más sensible del sistema
+  // (password_hash de admins, secretos de SSO) — ver
+  // platformBackupPlataforma.service.ts.
+
+  router.get("/backups/plataforma", async (_req, res, next) => {
+    try {
+      const backups = await listarBackupsPlataformaService();
+      res.status(200).json({ ok: true, backups });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Crear el backup exige super_admin: a diferencia del backup de un
+  // tenant (que solo copia datos que ese admin ya puede ver por el panel),
+  // éste materializa en un solo archivo los hashes de contraseña de TODOS
+  // los admins de plataforma y los secretos de SSO de todos los clientes.
+  router.post("/backups/plataforma", platformSuperAdminMiddleware, async (req, res, next) => {
+    try {
+      const backup = await exportarPlataformaService(contextoDe(req));
+      res.status(201).json({ ok: true, backup });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Aditivo, nunca destructivo (ver restaurarBackupPlataformaService), pero
+  // igual gateado a super_admin + confirmar:true: reinsertar tenants o
+  // admins borrados es una operación de recuperación ante desastre, no algo
+  // que deba poder dispararse de un click distraído.
+  router.post(
+    "/backups/plataforma/:backupId/restaurar",
+    platformSuperAdminMiddleware,
+    validate(restaurarBackupPlataformaSchema),
+    async (req, res, next) => {
+      try {
+        const resultado = await restaurarBackupPlataformaService(req.params.backupId, contextoDe(req));
         res.status(200).json({ ok: true, ...resultado });
       } catch (err) {
         next(err);

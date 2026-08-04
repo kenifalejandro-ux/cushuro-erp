@@ -2,16 +2,12 @@
 
 import { Router } from "express";
 
-import repuestosRoutes from "../../modules/repuestos/repuestos.routes";
-import combustibleRoutes from "../../modules/combustible/combustible.routes";
-import documentosRoutes from "../../modules/documentos/documentos.routes";
-import dashboardRoutes from "../../modules/dashboard/dashboard.routes";
-import equiposRoutes from "../../modules/equipos/equipos.routes";
-import checklistsRoutes from "../../modules/checklists/checklists.routes";
-import ipercRoutes from "../../modules/iperc/iperc.routes";
+import { MODULOS } from "../../modules/registry";
 import { authMiddleware } from "../shared/middlewares/auth.middleware";
 import { tenantMiddleware } from "../shared/middlewares/tenant.middleware";
 import { requireModulo } from "../shared/middlewares/modulo.middleware";
+import { requireCuota } from "../shared/middlewares/cuota.middleware";
+import erpRateLimiter from "../middleware/erpRateLimiter";
 import { tenantMetricsMiddleware } from "../shared/middlewares/tenantMetrics.middleware";
 
 export function createApiRouter() {
@@ -24,13 +20,25 @@ export function createApiRouter() {
   // cuenta como tráfico real — ver platformTenantHealth.service.ts).
   router.use(authMiddleware, tenantMiddleware, tenantMetricsMiddleware);
 
-  router.use("/repuestos", requireModulo("repuestos"), repuestosRoutes);
-  router.use("/combustible", requireModulo("combustible"), combustibleRoutes);
-  router.use("/documentos", requireModulo("documentos"), documentosRoutes);
-  router.use("/dashboard", requireModulo("dashboard"), dashboardRoutes);
-  router.use("/equipos", requireModulo("equipos"), equiposRoutes);
-  router.use("/checklists", requireModulo("checklists"), checklistsRoutes);
-  router.use("/iperc", requireModulo("iperc"), ipercRoutes);
+  // Rate limit de todo el ERP. Va después de tenantMetricsMiddleware por el
+  // mismo motivo que requireModulo: un 429 es tráfico real y tiene que
+  // contarse en las métricas del tenant. Y antes de las rutas de módulo,
+  // porque frena por FRECUENCIA — un abuso no debe llegar siquiera a
+  // resolver la cuota de volumen ni a tocar la base.
+  router.use(erpRateLimiter);
+
+  // Cada módulo se monta bajo /<id> — agregar un módulo nuevo es agregarlo
+  // al registry (ver docs/adr/0002-contrato-de-modulo.md), no tocar este
+  // archivo.
+  //
+  // requireCuota va DESPUÉS de requireModulo: a un tenant que no tiene el
+  // módulo contratado hay que responderle "no disponible" (403 de módulo),
+  // no "te quedaste sin cupo" — el segundo mensaje admitiría que el módulo
+  // existe y solo está lleno. Es passthrough para los módulos que no
+  // declaran `cuota` en el registry.
+  for (const modulo of MODULOS) {
+    router.use(`/${modulo.id}`, requireModulo(modulo.id), requireCuota(modulo.id), modulo.router);
+  }
 
   return router;
 }

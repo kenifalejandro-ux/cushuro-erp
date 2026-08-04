@@ -4,6 +4,8 @@ import { Request, Response } from "express";
 import { withTenant } from "../../server/config/database";
 import { getTenantId } from "../../server/shared/utils/request";
 import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/utils/pagination";
+import { contextoAuditoriaModulo } from "../../server/shared/utils/moduleAudit";
+import { registrarAuditoria } from "../../server/services/platformAudit.service";
 import type { CrearPlantillaInput, CrearChecklistInput } from "../../server/schemas/checklists.schema";
 import { ChecklistsService } from "./checklists.service";
 
@@ -41,6 +43,13 @@ export const ChecklistsController = {
       const tenantId = getTenantId(req);
       const data = req.validatedBody as CrearPlantillaInput;
       const plantilla = await withTenant(tenantId, (client) => ChecklistsService.crearPlantilla(client, tenantId, data));
+      await registrarAuditoria({
+        accion: "checklists.crear_plantilla",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { plantillaId: plantilla.id },
+        contexto: contextoAuditoriaModulo(req),
+      });
       res.status(201).json(plantilla);
     } catch {
       res.status(500).json({ message: "Error al crear plantilla" });
@@ -50,13 +59,19 @@ export const ChecklistsController = {
   async eliminarPlantilla(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const eliminado = await withTenant(tenantId, (client) =>
-        ChecklistsService.eliminarPlantilla(client, tenantId, Number(req.params.id))
-      );
+      const id = Number(req.params.id);
+      const eliminado = await withTenant(tenantId, (client) => ChecklistsService.eliminarPlantilla(client, tenantId, id));
       if (!eliminado) {
         res.status(404).json({ message: "Plantilla no encontrada" });
         return;
       }
+      await registrarAuditoria({
+        accion: "checklists.eliminar_plantilla",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { plantillaId: id },
+        contexto: contextoAuditoriaModulo(req),
+      });
       res.json({ message: "Eliminada" });
     } catch {
       res.status(500).json({ message: "Error al eliminar plantilla" });
@@ -97,6 +112,13 @@ export const ChecklistsController = {
       const checklist = await withTenant(tenantId, (client) =>
         ChecklistsService.crear(client, tenantId, req.usuario!.id, data)
       );
+      await registrarAuditoria({
+        accion: "checklists.crear",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { checklistId: checklist.id, equipoId: data.equipo_id },
+        contexto: contextoAuditoriaModulo(req),
+      });
       res.status(201).json(checklist);
     } catch {
       res.status(500).json({ message: "Error al crear checklist" });
@@ -106,13 +128,19 @@ export const ChecklistsController = {
   async eliminar(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const eliminado = await withTenant(tenantId, (client) =>
-        ChecklistsService.eliminar(client, tenantId, Number(req.params.id))
-      );
+      const id = Number(req.params.id);
+      const eliminado = await withTenant(tenantId, (client) => ChecklistsService.eliminar(client, tenantId, id));
       if (!eliminado) {
         res.status(404).json({ message: "Checklist no encontrado" });
         return;
       }
+      await registrarAuditoria({
+        accion: "checklists.eliminar",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { checklistId: id },
+        contexto: contextoAuditoriaModulo(req),
+      });
       res.json({ message: "Eliminado" });
     } catch {
       res.status(500).json({ message: "Error al eliminar checklist" });
