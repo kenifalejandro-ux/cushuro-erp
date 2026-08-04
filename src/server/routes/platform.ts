@@ -29,6 +29,7 @@ import "../services/platformBackupRetention.worker"; // ídem — deshabilitado 
 import "../services/particionado.worker"; // ídem — aprovisiona particiones futuras de checklists/ipercs (migración 0037)
 import {
   crearTenantSchema,
+  onboardTenantSchema,
   cambiarEstadoTenantSchema,
   actualizarModulosSchema,
   actualizarModulosTenantSchema,
@@ -61,6 +62,7 @@ import {
   actualizarModulosUsuarioService,
   type ConfiguracionModulo,
 } from "../services/platform.service";
+import { onboardTenantService } from "../services/tenantOnboardingService";
 import {
   asignarDominioTenantService,
   verificarDominioService,
@@ -709,47 +711,75 @@ export function createPlatformRouter() {
     }
   );
 
+  // Compartido entre /tenants y /tenants/onboard — ambos son "crear un
+  // tenant" con Idempotency-Key opcional, solo cambia qué service ejecutan
+  // (crearTenantConAdminService vs. onboardTenantService, que la envuelve
+  // agregando plan — ver tenantOnboardingService.ts). La respuesta ya
+  // queda guardada en platform_outbox DENTRO de la misma transacción que
+  // crea el tenant, no hace falta escribirla acá.
+  async function crearTenantConIdempotencia<T extends object>(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+    ejecutar: (idempotencyKey: string | undefined) => Promise<T>
+  ) {
+    const idempotencyKey = req.header("Idempotency-Key");
+    try {
+      if (idempotencyKey) {
+        const estado = await consultarIdempotencia(idempotencyKey);
+        if (estado.estado === "en_progreso") {
+          return res.status(409).json({ ok: false, message: "Ya hay una solicitud en curso con esa Idempotency-Key" });
+        }
+        if (estado.estado === "resuelta") {
+          return res.status(201).json(estado.respuesta);
+        }
+      }
+
+      const resultado = await ejecutar(idempotencyKey);
+      res.status(201).json({ ok: true, ...resultado });
+    } catch (err) {
+      if (idempotencyKey) {
+        // Cubre la carrera real entre dos requests concurrentes con la
+        // misma Idempotency-Key nunca vista: la segunda transacción choca
+        // contra el índice único de platform_outbox y se revierte entera
+        // (ver migrations/0018) — acá se recupera la respuesta de la que
+        // sí ganó, en vez de devolverle un 500 a alguien cuyo pedido en
+        // rigor sí se cumplió.
+        const yaResuelta = await buscarRespuestaPorClave(idempotencyKey);
+        if (yaResuelta) {
+          return res.status(201).json(yaResuelta);
+        }
+        await liberarIdempotencia(idempotencyKey);
+      }
+      next(err);
+    }
+  }
+
   router.post(
     "/tenants",
     platformTenantRateLimiter,
     validarConAuditoria(crearTenantSchema, "crear_tenant"),
-    async (req, res, next) => {
-      const idempotencyKey = req.header("Idempotency-Key");
-      try {
-        if (idempotencyKey) {
-          const estado = await consultarIdempotencia(idempotencyKey);
-          if (estado.estado === "en_progreso") {
-            return res
-              .status(409)
-              .json({ ok: false, message: "Ya hay una solicitud en curso con esa Idempotency-Key" });
-          }
-          if (estado.estado === "resuelta") {
-            return res.status(201).json(estado.respuesta);
-          }
-        }
+    (req, res, next) =>
+      crearTenantConIdempotencia(req, res, next, (idempotencyKey) =>
+        crearTenantConAdminService(req.validatedBody as any, contextoDe(req), idempotencyKey)
+      )
+  );
 
-        // La respuesta queda guardada en platform_outbox DENTRO de la
-        // misma transacción que crea el tenant (ver
-        // crearTenantConAdminService) — no hace falta escribirla acá.
-        const resultado = await crearTenantConAdminService(req.validatedBody as any, contextoDe(req), idempotencyKey);
-        res.status(201).json({ ok: true, ...resultado });
-      } catch (err) {
-        if (idempotencyKey) {
-          // Cubre la carrera real entre dos requests concurrentes con la
-          // misma Idempotency-Key nunca vista: la segunda transacción
-          // choca contra el índice único de platform_outbox y se revierte
-          // entera (ver migrations/0018) — acá se recupera la respuesta
-          // de la que sí ganó, en vez de devolverle un 500 a alguien cuyo
-          // pedido en rigor sí se cumplió.
-          const yaResuelta = await buscarRespuestaPorClave(idempotencyKey);
-          if (yaResuelta) {
-            return res.status(201).json(yaResuelta);
-          }
-          await liberarIdempotencia(idempotencyKey);
-        }
-        next(err);
-      }
-    }
+  // Onboarding completo: lo mismo que /tenants + asignación de plan inicial
+  // (planCodigo opcional), en la MISMA transacción — ver
+  // tenantOnboardingService.ts sobre por qué no alcanza con llamar a
+  // asignarPlanATenantService por separado. Gateado a super-admin porque
+  // es una operación de alta de cliente, más sensible que el alta simple
+  // sin plan que ya permitía cualquier platform admin.
+  router.post(
+    "/tenants/onboard",
+    platformTenantRateLimiter,
+    platformSuperAdminMiddleware,
+    validarConAuditoria(onboardTenantSchema, "onboard_tenant"),
+    (req, res, next) =>
+      crearTenantConIdempotencia(req, res, next, (idempotencyKey) =>
+        onboardTenantService(req.validatedBody as any, contextoDe(req), idempotencyKey)
+      )
   );
 
   router.patch(

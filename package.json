@@ -5,8 +5,10 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
     "migrate": "tsx migrate.ts",
     "diagnose:queries": "tsx scripts/diagnosticoQueries.ts",
+    "tenant:create": "tsx scripts/onboardTenant.ts",
     "preview": "npm run preview --prefix client",
     "start": "tsx server.ts",
     "server": "tsx server.ts",

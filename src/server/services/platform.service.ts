@@ -56,7 +56,13 @@ async function habilitarTodosLosModulos(tenantId: string, db: Pool | PoolClient)
 export async function crearTenantConAdminService(
   input: CrearTenantInput,
   contexto: ContextoAuditoria,
-  idempotencyKey?: string
+  idempotencyKey?: string,
+  // UUID ya resuelto/validado por el caller (ver tenantOnboardingService.ts)
+  // — este servicio no conoce códigos de plan, solo el id. Se aplica DENTRO
+  // de esta misma transacción para que "tenant creado sin su plan" nunca
+  // sea un estado posible, ni siquiera transitorio: si el UPDATE de más
+  // abajo fallara, el tenant tampoco queda creado.
+  planId?: string
 ): Promise<{ tenant: TenantCreado; usuario: Omit<UsuarioPayload, "tokenVersion"> }> {
   const client = await pool.connect();
   try {
@@ -76,6 +82,10 @@ export async function crearTenantConAdminService(
     }
 
     const tenant: TenantCreado = tenantResult.rows[0];
+
+    if (planId) {
+      await client.query(`UPDATE tenants SET plan_id = $1 WHERE id = $2`, [planId, tenant.id]);
+    }
 
     // usuarios tiene RLS — sin esto, el INSERT de crearUsuarioService más
     // abajo (en este mismo client/transacción) fallaría. `is_local=true`
@@ -122,7 +132,7 @@ export async function crearTenantConAdminService(
       accion: "crear_tenant",
       tenantId: tenant.id,
       usuarioId: usuario.id,
-      detalle: { tenantNombre: tenant.nombre, tenantSlug: tenant.slug, adminEmail: input.adminEmail },
+      detalle: { tenantNombre: tenant.nombre, tenantSlug: tenant.slug, adminEmail: input.adminEmail, planId: planId ?? null },
       contexto,
     });
 
