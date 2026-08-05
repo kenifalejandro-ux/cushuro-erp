@@ -16,7 +16,7 @@ jobs:
       actions: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Inicializar CodeQL
         uses: github/codeql-action/init@v3
@@ -34,7 +34,7 @@ jobs:
         # este paso consulta esas alertas por API y corta el pipeline si
         # alguna abierta, del commit que se acaba de analizar, es
         # "high" o "critical".
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const sha = context.eventName === "pull_request"
