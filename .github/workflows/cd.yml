@@ -1,0 +1,82 @@
+name: CD
+
+# Se dispara cuando el workflow "CI" (ci.yml) termina, no en cada push —
+# así CD nunca arranca sin que CI ya haya pasado en verde. Filtramos además
+# por rama y por evento porque "CI" también corre en pull_request, y eso
+# también cuenta como un "workflow_run" completado.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  migrate:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Correr migraciones contra Railway (producción)
+        # Connection string pública de Postgres en Railway (pestaña "Connect"
+        # del plugin, no la privada *.railway.internal — el runner de Actions
+        # está fuera de la red privada de Railway). migrate.ts ya cierra el
+        # pool y hace process.exit() solo, listo para correr como paso aislado.
+        run: npm run migrate
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+
+  deploy:
+    needs: migrate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Instalar Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Desplegar a producción
+        # RAILWAY_TOKEN como env var: la CLI lo detecta sola y corre en modo
+        # no interactivo (sin necesitar `railway link` primero) siempre que
+        # sea un Project Token de Railway, no un token de cuenta personal.
+        # --service identifica el servicio dentro del proyecto porque Redis
+        # (el otro plugin del proyecto) también cuenta como "servicio" y no
+        # queremos que la CLI pregunte cuál desplegar.
+        run: railway up --service "$RAILWAY_SERVICE_NAME" --ci
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE_NAME: ${{ vars.RAILWAY_SERVICE_NAME }}
+
+  health-check:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Esperar y verificar /health
+        # Reintenta durante ~2 minutos: Railway reporta el deploy como
+        # terminado antes de que el proceso Node termine de levantar del
+        # todo (conexión a Postgres/Redis, etc).
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS "$PRODUCTION_URL/health"; then
+              echo "✅ Health check OK"
+              exit 0
+            fi
+            echo "Intento $i falló, reintentando en 10s..."
+            sleep 10
+          done
+          echo "❌ El servicio no respondió healthy tras el deploy"
+          exit 1
+        env:
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
