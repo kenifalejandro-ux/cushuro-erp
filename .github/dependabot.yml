@@ -13,17 +13,28 @@ updates:
       minor-y-patch:
         update-types: ["minor", "patch"]
     ignore:
-      # pino-http (^10.5.0) todavía no declara compatibilidad de tipos con
-      # pino@10 — un bump aislado de pino rompe el typecheck de app.ts
-      # (visto en el PR #13, cerrado 2026-08-05). Sacar este ignore cuando
-      # pino-http publique una versión que sí soporte pino@10.
+      # pino (^9.x) y pino-http (^10.5.0) tienen que moverse juntos a una
+      # versión mayor — pino-http@11 ya no es compatible con pino@9 (visto
+      # en el PR #33, cerrado 2026-08-05), y antes ya habíamos visto que
+      # pino@10 tampoco era compatible con pino-http@10.5.0 (PR #13). O sea:
+      # subir cualquiera de los dos solo, sin el otro, rompe el typecheck de
+      # app.ts. Sacar ambos ignores juntos, a mano, cuando se decida migrar
+      # los dos a la vez a versiones compatibles entre sí.
       - dependency-name: "pino"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pino-http"
         update-types: ["version-update:semver-major"]
       # @types/express-serve-static-core@5.x rompe la extensión de tipos
       # custom de Request (usuario, validatedBody) que agregan los
       # middlewares propios — necesita migrar esa extensión antes de subir
-      # (visto en el PR #11, cerrado 2026-08-05).
+      # (visto en el PR #11, cerrado 2026-08-05). Mismo motivo exacto con
+      # express + @types/express en conjunto (visto en el PR #43, cerrado
+      # 2026-08-05).
       - dependency-name: "@types/express-serve-static-core"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "express"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/express"
         update-types: ["version-update:semver-major"]
       # zod v4 sacó `required_error`/`invalid_type_error` de los schemas en
       # favor de un `error` unificado — rompe auth.schema.ts (y
