@@ -18,3 +18,6 @@ client/.env.*
 # Estado interno de Vitest (qué test falló la última corrida) — cambia en
 # cada run, no aporta nada versionado.
 /test-results
+
+# Reporte de coverage (vitest run --coverage) — se regenera en cada corrida.
+/coverage

@@ -144,8 +144,8 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
-      - name: Tests (incluye aislamiento entre tenants vía RLS)
-        run: npm test
+      - name: Tests + coverage mínimo (incluye aislamiento entre tenants vía RLS)
+        run: npm run test:coverage
 
   frontend:
     runs-on: ubuntu-latest
