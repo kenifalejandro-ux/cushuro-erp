@@ -11,8 +11,73 @@ on:
     branches: [main]
 
 jobs:
-  migrate:
+  migrate-staging:
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Correr migraciones contra Railway (staging)
+        run: npm run migrate
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+
+  deploy-staging:
+    needs: migrate-staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Instalar Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Desplegar a staging
+        # Token de proyecto distinto al de producción, scopeado al
+        # environment "staging" de Railway (mismo proyecto, mismo nombre de
+        # servicio) — así el token por sí solo decide a qué environment va,
+        # sin depender de un flag extra que no verifiqué en vivo.
+        run: railway up --service "$RAILWAY_SERVICE_NAME" --ci
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
+          RAILWAY_SERVICE_NAME: ${{ vars.RAILWAY_SERVICE_NAME }}
+
+  health-check-staging:
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    steps:
+      - name: Esperar y verificar /health en staging
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS "$STAGING_URL/health"; then
+              echo "✅ Health check de staging OK"
+              exit 0
+            fi
+            echo "Intento $i falló, reintentando en 10s..."
+            sleep 10
+          done
+          echo "❌ Staging no respondió healthy tras el deploy — no se promueve a producción"
+          exit 1
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+
+  migrate:
+    # Ya no depende directo del workflow_run: solo llega acá si staging
+    # completó todo el ciclo (migró, desplegó y respondió healthy). El `if`
+    # de entrada quedó en migrate-staging, este job hereda esa condición a
+    # través de needs (si algo de staging falla, esto ni se dispara).
+    needs: health-check-staging
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
