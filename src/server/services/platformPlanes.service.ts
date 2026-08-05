@@ -138,10 +138,17 @@ export async function asignarPlanATenantService(
 
   await pool.query(`UPDATE tenants SET plan_id = $1 WHERE id = $2`, [planId, tenantId]);
 
-  // Se calcula DESPUÉS de asignar, para que refleje los límites nuevos.
   // Import diferido: platformCuotas importa este módulo para resolver el
   // nivel 2, así que un import estático de vuelta cerraría el ciclo.
-  const { resumenCuotasTenant } = await import("./platformCuotas.service");
+  const { resumenCuotasTenant, invalidarCacheLimitesTenant } = await import("./platformCuotas.service");
+
+  // Sin esto, resolverLimite() seguiría devolviendo el límite del plan
+  // VIEJO hasta que venza el TTL del caché (ver platformCuotas.service.ts)
+  // — el resumen de abajo mostraría los límites nuevos, pero el próximo
+  // POST del tenant todavía chocaría contra los viejos.
+  await invalidarCacheLimitesTenant(tenantId);
+
+  // Se calcula DESPUÉS de invalidar, para que refleje los límites nuevos.
   const recursosExcedidos = (await resumenCuotasTenant(tenantId)).filter((c) => c.excedido).map((c) => c.recurso);
 
   const nuevo = await obtenerPlanDeTenantService(tenantId);

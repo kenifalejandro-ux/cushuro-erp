@@ -32,10 +32,12 @@
  * bucket, con un umbral MÁS LARGO que esta política, para que no compitan.
  * Ver la sección de Lifecycle en la documentación.
  */
+import type { Pool, PoolClient } from "pg";
 import { pool } from "../config/database";
 import { logger } from "../config/logger";
 import { env } from "../config/env";
 import { borrarBackupsEnLote, type UbicacionBackup, type DriverStorage } from "./platformBackupStorage";
+import { runSiPrimero, LOCK_IDS } from "../shared/utils/advisoryLock";
 
 interface FilaBackup {
   id: string;
@@ -97,13 +99,14 @@ export function clasificarBackupsAPodar(
 }
 
 async function podarTabla(
+  ejecutor: Pool | PoolClient,
   tabla: "tenant_backups" | "platform_backups",
   diarioDias: number,
   mensualMeses: number,
   ahora?: Date
 ): Promise<{ borrados: number; fallidos: number }> {
   const columnaTenant = tabla === "tenant_backups" ? "tenant_id" : "NULL::uuid AS tenant_id";
-  const filas = await pool.query<FilaBackup>(
+  const filas = await ejecutor.query<FilaBackup>(
     `SELECT id, storage, storage_key, creado_en, ${columnaTenant} FROM ${tabla}`
   );
 
@@ -121,19 +124,23 @@ async function podarTabla(
   const idsABorrar = borrar.filter((b) => !keysFallidas.has(b.storage_key)).map((b) => b.id);
 
   if (idsABorrar.length > 0) {
-    await pool.query(`DELETE FROM ${tabla} WHERE id = ANY($1::uuid[])`, [idsABorrar]);
+    await ejecutor.query(`DELETE FROM ${tabla} WHERE id = ANY($1::uuid[])`, [idsABorrar]);
   }
 
   return { borrados: idsABorrar.length, fallidos: fallidas.length };
 }
 
+/** `ejecutor` opcional: el worker de abajo pasa el client que sostiene el
+ *  advisory lock (ver advisoryLock.ts); sin uno, usa el pool directo. */
 export async function podarBackupsViejos(opciones?: {
   diarioDias?: number;
   mensualMeses?: number;
   ahora?: Date;
+  ejecutor?: Pool | PoolClient;
 }): Promise<{ tenants: { borrados: number; fallidos: number }; plataforma: { borrados: number; fallidos: number } }> {
   const diarioDias = opciones?.diarioDias ?? env.backupRetentionDiarioDias;
   const mensualMeses = opciones?.mensualMeses ?? env.backupRetentionMensualMeses;
+  const ejecutor = opciones?.ejecutor ?? pool;
 
   const vacio = { tenants: { borrados: 0, fallidos: 0 }, plataforma: { borrados: 0, fallidos: 0 } };
 
@@ -143,8 +150,8 @@ export async function podarBackupsViejos(opciones?: {
   // error que no se puede permitir en un borrado automático de backups.
   if (diarioDias <= 0 || mensualMeses <= 0) return vacio;
 
-  const tenants = await podarTabla("tenant_backups", diarioDias, mensualMeses, opciones?.ahora);
-  const plataforma = await podarTabla("platform_backups", diarioDias, mensualMeses, opciones?.ahora);
+  const tenants = await podarTabla(ejecutor, "tenant_backups", diarioDias, mensualMeses, opciones?.ahora);
+  const plataforma = await podarTabla(ejecutor, "platform_backups", diarioDias, mensualMeses, opciones?.ahora);
 
   if (tenants.borrados + plataforma.borrados > 0 || tenants.fallidos + plataforma.fallidos > 0) {
     logger.info(
@@ -163,5 +170,7 @@ export async function podarBackupsViejos(opciones?: {
 }
 
 setInterval(() => {
-  podarBackupsViejos().catch((err) => logger.error({ err }, "Error inesperado en la retención de backups"));
+  runSiPrimero(LOCK_IDS.backupRetention, (client) => podarBackupsViejos({ ejecutor: client })).catch((err) =>
+    logger.error({ err }, "Error inesperado en la retención de backups")
+  );
 }, env.backupRetentionCheckIntervalMs).unref();

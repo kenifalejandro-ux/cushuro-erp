@@ -1,7 +1,7 @@
 /** src/modules/checklists/checklists.repository.ts */
 
 import type { PoolClient } from "pg";
-import type { Paginacion } from "../../server/shared/utils/pagination";
+import type { Paginacion, CursorPaginacion } from "../../server/shared/utils/pagination";
 
 export const ChecklistsRepository = {
 
@@ -71,19 +71,21 @@ export const ChecklistsRepository = {
   },
 
   // ── Checklists llenados ──────────────────────────────────────────────
-  async findAll(client: PoolClient, tenantId: string, { pageSize, offset }: Paginacion) {
+  // Paginación por cursor (ver src/server/shared/utils/pagination.ts): esta
+  // es una de las dos tablas particionadas (migrations/0037), la única con
+  // volumen que puede crecer sin techo natural por tenant.
+  async findAll(client: PoolClient, tenantId: string, { pageSize, cursor }: CursorPaginacion) {
     const result = await client.query(`
       SELECT c.id, c.equipo_id, e.placa_codigo, c.plantilla_id, c.usuario_id,
         u.nombre AS usuario_nombre, c.fecha, c.turno, c.resultado,
-        c.observaciones_generales, c.creado_en,
-        COUNT(*) OVER() AS total_count
+        c.observaciones_generales, c.creado_en
       FROM checklists c
       JOIN equipos e ON e.id = c.equipo_id
       JOIN usuarios u ON u.id = c.usuario_id
-      WHERE c.tenant_id = $1
+      WHERE c.tenant_id = $1 AND ($2::int IS NULL OR c.id < $2)
       ORDER BY c.id DESC
-      LIMIT $2 OFFSET $3
-    `, [tenantId, pageSize, offset]);
+      LIMIT $3
+    `, [tenantId, cursor, pageSize + 1]);
     return result.rows;
   },
 

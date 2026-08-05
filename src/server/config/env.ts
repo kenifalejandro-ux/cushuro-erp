@@ -199,6 +199,11 @@ export const env = {
     process.env.BACKUP_RETENTION_CHECK_INTERVAL_MS,
     24 * 60 * 60_000
   ),
+  // Restore drill (platformBackupDrill.worker.ts): a diferencia de la
+  // retención, esto es de solo lectura (nunca borra ni modifica nada), así
+  // que no hay una decisión de negocio que tomar para activarlo — corre
+  // siempre, con el mismo intervalo por defecto que particionesCheckIntervalMs.
+  backupDrillCheckIntervalMs: readNumber(process.env.BACKUP_DRILL_CHECK_INTERVAL_MS, 24 * 60 * 60_000),
   // Clave de cifrado reversible para secretos de plataforma (hoy: el
   // client_secret OIDC de tenant_sso_config) — ver platformCrypto.ts.
   // Deliberadamente separada de JWT_SECRET: son cosas distintas (firmar vs

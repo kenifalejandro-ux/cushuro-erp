@@ -1,12 +1,12 @@
 /** src/modules/iperc/iperc.service.ts */
 
 import type { PoolClient } from "pg";
-import type { Paginacion } from "../../server/shared/utils/pagination";
+import type { Paginacion, CursorPaginacion } from "../../server/shared/utils/pagination";
 import type { CrearIpercInput, CrearLineaBaseInput } from "../../server/schemas/iperc.schema";
 import { IpercRepository } from "./iperc.repository";
 
 export const IpercService = {
-  getAll(client: PoolClient, tenantId: string, paginacion: Paginacion, tipo?: string) {
+  getAll(client: PoolClient, tenantId: string, paginacion: CursorPaginacion, tipo?: string) {
     return IpercRepository.findAll(client, tenantId, paginacion, tipo);
   },
 

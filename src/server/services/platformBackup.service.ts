@@ -211,7 +211,10 @@ async function vaciarDatosDeTenant(client: PoolClient, tenantId: string): Promis
  *    liberó esos mismos ids antes de insertar, y ningún otro tenant puede
  *    tener una fila con esos ids (son globalmente únicos por tabla). Hace
  *    falta un setval() manual después de cada tabla porque un INSERT con
- *    id explícito no avisa a la secuencia que ese valor ya está en uso.
+ *    id explícito no avisa a la secuencia que ese valor ya está en uso —
+ *    y ese setval() tiene que tomar el GREATEST contra el valor actual de
+ *    la secuencia, no pisarlo a ciegas con MAX(id): ver el comentario en
+ *    el propio setval(), más abajo.
  *
  *  - true (restaurar en un tenant DISTINTO — clonar): los ids originales
  *    siguen existiendo de verdad en el tenant de origen (no se tocó), así
@@ -272,8 +275,26 @@ async function restaurarTablas(
     }
 
     if (!remapearIds && meta.pk === "serial" && filas.length > 0) {
+      // GREATEST contra el valor ACTUAL de la secuencia, no un setval a
+      // ciegas con MAX(id): esta tabla es GLOBAL (el id no es por tenant),
+      // así que mientras este restore corre, otro tenant cualquiera puede
+      // estar insertando filas nuevas por su cuenta y adelantando la
+      // secuencia de verdad. Un setval(seq, MAX(id)) que ignore eso puede
+      // RETROCEDER la secuencia por debajo de donde ya está — y el
+      // próximo nextval() de CUALQUIER inserción (de cualquier tenant, en
+      // cualquier tabla que comparta esta secuencia) choca contra una fila
+      // que ese otro proceso ya insertó antes del retroceso. Se encontró
+      // por un test intermitente en la suite completa (nunca aislado):
+      // "duplicate key value violates unique constraint" en un INSERT
+      // que ni siquiera tocaba este restore.
       await client.query(
-        `SELECT setval(pg_get_serial_sequence('${meta.nombre}', 'id'), COALESCE((SELECT MAX(id) FROM ${meta.nombre}), 1))`
+        `SELECT setval(
+           pg_get_serial_sequence('${meta.nombre}', 'id')::regclass,
+           GREATEST(
+             (SELECT MAX(id) FROM ${meta.nombre}),
+             COALESCE(pg_sequence_last_value(pg_get_serial_sequence('${meta.nombre}', 'id')::regclass), 1)
+           )
+         )`
       );
     }
   }

@@ -19,6 +19,8 @@ import {
   usoActual,
   fijarCuotaTenant,
   resumenCuotasTenant,
+  resolverLimite,
+  invalidarCacheLimite,
   RECURSO_USUARIOS,
 } from "../src/server/services/platformCuotas.service";
 
@@ -379,5 +381,38 @@ describe("medición del uso", () => {
 
     expect(await usoActual(a.tenant.id, "equipos")).toBe(1);
     expect(await usoActual(b.tenant.id, "equipos")).toBe(0);
+  });
+});
+
+describe("caché de resolverLimite()", () => {
+  it("una escritura por fuera de fijarCuotaTenant queda stale hasta invalidar a mano", async () => {
+    const { tenant } = await nuevoTenant();
+
+    // Primera lectura: cachea "sin override" (cae al plan/registry).
+    expect((await resolverLimite(tenant.id, "equipos")).origen).not.toBe("override");
+
+    // Se escribe el override directo a la tabla, sin pasar por
+    // fijarCuotaTenant — nadie invalida el caché por esto.
+    await pool.query(
+      `INSERT INTO tenant_cuotas (tenant_id, recurso, limite) VALUES ($1, 'equipos', 7)
+       ON CONFLICT (tenant_id, recurso) DO UPDATE SET limite = 7`,
+      [tenant.id]
+    );
+    expect((await resolverLimite(tenant.id, "equipos")).origen).not.toBe("override"); // todavía cacheado
+
+    await invalidarCacheLimite(tenant.id, "equipos");
+    const fresco = await resolverLimite(tenant.id, "equipos");
+    expect(fresco.origen).toBe("override");
+    expect(fresco.limite).toBe(7);
+  });
+
+  it("fijarCuotaTenant invalida solo, sin necesidad de tocar el caché a mano", async () => {
+    const { tenant } = await nuevoTenant();
+    await resolverLimite(tenant.id, "equipos"); // cachea el valor sin override
+
+    await fijarCuotaTenant(tenant.id, "equipos", 9, "prueba de invalidación");
+    const r = await resolverLimite(tenant.id, "equipos");
+    expect(r.origen).toBe("override");
+    expect(r.limite).toBe(9);
   });
 });

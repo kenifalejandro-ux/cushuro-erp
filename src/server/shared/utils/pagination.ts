@@ -44,3 +44,58 @@ export function armarRespuestaPaginada<T extends { total_count?: string | number
     },
   };
 }
+
+// ── Paginación por cursor (keyset) ────────────────────────────────────────
+//
+// Para listados que ya pueden crecer mucho (checklists e IPERC llenados,
+// las dos únicas tablas particionadas — ver migrations/0037): OFFSET
+// obliga a Postgres a recorrer y descartar todas las filas anteriores al
+// offset pedido, y COUNT(*) OVER() cuenta la tabla entera en cada página.
+// Los dos se vuelven caros juntos justo cuando el volumen empieza a
+// importar. Keyset (WHERE id < cursor ORDER BY id DESC LIMIT n) no tiene
+// ese problema: el índice ya ordenado por id resuelve cualquier página en
+// tiempo constante, sin importar cuán atrás esté.
+//
+// El costo es real y es a propósito: sin OFFSET no se puede "saltar a la
+// página 8", solo avanzar/retroceder de a una — igual que ya hacen
+// Equipos/Repuestos/Documentos en el cliente (botones Anterior/Siguiente,
+// nunca un selector de página). Y sin COUNT(*) OVER() no hay total exacto:
+// se pide una fila de más (`pageSize + 1`) para saber si hay más sin
+// contarlas todas.
+
+export interface CursorPaginacion {
+  pageSize: number;
+  /** `null` = primera página. Es el id de la última fila que ya se vio —
+   *  la query trae lo que sigue después de esa, nunca esa misma fila. */
+  cursor: number | null;
+}
+
+/** Lee pageSize/cursor de req.query — mismos defaults y tope que
+ *  parsePaginacion(), para que ambos esquemas se sientan consistentes. */
+export function parseCursorPaginacion(query: Record<string, unknown>): CursorPaginacion {
+  const pageSizeRaw = Number.parseInt(String(query?.pageSize ?? ""), 10);
+  const pageSize =
+    Number.isFinite(pageSizeRaw) && pageSizeRaw > 0
+      ? Math.min(pageSizeRaw, PAGE_SIZE_MAX)
+      : PAGE_SIZE_DEFAULT;
+
+  const cursorRaw = Number.parseInt(String(query?.cursor ?? ""), 10);
+  const cursor = Number.isFinite(cursorRaw) && cursorRaw > 0 ? cursorRaw : null;
+
+  return { pageSize, cursor };
+}
+
+/** El repository tiene que pedir `pageSize + 1` filas (ver el comentario de
+ *  arriba) — esta función es la que sabe cortar esa fila de más y
+ *  convertirla en `hasMore`/`nextCursor`, así el repository no tiene que
+ *  saber nada de paginación, solo ejecutar la query que le dan. */
+export function armarRespuestaCursor<T extends { id: number }>(filas: T[], pageSize: number) {
+  const hasMore = filas.length > pageSize;
+  const data = hasMore ? filas.slice(0, pageSize) : filas;
+  const nextCursor = hasMore ? data[data.length - 1].id : null;
+
+  return {
+    data,
+    pagination: { pageSize, nextCursor, hasMore },
+  };
+}

@@ -1,33 +1,34 @@
 /** src/modules/iperc/iperc.repository.ts */
 
 import type { PoolClient } from "pg";
-import type { Paginacion } from "../../server/shared/utils/pagination";
+import type { Paginacion, CursorPaginacion } from "../../server/shared/utils/pagination";
 import type { CrearIpercInput, CrearLineaBaseInput } from "../../server/schemas/iperc.schema";
 
 export const IpercRepository = {
 
-  async findAll(client: PoolClient, tenantId: string, { pageSize, offset }: Paginacion, tipo?: string) {
-    const params: any[] = [tenantId];
+  // Paginación por cursor (ver src/server/shared/utils/pagination.ts): la
+  // otra tabla particionada además de checklists (migrations/0037).
+  async findAll(client: PoolClient, tenantId: string, { pageSize, cursor }: CursorPaginacion, tipo?: string) {
+    const params: any[] = [tenantId, cursor];
     let filtroTipo = "";
     if (tipo) {
       params.push(tipo);
       filtroTipo = ` AND i.tipo = $${params.length}`;
     }
-    params.push(pageSize, offset);
+    params.push(pageSize + 1);
 
     const result = await client.query(`
       SELECT i.id, i.tipo, i.fecha, i.turno, i.area_frente, i.equipo_id, e.placa_codigo,
         i.linea_base_id, i.tarea_especifica,
         i.usuario_id, u.nombre AS usuario_nombre, i.estado,
-        i.aprobado_por, ap.nombre AS aprobado_por_nombre, i.aprobado_en, i.creado_en,
-        COUNT(*) OVER() AS total_count
+        i.aprobado_por, ap.nombre AS aprobado_por_nombre, i.aprobado_en, i.creado_en
       FROM ipercs i
       JOIN usuarios u ON u.id = i.usuario_id
       LEFT JOIN equipos e ON e.id = i.equipo_id
       LEFT JOIN usuarios ap ON ap.id = i.aprobado_por
-      WHERE i.tenant_id = $1${filtroTipo}
+      WHERE i.tenant_id = $1 AND ($2::int IS NULL OR i.id < $2)${filtroTipo}
       ORDER BY i.id DESC
-      LIMIT $${params.length - 1} OFFSET $${params.length}
+      LIMIT $${params.length}
     `, params);
     return result.rows;
   },

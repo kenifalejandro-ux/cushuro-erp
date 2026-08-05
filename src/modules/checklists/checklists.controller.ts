@@ -3,7 +3,7 @@
 import { Request, Response } from "express";
 import { withTenant } from "../../server/config/database";
 import { getTenantId } from "../../server/shared/utils/request";
-import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/utils/pagination";
+import { parsePaginacion, armarRespuestaPaginada, parseCursorPaginacion, armarRespuestaCursor } from "../../server/shared/utils/pagination";
 import { contextoAuditoriaModulo } from "../../server/shared/utils/moduleAudit";
 import { registrarAuditoria } from "../../server/services/platformAudit.service";
 import type { CrearPlantillaInput, CrearChecklistInput } from "../../server/schemas/checklists.schema";
@@ -81,9 +81,9 @@ export const ChecklistsController = {
   async getAll(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const paginacion = parsePaginacion(req.query);
+      const paginacion = parseCursorPaginacion(req.query);
       const filas = await withTenant(tenantId, (client) => ChecklistsService.getAll(client, tenantId, paginacion));
-      res.json(armarRespuestaPaginada(filas, paginacion));
+      res.json(armarRespuestaCursor(filas, paginacion.pageSize));
     } catch {
       res.status(500).json({ message: "Error al obtener checklists" });
     }
