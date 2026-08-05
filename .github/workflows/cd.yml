@@ -1,0 +1,196 @@
+name: CD
+
+# Se dispara cuando el workflow "CI" (ci.yml) termina, no en cada push —
+# así CD nunca arranca sin que CI ya haya pasado en verde. Filtramos además
+# por rama y por evento porque "CI" también corre en pull_request, y eso
+# también cuenta como un "workflow_run" completado.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  migrate-staging:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Correr migraciones contra Railway (staging)
+        run: npm run migrate
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+
+  deploy-staging:
+    needs: migrate-staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Instalar Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Desplegar a staging
+        # Token de proyecto distinto al de producción, scopeado al
+        # environment "staging" de Railway (mismo proyecto, mismo nombre de
+        # servicio) — así el token por sí solo decide a qué environment va,
+        # sin depender de un flag extra que no verifiqué en vivo.
+        run: railway up --service "$RAILWAY_SERVICE_NAME" --ci
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
+          RAILWAY_SERVICE_NAME: ${{ vars.RAILWAY_SERVICE_NAME }}
+
+  health-check-staging:
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    steps:
+      - name: Esperar y verificar /health en staging
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS "$STAGING_URL/health"; then
+              echo "✅ Health check de staging OK"
+              exit 0
+            fi
+            echo "Intento $i falló, reintentando en 10s..."
+            sleep 10
+          done
+          echo "❌ Staging no respondió healthy tras el deploy — no se promueve a producción"
+          exit 1
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+
+  migrate:
+    # Ya no depende directo del workflow_run: solo llega acá si staging
+    # completó todo el ciclo (migró, desplegó y respondió healthy). El `if`
+    # de entrada quedó en migrate-staging, este job hereda esa condición a
+    # través de needs (si algo de staging falla, esto ni se dispara).
+    needs: health-check-staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Correr migraciones contra Railway (producción)
+        # Connection string pública de Postgres en Railway (pestaña "Connect"
+        # del plugin, no la privada *.railway.internal — el runner de Actions
+        # está fuera de la red privada de Railway). migrate.ts ya cierra el
+        # pool y hace process.exit() solo, listo para correr como paso aislado.
+        run: npm run migrate
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+
+  deploy:
+    needs: migrate
+    runs-on: ubuntu-latest
+    # Gate de aprobación humana: el job se PAUSA acá hasta que alguien con
+    # acceso al environment "production" (configurado en Settings ->
+    # Environments del repo, con "required reviewers") lo apruebe a mano.
+    # Las migraciones ya corrieron en el job anterior — este gate protege
+    # específicamente el paso irreversible de exponer el código nuevo a
+    # tráfico real.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Instalar Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Desplegar a producción
+        # RAILWAY_TOKEN como env var: la CLI lo detecta sola y corre en modo
+        # no interactivo (sin necesitar `railway link` primero) siempre que
+        # sea un Project Token de Railway, no un token de cuenta personal.
+        # --service identifica el servicio dentro del proyecto porque Redis
+        # (el otro plugin del proyecto) también cuenta como "servicio" y no
+        # queremos que la CLI pregunte cuál desplegar.
+        run: railway up --service "$RAILWAY_SERVICE_NAME" --ci
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE_NAME: ${{ vars.RAILWAY_SERVICE_NAME }}
+
+  health-check:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Esperar y verificar /health
+        # Reintenta durante ~2 minutos: Railway reporta el deploy como
+        # terminado antes de que el proceso Node termine de levantar del
+        # todo (conexión a Postgres/Redis, etc).
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS "$PRODUCTION_URL/health"; then
+              echo "✅ Health check OK"
+              exit 0
+            fi
+            echo "Intento $i falló, reintentando en 10s..."
+            sleep 10
+          done
+          echo "❌ El servicio no respondió healthy tras el deploy"
+          exit 1
+        env:
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+
+  tag-and-release:
+    needs: health-check
+    runs-on: ubuntu-latest
+    # Necesita contents:write para crear el tag y el Release — el
+    # GITHUB_TOKEN por defecto alcanza, no hace falta el PAT personal.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Calcular próxima versión
+        # Versionado automático simple: toma el último tag vX.Y.Z (si no hay
+        # ninguno, arranca en v0.1.0) y sube el PATCH. No distingue features
+        # de fixes -- si en algún momento se necesita SemVer real habría que
+        # leer el historial de commits (Conventional Commits) en vez de solo
+        # incrementar; por ahora alcanza con marcar "qué versión quedó viva
+        # en producción" para poder hacer rollback apuntando a un tag.
+        id: version
+        run: |
+          ULTIMO=$(git tag --list 'v*.*.*' --sort=-v:refname | head -n1)
+          if [ -z "$ULTIMO" ]; then
+            NUEVO="v0.1.0"
+          else
+            IFS='.' read -r MAYOR MENOR PARCHE <<< "${ULTIMO#v}"
+            NUEVO="v${MAYOR}.${MENOR}.$((PARCHE + 1))"
+          fi
+          echo "tag=$NUEVO" >> "$GITHUB_OUTPUT"
+
+      - name: Crear tag y GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git tag "${{ steps.version.outputs.tag }}" "${{ github.event.workflow_run.head_sha }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --generate-notes \
+            --target "${{ github.event.workflow_run.head_sha }}"
