@@ -12,6 +12,26 @@ updates:
       # (majors, o los que arreglan una vulnerabilidad real).
       minor-y-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # pino-http (^10.5.0) todavía no declara compatibilidad de tipos con
+      # pino@10 — un bump aislado de pino rompe el typecheck de app.ts
+      # (visto en el PR #13, cerrado 2026-08-05). Sacar este ignore cuando
+      # pino-http publique una versión que sí soporte pino@10.
+      - dependency-name: "pino"
+        update-types: ["version-update:semver-major"]
+      # @types/express-serve-static-core@5.x rompe la extensión de tipos
+      # custom de Request (usuario, validatedBody) que agregan los
+      # middlewares propios — necesita migrar esa extensión antes de subir
+      # (visto en el PR #11, cerrado 2026-08-05).
+      - dependency-name: "@types/express-serve-static-core"
+        update-types: ["version-update:semver-major"]
+      # zod v4 sacó `required_error`/`invalid_type_error` de los schemas en
+      # favor de un `error` unificado — rompe auth.schema.ts (y
+      # probablemente otros schemas del proyecto que usan la sintaxis
+      # vieja). Migrar todos los schemas antes de subir (visto en el PR #6,
+      # cerrado 2026-08-05).
+      - dependency-name: "zod"
+        update-types: ["version-update:semver-major"]
 
   # Frontend (client/)
   - package-ecosystem: "npm"
@@ -22,6 +42,20 @@ updates:
     groups:
       minor-y-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # TypeScript 7 rompe el tsconfig.json de client/ (moduleResolution:
+      # "node10", baseUrl, rutas no relativas) — ESO se arregla fácil
+      # (probado 2026-08-05: typecheck y build quedan limpios con
+      # moduleResolution: "bundler" y paths relativos). El bloqueo real es
+      # otro: @typescript-eslint/typescript-estree (probado hasta la
+      # última alpha, 8.66.1-alpha.4) declara
+      # `peerDependencies: { typescript: ">=4.8.4 <6.1.0" }` — ninguna
+      # versión disponible hoy soporta TS7, revienta con un TypeError
+      # interno al correr `npm run lint`. Sacar este ignore cuando
+      # @typescript-eslint publique soporte para TS7 (visto en el PR #20,
+      # cerrado 2026-08-05).
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions, si en algún momento se agrega CI (no hace daño tenerlo
   # ya configurado, Dependabot simplemente no encuentra nada que revisar
