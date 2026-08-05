@@ -172,13 +172,37 @@ export interface ResultadoRestorePlataforma {
  *  restore por tenant ya tenía esta garantía (corre dentro de withTenant());
  *  éste no la tenía.
  *
- *  Además arregla una carrera real: entre insertar `tenants` y sus
- *  `tenant_modulos`, otra transacción podía borrar ese tenant y hacer
- *  explotar el INSERT siguiente por violación de FK. Dentro de una
- *  transacción, el chequeo de FK toma un lock FOR KEY SHARE sobre la fila
- *  padre, así que ese DELETE concurrente espera al COMMIT en vez de
- *  arrancarle el piso al restore. Se descubrió por un test que fallaba de
- *  forma intermitente en la suite completa (nunca aislado). */
+ *  ── Por qué cada FILA va en su propio SAVEPOINT ─────────────────────────
+ *
+ *  El backup es una foto en el tiempo; la base sigue viva mientras dura el
+ *  restore. Una fila puede referenciar (por FK) un `tenant`/`usuario` que
+ *  el backup SÍ capturó pero que otro proceso borra de verdad mientras
+ *  este restore todavía está insertando — no es un caso raro, es lo
+ *  normal en un restore de plataforma que corre junto a tráfico real. Sin
+ *  SAVEPOINT, ese INSERT revienta con FK violation (23503) y aborta la
+ *  transacción ENTERA: un tenant borrado por otro motivo un rato antes
+ *  tira abajo el restore completo de todos los demás.
+ *
+ *  Se probaron dos enfoques más débiles antes de este, los dos fallaron
+ *  por la misma razón (encontrado por un test intermitente en la suite
+ *  completa — nunca aislado — que reprodujo ambas variantes):
+ *
+ *    1. Un pre-chequeo en JS ("¿existe hoy este usuario?") armado con un
+ *       SELECT al principio de la transacción: quedaba viejo apenas algo
+ *       se borraba DESPUÉS de ese SELECT y ANTES del INSERT real.
+ *    2. Confiar en que el propio INSERT de la fila padre (`tenants`) dentro
+ *       de esta misma transacción tomara un lock FOR KEY SHARE que
+ *       protegiera a sus hijos (`tenant_modulos`, etc.): eso solo protege
+ *       tenants NUEVOS que este restore inserta de cero. Un tenant que YA
+ *       existía (ON CONFLICT DO NOTHING no toca la fila) no queda
+ *       bloqueado por nada, y puede desaparecer entre que se procesa
+ *       `tenants` y se procesa su tabla hija.
+ *
+ *  La única fuente de verdad confiable es la FK real de Postgres, evaluada
+ *  en el momento exacto del INSERT — nunca un chequeo previo en JS. Por
+ *  eso cada fila corre en su propio SAVEPOINT: si el INSERT viola una FK,
+ *  se vuelve a ese punto (sin perder el resto de la transacción) y la fila
+ *  se cuenta como salteada. */
 async function restaurarTablasPlataforma(
   backup: ContenidoBackupPlataforma
 ): Promise<ResultadoRestorePlataforma> {
@@ -189,44 +213,36 @@ async function restaurarTablasPlataforma(
   try {
     await client.query("BEGIN");
 
-    // usuario_modulos referencia usuarios(id), que no viaja en este backup:
-    // se resuelve qué usuarios existen HOY para no intentar insertar filas
-    // condenadas a violar la FK.
-    //
-    // `usuarios` tiene RLS (migración 0010), así que hay que fijar
-    // app.tenant_id antes de leerla — sin eso la policy evalúa ''::uuid y
-    // la query falla con "invalid input syntax for type uuid". Se hace con
-    // set_config(..., true) sobre ESTE client (local a la transacción, se
-    // limpia solo al COMMIT/ROLLBACK), re-seteándolo para cada tenant; no
-    // se puede usar withTenant() porque abriría su propia conexión y
-    // quedaría fuera de esta transacción.
-    const usuariosExistentes = new Set<string>();
-    const tenantsActuales = await client.query<{ id: string }>(`SELECT id FROM tenants`);
-    for (const { id: tenantId } of tenantsActuales.rows) {
-      await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
-      const usuarios = await client.query<{ id: string }>(`SELECT id FROM usuarios WHERE tenant_id = $1`, [tenantId]);
-      for (const usuario of usuarios.rows) usuariosExistentes.add(usuario.id);
-    }
-
     for (const meta of TABLAS_PLATAFORMA) {
       const filas = backup.tablas[meta.nombre] ?? [];
       filasInsertadas[meta.nombre] = 0;
       filasSalteadasPorFk[meta.nombre] = 0;
 
       for (const fila of filas) {
-        if (meta.nombre === "usuario_modulos" && !usuariosExistentes.has(String(fila.usuario_id))) {
-          filasSalteadasPorFk[meta.nombre]++;
-          continue;
-        }
-
         const columnas = Object.keys(fila);
         const placeholders = columnas.map((_, i) => `$${i + 1}`).join(", ");
-        const resultado = await client.query(
-          `INSERT INTO ${meta.nombre} (${columnas.join(", ")}) VALUES (${placeholders})
-           ON CONFLICT (${meta.conflicto.join(", ")}) DO NOTHING`,
-          columnas.map((c) => fila[c])
-        );
-        filasInsertadas[meta.nombre] += resultado.rowCount ?? 0;
+
+        // Ver el comentario de la función sobre por qué esto va en un
+        // SAVEPOINT por fila y no en un pre-chequeo: cualquier tabla acá
+        // puede referenciar algo que otro proceso borra mientras el
+        // restore está en curso, no solo usuario_modulos.
+        await client.query("SAVEPOINT antes_de_fila");
+        try {
+          const resultado = await client.query(
+            `INSERT INTO ${meta.nombre} (${columnas.join(", ")}) VALUES (${placeholders})
+             ON CONFLICT (${meta.conflicto.join(", ")}) DO NOTHING`,
+            columnas.map((c) => fila[c])
+          );
+          filasInsertadas[meta.nombre] += resultado.rowCount ?? 0;
+          await client.query("RELEASE SAVEPOINT antes_de_fila");
+        } catch (err) {
+          if ((err as { code?: string }).code === "23503") {
+            await client.query("ROLLBACK TO SAVEPOINT antes_de_fila");
+            filasSalteadasPorFk[meta.nombre]++;
+          } else {
+            throw err;
+          }
+        }
       }
     }
 

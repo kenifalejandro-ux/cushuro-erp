@@ -1,7 +1,7 @@
 /** src/modules/checklists/checklists.service.ts */
 
 import type { PoolClient } from "pg";
-import type { Paginacion } from "../../server/shared/utils/pagination";
+import type { Paginacion, CursorPaginacion } from "../../server/shared/utils/pagination";
 import type { CrearPlantillaInput, CrearChecklistInput } from "../../server/schemas/checklists.schema";
 import { ChecklistsRepository } from "./checklists.repository";
 
@@ -22,7 +22,7 @@ export const ChecklistsService = {
     return ChecklistsRepository.eliminarPlantilla(client, tenantId, id);
   },
 
-  getAll(client: PoolClient, tenantId: string, paginacion: Paginacion) {
+  getAll(client: PoolClient, tenantId: string, paginacion: CursorPaginacion) {
     return ChecklistsRepository.findAll(client, tenantId, paginacion);
   },
 

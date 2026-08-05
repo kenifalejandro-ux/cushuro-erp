@@ -29,15 +29,16 @@ backups/platform/{YYYY}/{MM}/platform_{TIMESTAMP}.json.gz.enc
 Ejemplo real:
 
 ```
-backups/tenants/11111111-2222-4333-8444-555555555555/2026/03/backup_11111111-2222-4333-8444-555555555555_20260309T014530Z.json.gz.enc
-backups/platform/2026/12/platform_20261231T235959Z.json.gz.enc
+backups/tenants/11111111-2222-4333-8444-555555555555/2026/03/backup_11111111-2222-4333-8444-555555555555_20260309T014530.421Z-a1b2c3.json.gz.enc
+backups/platform/2026/12/platform_20261231T235959.007Z-9f0e1d.json.gz.enc
 ```
 
 Decisiones detrás de la convención:
 
 - **Un subárbol por tenant.** Permite listar/podar los backups de un cliente sin recorrer los de los demás, y hace posible escribir una IAM policy acotada a `backups/tenants/{id}/*` si alguna vez hay que darle a un cliente acceso de solo lectura a sus propios backups.
 - **`{YYYY}/{MM}` con cero a la izquierda.** El orden lexicográfico de las keys coincide con el cronológico, y la poda mensual es un `ListObjectsV2` con prefijo acotado en vez de listar todo el histórico.
-- **Timestamp sin `:`** (`20260309T014530Z`). S3 los admite, pero rompen las descargas a disco en Windows y complican las URLs firmadas.
+- **Timestamp sin `:`** (`20260309T014530.421Z`). S3 los admite, pero rompen las descargas a disco en Windows y complican las URLs firmadas.
+- **Milisegundos + sufijo random al final del timestamp.** Sin esto, dos backups del mismo tenant (o dos de plataforma) creados dentro del mismo segundo comparten key y el segundo write pisa el archivo del primero en el storage — la fila de metadata del primero queda apuntando a un archivo que en realidad es el del segundo. Se encontró con el restore drill (ver más abajo), que comparó el contenido leído contra su propio manifiesto y encontró un backup "completo" cuyo archivo no era el suyo.
 - **Plataforma en un prefijo separado.** No pertenece a ningún tenant y su contenido es mucho más sensible — conviene poder darle una política de acceso distinta.
 
 Las keys son idénticas en el driver local, así que `BACKUPS_DIR` es un espejo exacto del layout del bucket: migrar puede ser literalmente un `aws s3 sync`.

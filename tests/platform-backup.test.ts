@@ -36,12 +36,14 @@ async function cargarDatosDePrueba(tenantId: string, usuarioId: string) {
       [tenantId]
     );
     const checklist = await client.query(
-      `INSERT INTO checklists (tenant_id, equipo_id, plantilla_id, usuario_id) VALUES ($1, $2, $3, $4) RETURNING id`,
+      `INSERT INTO checklists (tenant_id, equipo_id, plantilla_id, usuario_id) VALUES ($1, $2, $3, $4) RETURNING id, creado_en`,
       [tenantId, equipo.rows[0].id, plantilla.rows[0].id, usuarioId]
     );
+    // checklists está particionada por RANGE(creado_en) (migración 0037):
+    // checklist_items necesita checklist_creado_en para la FK compuesta.
     await client.query(
-      `INSERT INTO checklist_items (tenant_id, checklist_id, descripcion, estado) VALUES ($1, $2, 'Frenos', 'bien')`,
-      [tenantId, checklist.rows[0].id]
+      `INSERT INTO checklist_items (tenant_id, checklist_id, checklist_creado_en, descripcion, estado) VALUES ($1, $2, $3, 'Frenos', 'bien')`,
+      [tenantId, checklist.rows[0].id, checklist.rows[0].creado_en]
     );
     return { equipoId: equipo.rows[0].id, checklistId: checklist.rows[0].id };
   });
@@ -90,6 +92,14 @@ describe("exportarTenantService / POST .../backups", () => {
   it("GET .../backups lista los backups del tenant, más nuevo primero", async () => {
     const { tenant } = await nuevoTenant();
     const primero = await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
+    // El orden lo da creado_en (DEFAULT now(), sin desempate por otra
+    // columna — tenant_backups.id es un UUID random, no sirve como
+    // segundo criterio). Bajo carga pesada (suite completa en paralelo)
+    // dos requests bien seguidos podían caer en el mismo timestamp y
+    // volver el orden ambiguo — nada que ver con la lógica de la app, así
+    // que se fuerza acá un desfasaje mínimo en vez de tocar el schema por
+    // un empate de laboratorio.
+    await new Promise((r) => setTimeout(r, 5));
     const segundo = await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
 
     const res = await request(app).get(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
@@ -155,18 +165,34 @@ describe("backup de plataforma / POST /backups/plataforma", () => {
   it("la key va bajo backups/platform/, separada del prefijo de los tenants", async () => {
     const res = await request(app).post("/api/platform/backups/plataforma").set("Authorization", BEARER);
 
-    expect(res.body.backup.storageKey).toMatch(/^backups\/platform\/\d{4}\/\d{2}\/platform_\d{8}T\d{6}Z\.json\.gz\.enc$/);
+    expect(res.body.backup.storageKey).toMatch(/^backups\/platform\/\d{4}\/\d{2}\/platform_\d{8}T\d{6}\.\d{3}Z-[0-9a-f]{6}\.json\.gz\.enc$/);
   });
 
   it("GET lista los backups de plataforma, más nuevo primero", async () => {
     const primero = await request(app).post("/api/platform/backups/plataforma").set("Authorization", BEARER);
+    // Desfasaje mínimo para que "primero" y "segundo" no empaten en
+    // creado_en bajo carga pesada — necesario para poder comparar el
+    // orden relativo ENTRE ELLOS DOS (ver el comentario de abajo sobre
+    // por qué no se puede afirmar más que eso).
+    await new Promise((r) => setTimeout(r, 5));
     const segundo = await request(app).post("/api/platform/backups/plataforma").set("Authorization", BEARER);
 
     const res = await request(app).get("/api/platform/backups/plataforma").set("Authorization", BEARER);
-
     expect(res.status).toBe(200);
-    expect(res.body.backups[0].id).toBe(segundo.body.backup.id);
-    expect(res.body.backups.some((b: any) => b.id === primero.body.backup.id)).toBe(true);
+
+    // platform_backups es un recurso GLOBAL (sin tenant_id): a diferencia
+    // del listado por tenant, acá SÍ puede haber otro archivo de test
+    // corriendo en paralelo que cree su propio backup de plataforma justo
+    // en el medio — así que no se puede afirmar que "segundo" quede
+    // exactamente en la posición 0 (otro backup, de otro archivo, más
+    // nuevo todavía, podría colarse antes). Lo único que este test puede
+    // garantizar es el orden RELATIVO entre los dos propios.
+    const ids = res.body.backups.map((b: any) => b.id);
+    const posPrimero = ids.indexOf(primero.body.backup.id);
+    const posSegundo = ids.indexOf(segundo.body.backup.id);
+    expect(posPrimero).toBeGreaterThanOrEqual(0);
+    expect(posSegundo).toBeGreaterThanOrEqual(0);
+    expect(posSegundo).toBeLessThan(posPrimero);
   });
 
   it("restaurar es ADITIVO: reinserta un tenant borrado sin tocar los que existen", async () => {

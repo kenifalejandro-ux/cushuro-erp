@@ -1,7 +1,7 @@
 /** src/modules/checklists/checklists.repository.ts */
 
 import type { PoolClient } from "pg";
-import type { Paginacion } from "../../server/shared/utils/pagination";
+import type { Paginacion, CursorPaginacion } from "../../server/shared/utils/pagination";
 
 export const ChecklistsRepository = {
 
@@ -71,19 +71,21 @@ export const ChecklistsRepository = {
   },
 
   // ── Checklists llenados ──────────────────────────────────────────────
-  async findAll(client: PoolClient, tenantId: string, { pageSize, offset }: Paginacion) {
+  // Paginación por cursor (ver src/server/shared/utils/pagination.ts): esta
+  // es una de las dos tablas particionadas (migrations/0037), la única con
+  // volumen que puede crecer sin techo natural por tenant.
+  async findAll(client: PoolClient, tenantId: string, { pageSize, cursor }: CursorPaginacion) {
     const result = await client.query(`
       SELECT c.id, c.equipo_id, e.placa_codigo, c.plantilla_id, c.usuario_id,
         u.nombre AS usuario_nombre, c.fecha, c.turno, c.resultado,
-        c.observaciones_generales, c.creado_en,
-        COUNT(*) OVER() AS total_count
+        c.observaciones_generales, c.creado_en
       FROM checklists c
       JOIN equipos e ON e.id = c.equipo_id
       JOIN usuarios u ON u.id = c.usuario_id
-      WHERE c.tenant_id = $1
+      WHERE c.tenant_id = $1 AND ($2::int IS NULL OR c.id < $2)
       ORDER BY c.id DESC
-      LIMIT $2 OFFSET $3
-    `, [tenantId, pageSize, offset]);
+      LIMIT $3
+    `, [tenantId, cursor, pageSize + 1]);
     return result.rows;
   },
 
@@ -133,14 +135,19 @@ export const ChecklistsRepository = {
       [tenantId, data.equipo_id, data.plantilla_id, usuarioId, data.turno ?? null, resultado, data.observaciones_generales ?? null]
     );
     const checklistId = checklist.rows[0].id;
+    // checklists está particionada por RANGE(creado_en) (migración 0037):
+    // la FK de checklist_items es compuesta (checklist_id, checklist_creado_en)
+    // → checklists(id, creado_en), así que hace falta este valor acá. Ya
+    // vino gratis en el RETURNING del INSERT de arriba, sin query extra.
+    const checklistCreadoEn = checklist.rows[0].creado_en;
 
     const items = [];
     for (const item of data.items) {
       const result = await client.query(
-        `INSERT INTO checklist_items (tenant_id, checklist_id, descripcion, estado, observacion)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO checklist_items (tenant_id, checklist_id, checklist_creado_en, descripcion, estado, observacion)
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id, descripcion, estado, observacion`,
-        [tenantId, checklistId, item.descripcion, item.estado, item.observacion ?? null]
+        [tenantId, checklistId, checklistCreadoEn, item.descripcion, item.estado, item.observacion ?? null]
       );
       items.push(result.rows[0]);
     }

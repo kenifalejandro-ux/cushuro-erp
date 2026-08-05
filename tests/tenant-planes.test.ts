@@ -14,7 +14,13 @@ import request from "supertest";
 import { app, crearTenantDePrueba, borrarTenantDePrueba, idUnico } from "./helpers";
 import { env } from "../src/server/config/env";
 import { pool, closeDatabase } from "../src/server/config/database";
-import { resolverLimite, limiteEfectivo, fijarCuotaTenant } from "../src/server/services/platformCuotas.service";
+import {
+  resolverLimite,
+  limiteEfectivo,
+  fijarCuotaTenant,
+  invalidarCacheLimite,
+  invalidarCacheLimitesTenant,
+} from "../src/server/services/platformCuotas.service";
 import { asignarPlanATenantService } from "../src/server/services/platformPlanes.service";
 
 const BEARER = `Bearer ${env.platformAdminToken}`;
@@ -148,6 +154,12 @@ describe("precedencia: override > plan > registry", () => {
     // ese recurso. Es el mismo caso que un módulo NUEVO, que todavía no
     // tiene fila en ningún plan.
     await pool.query(`DELETE FROM plan_limites WHERE plan_id = $1 AND recurso = 'equipos'`, [plan.body.plan.id]);
+    // Este DELETE es directo a la tabla, sin pasar por fijarCuotaTenant ni
+    // asignarPlanATenantService — así que hay que invalidar a mano el
+    // caché de resolverLimite() (ver platformCuotas.service.ts), igual que
+    // tendría que hacerlo cualquier código real que tocara plan_limites
+    // por fuera del service.
+    await invalidarCacheLimite(tenantId, "equipos");
     try {
       const r = await resolverLimite(tenantId, "equipos");
       expect(r.origen).toBe("registry");
@@ -156,6 +168,7 @@ describe("precedencia: override > plan > registry", () => {
       await pool.query(`INSERT INTO plan_limites (plan_id, recurso, limite) VALUES ($1, 'equipos', 20)`, [
         plan.body.plan.id,
       ]);
+      await invalidarCacheLimite(tenantId, "equipos");
     }
   });
 
@@ -377,6 +390,10 @@ describe("API y auditoría", () => {
     expect(await limiteEfectivo(tenant.id, "equipos")).toBe(3);
 
     await pool.query(`DELETE FROM planes WHERE id = $1`, [planId]);
+    // Mismo motivo que en el test anterior: el ON DELETE SET NULL corre a
+    // nivel de base, sin pasar por asignarPlanATenantService — nadie
+    // invalidó el caché por nosotros.
+    await invalidarCacheLimitesTenant(tenant.id);
 
     // ON DELETE SET NULL: el tenant sigue existiendo, sin plan.
     const sigueVivo = await pool.query(`SELECT plan_id FROM tenants WHERE id = $1`, [tenant.id]);

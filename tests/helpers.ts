@@ -74,11 +74,34 @@ export async function crearTenantDePrueba(adminPassword = "ClaveDePrueba123"): P
  *  tests pueden correr en paralelo sin bajar la guardia de RLS para nadie.
  *  `usuarios` entra en esta misma transacción desde que tiene RLS (ver
  *  migrations/0010_usuarios_rls.sql) — antes se borraba aparte, sin
- *  necesitarlo. */
+ *  necesitarlo.
+ *
+ *  ── El SELECT ... FOR UPDATE del principio ──────────────────────────────
+ *
+ *  tenant_modulos no tiene ON DELETE CASCADE desde tenants (a propósito:
+ *  ver la migración 0008), así que hay que borrarlo ANTES que la fila
+ *  padre. Sin el lock de acá, entre ese DELETE y el DELETE FROM tenants
+ *  final queda una ventana donde otra transacción puede insertar un
+ *  tenant_modulos nuevo para este mismo tenant — el caso real es un
+ *  restore de plataforma reinsertando desde un backup viejo (ver
+ *  platformBackupPlataforma.service.ts) — y el DELETE FROM tenants revienta
+ *  con FK violation. Se encontró por un test intermitente en la suite
+ *  completa, nunca aislado.
+ *
+ *  Tomar el lock FOR UPDATE sobre la fila de `tenants` como PRIMER paso
+ *  cierra la ventana: cualquier INSERT concurrente que referencie este
+ *  tenant necesita, para pasar su propio chequeo de FK, un lock FOR KEY
+ *  SHARE sobre esa misma fila — que queda bloqueado hasta que esta
+ *  transacción termine. Si de todos modos alcanza a colarse ANTES de que
+ *  el lock se tome (o si gana la carrera y se ejecuta primero), el
+ *  restore de plataforma ya lo tolera solo (ver el SAVEPOINT por fila en
+ *  restaurarTablasPlataforma) — así que cualquiera de los dos órdenes
+ *  termina en un estado consistente. */
 export async function borrarTenantDePrueba(tenantId: string) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await client.query("SELECT id FROM tenants WHERE id = $1 FOR UPDATE", [tenantId]);
     await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
     await client.query("DELETE FROM repuestos WHERE tenant_id = $1", [tenantId]);
     await client.query("DELETE FROM documentos WHERE tenant_id = $1", [tenantId]);
@@ -94,6 +117,11 @@ export async function borrarTenantDePrueba(tenantId: string) {
     // refresh_tokens/usuario_modulos se borran solos (ON DELETE CASCADE
     // desde usuarios) — borrar usuarios alcanza.
     await client.query("DELETE FROM usuarios WHERE tenant_id = $1", [tenantId]);
+    // tenants/tenant_modulos no tienen RLS, pero entran en esta misma
+    // transacción igual: es lo que hace que el lock de arriba proteja
+    // hasta el final, no solo hasta el COMMIT de un bloque separado.
+    await client.query("DELETE FROM tenant_modulos WHERE tenant_id = $1", [tenantId]);
+    await client.query("DELETE FROM tenants WHERE id = $1", [tenantId]);
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -101,9 +129,4 @@ export async function borrarTenantDePrueba(tenantId: string) {
   } finally {
     client.release();
   }
-
-  // tenants/tenant_modulos no tienen RLS, se borran directo fuera de la
-  // transacción de arriba.
-  await pool.query("DELETE FROM tenant_modulos WHERE tenant_id = $1", [tenantId]);
-  await pool.query("DELETE FROM tenants WHERE id = $1", [tenantId]);
 }

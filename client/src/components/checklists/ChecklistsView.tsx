@@ -41,6 +41,16 @@ export default function ChecklistsView() {
   const [equipos, setEquipos] = useState<Equipo[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Paginación por cursor (no por número de página, ver
+  // src/server/shared/utils/pagination.ts): el historial de cursores
+  // vistos es lo que permite "Anterior" sin poder saltar a una página
+  // arbitraria — igual que Equipos/Repuestos/Documentos, que tampoco lo
+  // permiten.
+  const [cursorChecklists, setCursorChecklists] = useState<number | null>(null);
+  const [historialCursorChecklists, setHistorialCursorChecklists] = useState<(number | null)[]>([]);
+  const [siguienteCursorChecklists, setSiguienteCursorChecklists] = useState<number | null>(null);
+  const [hayMasChecklists, setHayMasChecklists] = useState(false);
+
   const [modalPlantillaAbierto, setModalPlantillaAbierto] = useState(false);
   const [modalChecklistAbierto, setModalChecklistAbierto] = useState(false);
 
@@ -62,10 +72,30 @@ export default function ChecklistsView() {
     setLoading(false);
   };
 
-  const cargarChecklists = async () => {
-    const res = await apiFetch('/api/erp/checklists?page=1&pageSize=50');
+  const cargarChecklists = async (cursor: number | null = null) => {
+    const params = new URLSearchParams({ pageSize: '50' });
+    if (cursor !== null) params.set('cursor', String(cursor));
+    const res = await apiFetch(`/api/erp/checklists?${params}`);
     const body = await res.json();
     setChecklists(Array.isArray(body.data) ? body.data : []);
+    setCursorChecklists(cursor);
+    setSiguienteCursorChecklists(body.pagination?.nextCursor ?? null);
+    setHayMasChecklists(Boolean(body.pagination?.hasMore));
+  };
+
+  const handleSiguienteChecklists = () => {
+    if (!hayMasChecklists) return;
+    setHistorialCursorChecklists((h) => [...h, cursorChecklists]);
+    cargarChecklists(siguienteCursorChecklists);
+  };
+
+  const handleAnteriorChecklists = () => {
+    setHistorialCursorChecklists((h) => {
+      const nuevo = [...h];
+      const anterior = nuevo.pop() ?? null;
+      cargarChecklists(anterior);
+      return nuevo;
+    });
   };
 
   const cargarPlantillas = async () => {
@@ -149,6 +179,7 @@ export default function ChecklistsView() {
       setModalChecklistAbierto(false);
       setFormChecklist({ equipo_id: '', plantilla_id: '', turno: '', observaciones_generales: '' });
       setPlantillaSeleccionada(null);
+      setHistorialCursorChecklists([]);
       cargarChecklists();
     } else {
       alert('Error al crear el checklist.');
@@ -158,8 +189,12 @@ export default function ChecklistsView() {
   const handleEliminarChecklist = async (id: number) => {
     if (!window.confirm('¿Eliminar este checklist?')) return;
     const res = await apiFetch(`/api/erp/checklists/${id}`, { method: 'DELETE' });
-    if (res.ok) cargarChecklists();
-    else alert('No se pudo eliminar el checklist.');
+    if (res.ok) {
+      setHistorialCursorChecklists([]);
+      cargarChecklists();
+    } else {
+      alert('No se pudo eliminar el checklist.');
+    }
   };
 
   if (loading) return <div className="p-20 text-center text-slate-500">Cargando...</div>;
@@ -218,6 +253,22 @@ export default function ChecklistsView() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="flex justify-between items-center mt-4">
+            <button
+              onClick={handleAnteriorChecklists}
+              disabled={historialCursorChecklists.length === 0}
+              className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
+            >
+              ← Anterior
+            </button>
+            <button
+              onClick={handleSiguienteChecklists}
+              disabled={!hayMasChecklists}
+              className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
+            >
+              Siguiente →
+            </button>
           </div>
         </>
       )}

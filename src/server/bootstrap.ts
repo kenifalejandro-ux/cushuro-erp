@@ -30,13 +30,23 @@ export async function startServer() {
   });
 
   // ====================== MIGRACIONES ======================
-  // Deja la BD al día sola en cada arranque — sin esto, un deploy sin
-  // correr migrations/*.sql a mano primero deja el ERP roto.
-  try {
-    await runMigrations();
-  } catch (err) {
-    logger.error({ err }, "❌ Error al correr migraciones, el server no arranca");
-    process.exit(1);
+  // Solo en desarrollo: deja la BD local al día sola en cada arranque, sin
+  // depender de que alguien corra `npm run migrate` a mano.
+  //
+  // En producción el pipeline de CD (.github/workflows/cd.yml) corre las
+  // migraciones como paso explícito ANTES de disparar el deploy — así una
+  // migración rota falla el pipeline y nunca llega a arrancar un server con
+  // schema a medio actualizar. Que el arranque corriera migraciones acá
+  // significaba que un rollback de código con una migración ya aplicada
+  // (no reversible) podía dejar el server reintentando en loop sin que
+  // nadie lo viera venir antes del deploy.
+  if (!env.isProduction) {
+    try {
+      await runMigrations();
+    } catch (err) {
+      logger.error({ err }, "❌ Error al correr migraciones, el server no arranca");
+      process.exit(1);
+    }
   }
 
   // ====================== INICIO DEL SERVIDOR ======================

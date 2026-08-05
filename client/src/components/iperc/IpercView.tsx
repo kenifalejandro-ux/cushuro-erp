@@ -55,6 +55,14 @@ export default function IpercView() {
   const [equipos, setEquipos] = useState<Equipo[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Paginación por cursor (ver ChecklistsView.tsx y
+  // src/server/shared/utils/pagination.ts): mismo criterio, solo
+  // Anterior/Siguiente, sin salto a página arbitraria.
+  const [cursorIpercs, setCursorIpercs] = useState<number | null>(null);
+  const [historialCursorIpercs, setHistorialCursorIpercs] = useState<(number | null)[]>([]);
+  const [siguienteCursorIpercs, setSiguienteCursorIpercs] = useState<number | null>(null);
+  const [hayMasIpercs, setHayMasIpercs] = useState(false);
+
   const [modalIpercAbierto, setModalIpercAbierto] = useState(false);
   const [modalLineaBaseAbierto, setModalLineaBaseAbierto] = useState(false);
 
@@ -77,10 +85,30 @@ export default function IpercView() {
     setLoading(false);
   };
 
-  const cargarIpercs = async () => {
-    const res = await apiFetch('/api/erp/iperc?page=1&pageSize=50');
+  const cargarIpercs = async (cursor: number | null = null) => {
+    const params = new URLSearchParams({ pageSize: '50' });
+    if (cursor !== null) params.set('cursor', String(cursor));
+    const res = await apiFetch(`/api/erp/iperc?${params}`);
     const body = await res.json();
     setIpercs(Array.isArray(body.data) ? body.data : []);
+    setCursorIpercs(cursor);
+    setSiguienteCursorIpercs(body.pagination?.nextCursor ?? null);
+    setHayMasIpercs(Boolean(body.pagination?.hasMore));
+  };
+
+  const handleSiguienteIpercs = () => {
+    if (!hayMasIpercs) return;
+    setHistorialCursorIpercs((h) => [...h, cursorIpercs]);
+    cargarIpercs(siguienteCursorIpercs);
+  };
+
+  const handleAnteriorIpercs = () => {
+    setHistorialCursorIpercs((h) => {
+      const nuevo = [...h];
+      const anterior = nuevo.pop() ?? null;
+      cargarIpercs(anterior);
+      return nuevo;
+    });
   };
 
   const cargarLineasBase = async () => {
@@ -120,6 +148,7 @@ export default function IpercView() {
       setModalIpercAbierto(false);
       setFormIperc({ tipo: 'continuo', area_frente: '', turno: '', equipo_id: '', tarea_especifica: '' });
       setItemsIperc([{ ...ITEM_VACIO }]);
+      setHistorialCursorIpercs([]);
       cargarIpercs();
     } else {
       const body = await res.json().catch(() => ({}));
@@ -133,15 +162,19 @@ export default function IpercView() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ estado }),
     });
-    if (res.ok) cargarIpercs();
+    if (res.ok) cargarIpercs(cursorIpercs);
     else alert('No tienes permiso para cambiar el estado (solo admin).');
   };
 
   const handleEliminarIperc = async (id: number) => {
     if (!window.confirm('¿Eliminar este IPERC?')) return;
     const res = await apiFetch(`/api/erp/iperc/${id}`, { method: 'DELETE' });
-    if (res.ok) cargarIpercs();
-    else alert('No se pudo eliminar (solo admin).');
+    if (res.ok) {
+      setHistorialCursorIpercs([]);
+      cargarIpercs();
+    } else {
+      alert('No se pudo eliminar (solo admin).');
+    }
   };
 
   // ── Línea Base ────────────────────────────────────────────────────────
@@ -274,6 +307,22 @@ export default function IpercView() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="flex justify-between items-center mt-4">
+            <button
+              onClick={handleAnteriorIpercs}
+              disabled={historialCursorIpercs.length === 0}
+              className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
+            >
+              ← Anterior
+            </button>
+            <button
+              onClick={handleSiguienteIpercs}
+              disabled={!hayMasIpercs}
+              className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
+            >
+              Siguiente →
+            </button>
           </div>
         </>
       )}

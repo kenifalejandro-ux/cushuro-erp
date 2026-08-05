@@ -13,6 +13,7 @@
  * credenciales ni bucket configurados para que la app arranque.
  */
 import { Readable } from "stream";
+import { randomBytes } from "crypto";
 import {
   S3Client,
   GetObjectCommand,
@@ -90,8 +91,24 @@ export const PREFIJO_PLATAFORMA = "backups/platform";
 /** Timestamp compacto y ordenable lexicográficamente: 20260803T014530Z.
  *  Sin `:` porque, aunque S3 los admite en una key, complican cualquier
  *  descarga a disco local (Windows los rechaza) y las URLs firmadas. */
+/** ISO 8601 sin `:` (rompe descargas a disco y URLs firmadas — ver
+ *  docs/architecture/backups-s3.md) + milisegundos + un sufijo random
+ *  corto.
+ *
+ *  Antes se recortaban los milisegundos (".123Z" → "Z"): dos backups del
+ *  MISMO tenant (o dos de plataforma) creados dentro del mismo segundo
+ *  terminaban compartiendo key, y el segundo write pisaba el archivo del
+ *  primero en el storage — mientras las dos filas de metadata en la base
+ *  seguían existiendo, cada una con SU propio manifiesto, ahora
+ *  desalineado del archivo real (que pasó a ser el del otro backup). Se
+ *  encontró con el restore drill (platformBackupDrill.worker.ts), que
+ *  comparó contenido contra manifiesto y encontró un backup "completo"
+ *  cuyo archivo en disco en realidad pertenecía a otro. El sufijo random
+ *  cierra la ventana incluso para dos requests verdaderamente
+ *  simultáneos, donde ni los milisegundos alcanzarían a diferenciarlos. */
 export function timestampParaKey(fecha: Date = new Date()): string {
-  return fecha.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  const sufijo = randomBytes(3).toString("hex");
+  return `${fecha.toISOString().replace(/[-:]/g, "")}-${sufijo}`;
 }
 
 export function construirKeyTenant(tenantId: string, fecha: Date = new Date()): string {

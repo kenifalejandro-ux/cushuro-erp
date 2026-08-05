@@ -144,6 +144,13 @@ export const env = {
     process.env.PLATFORM_AUDIT_RETENTION_CHECK_INTERVAL_MS,
     24 * 60 * 60_000
   ),
+  // Cada cuánto particionado.worker.ts asegura que existan las próximas
+  // particiones mensuales de checklists/ipercs (migración 0037). Una vez
+  // al día alcanza de sobra: cada corrida deja 3 meses de margen, así que
+  // ni una corrida atrasada por horas ni un server caído un par de días
+  // arriesgan quedarse sin partición donde insertar.
+  particionesCheckIntervalMs: readNumber(process.env.PARTICIONES_CHECK_INTERVAL_MS, 24 * 60 * 60_000),
+  particionesMesesAdelante: readNumber(process.env.PARTICIONES_MESES_ADELANTE, 3),
   // Backups de tenant (platformBackup.service.ts) — filesystem local por
   // default. El storage queda detrás de platformBackupStorage.ts a
   // propósito, para que pasar a S3-compatible el día que haga falta sea
@@ -192,6 +199,11 @@ export const env = {
     process.env.BACKUP_RETENTION_CHECK_INTERVAL_MS,
     24 * 60 * 60_000
   ),
+  // Restore drill (platformBackupDrill.worker.ts): a diferencia de la
+  // retención, esto es de solo lectura (nunca borra ni modifica nada), así
+  // que no hay una decisión de negocio que tomar para activarlo — corre
+  // siempre, con el mismo intervalo por defecto que particionesCheckIntervalMs.
+  backupDrillCheckIntervalMs: readNumber(process.env.BACKUP_DRILL_CHECK_INTERVAL_MS, 24 * 60 * 60_000),
   // Clave de cifrado reversible para secretos de plataforma (hoy: el
   // client_secret OIDC de tenant_sso_config) — ver platformCrypto.ts.
   // Deliberadamente separada de JWT_SECRET: son cosas distintas (firmar vs

@@ -17,6 +17,18 @@ export const crearTenantSchema = z.object({
 
 export type CrearTenantInput = z.infer<typeof crearTenantSchema>;
 
+// Onboarding completo (POST /api/platform/tenants/onboard, gateado a
+// super-admin): mismos campos que crearTenantSchema + un plan opcional.
+// planCodigo separado de tenantOnboardingService.ts porque acá se valida
+// SOLO la forma del dato (string no vacío); si el código corresponde a un
+// plan que existe y está activo es responsabilidad del service, no del
+// schema.
+export const onboardTenantSchema = crearTenantSchema.extend({
+  planCodigo: z.string().trim().min(1).max(50).optional(),
+});
+
+export type OnboardTenantInput = z.infer<typeof onboardTenantSchema>;
+
 export const cambiarEstadoTenantSchema = z.object({
   activo: z.boolean(),
   motivo: z.string().trim().max(500).optional(),

@@ -12,8 +12,15 @@ jobs:
     services:
       postgres:
         image: postgres:16
+        # POSTGRES_USER queda como "postgres" (el bootstrap por default) a
+        # propósito: Postgres exige que el bootstrap user tenga SUPERUSER
+        # ("The bootstrap user must have the SUPERUSER attribute") y lo
+        # rechaza si se intenta sacárselo con ALTER ROLE — así que
+        # mincoreerp_app NO puede ser el bootstrap. Se crea aparte, como
+        # rol de aplicación normal, en el paso "Crear el rol de la app"
+        # de abajo. Ver ese paso para el motivo completo.
         env:
-          POSTGRES_USER: mincoreerp_app
+          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: ci_only_password
           POSTGRES_DB: mincoreerp
         ports:
@@ -101,6 +108,29 @@ jobs:
 
       - name: Instalar dependencias
         run: npm ci
+
+      - name: Crear el rol de la app (no superuser, como en producción)
+        # La imagen oficial postgres:16 crea el rol de POSTGRES_USER como
+        # SUPERUSER al inicializar — y un superuser en Postgres se salta
+        # Row Level Security SIEMPRE, sin importar FORCE ROW LEVEL
+        # SECURITY. Si mincoreerp_app fuera ese mismo rol bootstrap,
+        # quedaría superuser en CI (a diferencia de producción, donde no
+        # lo es — verificado), y todos los tests de aislamiento entre
+        # tenants pasarían igual aunque RLS esté completamente inerte: el
+        # filtro explícito `WHERE tenant_id = $1` que ya lleva cada query
+        # (defensa en profundidad, ver database-performance-guidelines.md)
+        # sigue aislando por su cuenta y tapa el problema. Se detectó
+        # porque tests/partitioning.test.ts consulta una partición sin ese
+        # filtro, a propósito, para probar RLS aislado — y falló 10/10
+        # veces contra un Postgres 16 fresco con mincoreerp_app como
+        # bootstrap, nunca contra uno donde es un rol separado no-superuser
+        # como este.
+        run: |
+          PGPASSWORD=ci_only_password psql -h localhost -p 5432 -U postgres -d mincoreerp <<'SQL'
+            CREATE ROLE mincoreerp_app WITH LOGIN PASSWORD 'ci_only_password';
+            ALTER DATABASE mincoreerp OWNER TO mincoreerp_app;
+            ALTER SCHEMA public OWNER TO mincoreerp_app;
+          SQL
 
       - name: Correr migraciones
         # Mismo runner que corre en producción al arrancar (ver

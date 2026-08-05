@@ -207,15 +207,15 @@ describe("convención de keys", () => {
     const fecha = new Date("2026-03-09T01:45:30.123Z");
     const key = construirKeyTenant(TENANT_ID, fecha);
 
-    expect(key).toBe(
-      `backups/tenants/${TENANT_ID}/2026/03/backup_${TENANT_ID}_20260309T014530Z.json.gz.enc`
+    expect(key).toMatch(
+      new RegExp(`^backups/tenants/${TENANT_ID}/2026/03/backup_${TENANT_ID}_20260309T014530\\.123Z-[0-9a-f]{6}\\.json\\.gz\\.enc$`)
     );
   });
 
   it("la key de plataforma va en un prefijo separado del de los tenants", () => {
     const key = construirKeyPlataforma(new Date("2026-12-31T23:59:59.000Z"));
 
-    expect(key).toBe("backups/platform/2026/12/platform_20261231T235959Z.json.gz.enc");
+    expect(key).toMatch(/^backups\/platform\/2026\/12\/platform_20261231T235959\.000Z-[0-9a-f]{6}\.json\.gz\.enc$/);
     expect(key.startsWith("backups/tenants/")).toBe(false);
   });
 
@@ -229,7 +229,12 @@ describe("convención de keys", () => {
   });
 
   it("el timestamp no lleva ':' (rompe descargas a disco y URLs firmadas)", () => {
-    expect(timestampParaKey(new Date("2026-03-09T01:45:30.000Z"))).toBe("20260309T014530Z");
+    expect(timestampParaKey(new Date("2026-03-09T01:45:30.000Z"))).toMatch(/^20260309T014530\.000Z-[0-9a-f]{6}$/);
+  });
+
+  it("dos backups en el mismo instante no comparten key (el sufijo random los desambigua)", () => {
+    const fecha = new Date("2026-03-09T01:45:30.000Z");
+    expect(timestampParaKey(fecha)).not.toBe(timestampParaKey(fecha));
   });
 
   it("el prefijo de un tenant no matchea las keys de otro tenant", () => {

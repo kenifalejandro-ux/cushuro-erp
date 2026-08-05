@@ -33,6 +33,8 @@ import { pool, withTenant } from "../config/database";
 import { AppError } from "../shared/middlewares/error.middleware";
 import { MODULOS, obtenerModulo } from "../../modules/registry";
 import { RECURSO_RATE_LIMIT, invalidarCacheRateLimit } from "./platformRateLimitCuota";
+import { getRedis } from "../config/redis";
+import { logger } from "../config/logger";
 
 /** Recursos que no pertenecen a ningún módulo. Los de módulo se derivan del
  *  registry, así que un módulo nuevo con `cuota` declarada aparece acá solo,
@@ -103,8 +105,10 @@ export interface LimiteResuelto {
  *  "ilimitado" cayera al nivel siguiente y terminara aplicando un tope.
  *
  *  Una sola query para los dos primeros niveles: esto corre en cada POST
- *  (ver requireCuota), así que no puede costar dos round trips. */
-export async function resolverLimite(tenantId: string, recurso: string): Promise<LimiteResuelto> {
+ *  (ver requireCuota), así que no puede costar dos round trips — y encima
+ *  con caché por delante (ver resolverLimite más abajo), que evita incluso
+ *  esa única query en el caso común. */
+async function resolverLimiteDesdeBase(tenantId: string, recurso: string): Promise<LimiteResuelto> {
   const definicion = definicionDe(recurso);
   if (!definicion) return { limite: null, origen: "registry" }; // recurso desconocido: nada que aplicar
 
@@ -137,6 +141,92 @@ export async function resolverLimite(tenantId: string, recurso: string): Promise
     return { limite: r.limite_plan === null ? null : Number(r.limite_plan), origen: "plan" };
   }
   return { limite: definicion.limitePorDefecto, origen: "registry" };
+}
+
+// ── Caché de resolverLimite() ─────────────────────────────────────────────
+//
+// Mismo patrón que platformRateLimitCuota.ts (Redis con TTL corto +
+// fallback en memoria si Redis no está disponible): el LÍMITE configurado
+// cambia poco (solo cuando un admin toca tenant_cuotas o reasigna un plan,
+// los dos únicos lugares que llaman a invalidarCacheLimite/
+// invalidarCacheLimitesTenant), pero resolverLimite() corre en cada POST
+// vía requireCuota — cachearlo es lo que evita pegarle a Postgres en el
+// camino caliente de creación de cualquier módulo.
+//
+// A propósito NO se cachea usoActual(): ese número cambia con cada INSERT
+// del propio tenant, y cachearlo rompería la cuota (un tenant podría crear
+// de más mientras el conteo cacheado queda desactualizado). El límite
+// configurado es la parte estable; el uso es la parte que tiene que leerse
+// siempre fresca.
+const TTL_REDIS_SEGUNDOS = 300;
+const MEMORIA_TTL_MS = 30_000;
+
+const memoria = new Map<string, { valor: LimiteResuelto; expiraEn: number }>();
+
+setInterval(() => {
+  const ahora = Date.now();
+  for (const [clave, entrada] of memoria) {
+    if (ahora >= entrada.expiraEn) memoria.delete(clave);
+  }
+}, 60_000).unref();
+
+function claveCache(tenantId: string, recurso: string): string {
+  return `cuota-limite:${tenantId}:${recurso}`;
+}
+
+/** Resuelve el límite de un recurso, con caché por delante. Mismo
+ *  resultado que resolverLimiteDesdeBase(), pero en el caso común no toca
+ *  Postgres. */
+export async function resolverLimite(tenantId: string, recurso: string): Promise<LimiteResuelto> {
+  const clave = claveCache(tenantId, recurso);
+  const redis = getRedis();
+
+  if (redis) {
+    try {
+      const cacheado = await redis.get(clave);
+      if (cacheado !== null) return JSON.parse(cacheado) as LimiteResuelto;
+
+      const valor = await resolverLimiteDesdeBase(tenantId, recurso);
+      await redis.set(clave, JSON.stringify(valor), "EX", TTL_REDIS_SEGUNDOS);
+      return valor;
+    } catch (err) {
+      // Un fallo de Redis no puede bloquear la creación de recursos: se
+      // sigue por memoria, igual que hace resolverRateLimitTenant().
+      logger.warn({ err, tenantId, recurso }, "Redis falló al resolver el límite de cuota, se usa caché en memoria");
+    }
+  }
+
+  const enMemoria = memoria.get(clave);
+  if (enMemoria && Date.now() < enMemoria.expiraEn) return enMemoria.valor;
+
+  const valor = await resolverLimiteDesdeBase(tenantId, recurso);
+  memoria.set(clave, { valor, expiraEn: Date.now() + MEMORIA_TTL_MS });
+  return valor;
+}
+
+/** Se llama al guardar un override puntual (fijarCuotaTenant). Sin esto,
+ *  el cambio no tendría efecto hasta que venciera el TTL. */
+export async function invalidarCacheLimite(tenantId: string, recurso: string): Promise<void> {
+  const clave = claveCache(tenantId, recurso);
+  memoria.delete(clave);
+
+  const redis = getRedis();
+  if (!redis) return;
+  try {
+    await redis.del(clave);
+  } catch (err) {
+    logger.warn({ err, tenantId, recurso }, "No se pudo invalidar el caché de cuota; caducará por TTL");
+  }
+}
+
+/** Se llama al reasignar el plan de un tenant: a diferencia de un override
+ *  puntual, cambia el nivel 2 de TODOS los recursos que no tengan
+ *  excepción propia — así que hay que invalidar el catálogo entero para
+ *  ese tenant, no un solo recurso. La lista de recursos es finita y ya
+ *  vive en proceso (recursosConCuota()), así que no hace falta un SCAN
+ *  sobre Redis. */
+export async function invalidarCacheLimitesTenant(tenantId: string): Promise<void> {
+  await Promise.all(recursosConCuota().map((d) => invalidarCacheLimite(tenantId, d.recurso)));
 }
 
 /** `null` = ilimitado. Envoltorio de resolverLimite() para los llamadores a
@@ -290,6 +380,7 @@ export async function fijarCuotaTenant(
   if (limite === undefined) {
     await pool.query(`DELETE FROM tenant_cuotas WHERE tenant_id = $1 AND recurso = $2`, [tenantId, recurso]);
     if (esRateLimit) await invalidarCacheRateLimit(tenantId);
+    else await invalidarCacheLimite(tenantId, recurso);
     return;
   }
 
@@ -305,4 +396,5 @@ export async function fijarCuotaTenant(
   // lo guardaría, no pasaría nada por 5 minutos, y volvería a intentarlo
   // pensando que falló.
   if (esRateLimit) await invalidarCacheRateLimit(tenantId);
+  else await invalidarCacheLimite(tenantId, recurso);
 }
