@@ -12,6 +12,16 @@ export default defineConfig({
       reporter: ["text", "html", "lcov"],
       include: ["src/**/*.ts"],
       exclude: ["src/**/*.d.ts"],
+      // Piso real de hoy (2026-08-05): statements 65.73%, branches 55.39%,
+      // functions 69.81%, lines 66.84% -- estos umbrales quedan un poco por
+      // debajo para no romper CI por una fluctuación mínima, pero sí cortar
+      // si un PR baja el coverage de verdad (código nuevo sin tests).
+      thresholds: {
+        statements: 65,
+        branches: 55,
+        functions: 69,
+        lines: 66,
+      },
     },
   },
 });
