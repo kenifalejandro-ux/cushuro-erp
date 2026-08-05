@@ -39,6 +39,13 @@ jobs:
   deploy:
     needs: migrate
     runs-on: ubuntu-latest
+    # Gate de aprobación humana: el job se PAUSA acá hasta que alguien con
+    # acceso al environment "production" (configurado en Settings ->
+    # Environments del repo, con "required reviewers") lo apruebe a mano.
+    # Las migraciones ya corrieron en el job anterior — este gate protege
+    # específicamente el paso irreversible de exponer el código nuevo a
+    # tráfico real.
+    environment: production
     steps:
       - uses: actions/checkout@v4
         with:
@@ -80,3 +87,45 @@ jobs:
           exit 1
         env:
           PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+
+  tag-and-release:
+    needs: health-check
+    runs-on: ubuntu-latest
+    # Necesita contents:write para crear el tag y el Release — el
+    # GITHUB_TOKEN por defecto alcanza, no hace falta el PAT personal.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Calcular próxima versión
+        # Versionado automático simple: toma el último tag vX.Y.Z (si no hay
+        # ninguno, arranca en v0.1.0) y sube el PATCH. No distingue features
+        # de fixes -- si en algún momento se necesita SemVer real habría que
+        # leer el historial de commits (Conventional Commits) en vez de solo
+        # incrementar; por ahora alcanza con marcar "qué versión quedó viva
+        # en producción" para poder hacer rollback apuntando a un tag.
+        id: version
+        run: |
+          ULTIMO=$(git tag --list 'v*.*.*' --sort=-v:refname | head -n1)
+          if [ -z "$ULTIMO" ]; then
+            NUEVO="v0.1.0"
+          else
+            IFS='.' read -r MAYOR MENOR PARCHE <<< "${ULTIMO#v}"
+            NUEVO="v${MAYOR}.${MENOR}.$((PARCHE + 1))"
+          fi
+          echo "tag=$NUEVO" >> "$GITHUB_OUTPUT"
+
+      - name: Crear tag y GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git tag "${{ steps.version.outputs.tag }}" "${{ github.event.workflow_run.head_sha }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --generate-notes \
+            --target "${{ github.event.workflow_run.head_sha }}"
