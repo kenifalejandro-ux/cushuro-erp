@@ -1,6 +1,7 @@
 // client/src/platform/AuditoriaView.tsx
 
 import { useEffect, useState, type FormEvent } from "react";
+
 import { listarAuditoriaApi, type EntradaAuditoria } from "./platformApi";
 
 const ACCIONES = [
@@ -38,7 +39,14 @@ interface Filtros {
   hasta: string;
 }
 
-const FILTROS_VACIOS: Filtros = { accion: "", resultado: "", sessionId: "", actorId: "", desde: "", hasta: "" };
+const FILTROS_VACIOS: Filtros = {
+  accion: "",
+  resultado: "",
+  sessionId: "",
+  actorId: "",
+  desde: "",
+  hasta: "",
+};
 
 export default function AuditoriaView() {
   const [filtros, setFiltros] = useState<Filtros>(FILTROS_VACIOS);
@@ -72,6 +80,9 @@ export default function AuditoriaView() {
   }
 
   useEffect(() => {
+    // Patrón estándar de carga al montar (setCargando(true) -> fetch ->
+    // setCargando(false)), usado en toda la app.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     cargar(true, null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -90,8 +101,9 @@ export default function AuditoriaView() {
     <div>
       <h2 className="text-lg font-light text-slate-100 mb-1">Auditoría de plataforma</h2>
       <p className="text-xs text-slate-500 mb-4">
-        Qué se hizo, a qué tenant/usuario, desde qué IP y quién lo hizo — un admin individual queda identificado por
-        su correo; el acceso de emergencia (secreto compartido) queda marcado como tal.
+        Qué se hizo, a qué tenant/usuario, desde qué IP y quién lo hizo — un admin individual queda
+        identificado por su correo; el acceso de emergencia (secreto compartido) queda marcado como
+        tal.
       </p>
 
       <form
@@ -118,7 +130,9 @@ export default function AuditoriaView() {
           Resultado
           <select
             value={filtros.resultado}
-            onChange={(e) => setFiltros((f) => ({ ...f, resultado: e.target.value as Filtros["resultado"] }))}
+            onChange={(e) =>
+              setFiltros((f) => ({ ...f, resultado: e.target.value as Filtros["resultado"] }))
+            }
             className="px-2 py-1.5 rounded-lg border border-slate-700 bg-slate-950 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-500/30"
           >
             <option value="">Todos</option>
@@ -185,7 +199,9 @@ export default function AuditoriaView() {
       </form>
 
       {error && (
-        <p className="text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 mb-4">{error}</p>
+        <p className="text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 mb-4">
+          {error}
+        </p>
       )}
 
       {cargando ? (
@@ -218,28 +234,45 @@ export default function AuditoriaView() {
                     </td>
                     <td className="px-4 py-3">{e.accion}</td>
                     <td className="px-4 py-3">
-                      <span className={e.resultado === "failure" ? "text-red-400" : "text-emerald-400"}>
+                      <span
+                        className={e.resultado === "failure" ? "text-red-400" : "text-emerald-400"}
+                      >
                         {e.resultado === "failure" ? "falló" : "ok"}
                       </span>
                     </td>
                     <td
                       className={`px-4 py-3 text-xs max-w-[10rem] truncate ${
-                        e.actorType === "emergency_shared_secret" ? "text-amber-400" : "text-slate-500"
+                        e.actorType === "emergency_shared_secret"
+                          ? "text-amber-400"
+                          : "text-slate-500"
                       }`}
                       title={e.actorId || ""}
                     >
                       {e.actorLabel || "—"}
                     </td>
-                    <td className="px-4 py-3 text-xs text-slate-500">{e.tenantNombre || e.tenantId || "—"}</td>
-                    <td className="px-4 py-3 text-xs text-slate-500">{e.usuarioEmail || e.usuarioId || "—"}</td>
-                    <td className="px-4 py-3 text-xs text-slate-500 max-w-[10rem] truncate" title={motivoDe(e.detalle) || ""}>
+                    <td className="px-4 py-3 text-xs text-slate-500">
+                      {e.tenantNombre || e.tenantId || "—"}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-500">
+                      {e.usuarioEmail || e.usuarioId || "—"}
+                    </td>
+                    <td
+                      className="px-4 py-3 text-xs text-slate-500 max-w-[10rem] truncate"
+                      title={motivoDe(e.detalle) || ""}
+                    >
                       {motivoDe(e.detalle) || "—"}
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-500">{e.ip || "—"}</td>
-                    <td className="px-4 py-3 text-xs text-slate-500 max-w-[12rem] truncate" title={e.userAgent || ""}>
+                    <td
+                      className="px-4 py-3 text-xs text-slate-500 max-w-[12rem] truncate"
+                      title={e.userAgent || ""}
+                    >
                       {e.userAgent || "—"}
                     </td>
-                    <td className="px-4 py-3 text-xs text-slate-500 max-w-[10rem] truncate" title={e.requestId || ""}>
+                    <td
+                      className="px-4 py-3 text-xs text-slate-500 max-w-[10rem] truncate"
+                      title={e.requestId || ""}
+                    >
                       {e.requestId || "—"}
                     </td>
                     <td

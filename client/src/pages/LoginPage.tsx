@@ -1,8 +1,15 @@
 // client/src/pages/LoginPage.tsx
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+
 import { useAuth } from "../context/AuthContext";
-import { loginApi, googleLoginApi, forgotPasswordApi, ssoDisponibleApi, ssoIniciarUrl } from "../services/authApi";
+import {
+  loginApi,
+  googleLoginApi,
+  forgotPasswordApi,
+  ssoDisponibleApi,
+  ssoIniciarUrl,
+} from "../services/authApi";
 
 declare global {
   interface Window {
@@ -43,7 +50,8 @@ function resolverSlugDeSubdominio(): string | null {
   return slug;
 }
 
-const SLUG_POR_DEFECTO = (import.meta.env.VITE_DEFAULT_TENANT_SLUG as string | undefined)?.trim() || null;
+const SLUG_POR_DEFECTO =
+  (import.meta.env.VITE_DEFAULT_TENANT_SLUG as string | undefined)?.trim() || null;
 
 /** true si el host actual no es reconocible como "acceso del dueño de la
  *  plataforma" (localhost, o el dominio raíz configurado) — en ese caso
@@ -83,7 +91,9 @@ export default function LoginPage() {
   // momento del click, en vez de uno capturado por el closure en el mount.
   const tenantSlugEfectivo = slugResuelto ?? tenantSlug;
   const tenantSlugRef = useRef(tenantSlugEfectivo);
-  tenantSlugRef.current = tenantSlugEfectivo;
+  useEffect(() => {
+    tenantSlugRef.current = tenantSlugEfectivo;
+  }, [tenantSlugEfectivo]);
   const googleClientId = import.meta.env.VITE_GOOGLE_LOGIN_CLIENT_ID as string | undefined;
 
   // Botón "Iniciar sesión con SSO" — solo se muestra si el tenant resuelto
@@ -91,10 +101,10 @@ export default function LoginPage() {
   // tiene tenant_sso_config activo. Se re-chequea cada vez que cambia el
   // slug efectivo, así el campo manual también lo actualiza en vivo.
   useEffect(() => {
-    if (!tenantSlugEfectivo.trim()) {
-      setSsoDisponible(false);
-      return;
-    }
+    // Con el slug vacío no hay nada que consultar -- el `false` para ese
+    // caso se deriva en el render (ver ssoRealmenteDisponible más abajo),
+    // no hace falta setState acá.
+    if (!tenantSlugEfectivo.trim()) return;
     let cancelado = false;
     ssoDisponibleApi(tenantSlugEfectivo)
       .then((disponible) => {
@@ -107,6 +117,9 @@ export default function LoginPage() {
       cancelado = true;
     };
   }, [tenantSlugEfectivo]);
+  // Evita mostrar un `ssoDisponible` desactualizado si el usuario borra un
+  // slug que antes sí tenía SSO habilitado.
+  const ssoRealmenteDisponible = tenantSlugEfectivo.trim() !== "" && ssoDisponible;
 
   // Si el callback de SSO falló y redirigió de vuelta acá con un error
   // (ver GET /api/auth/sso/callback), se lo mostramos igual que cualquier
@@ -115,6 +128,10 @@ export default function LoginPage() {
     const params = new URLSearchParams(window.location.search);
     const ssoError = params.get("ssoError");
     if (ssoError) {
+      // Lectura única de un query param al montar (sincronización con la
+      // URL, no un valor derivado de props/state) -- caso legítimo de
+      // efecto según la propia guía de React.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setError(ssoError);
       params.delete("ssoError");
       const resto = params.toString();
@@ -207,7 +224,7 @@ export default function LoginPage() {
     return () => {
       cancelado = true;
     };
-  }, [googleClientId]);
+  }, [googleClientId, login]);
 
   return (
     <div className="min-h-screen bg-[#DDF500] flex items-center justify-center px-4">
@@ -226,7 +243,10 @@ export default function LoginPage() {
           >
             {!slugResuelto && (
               <div>
-                <label className="block text-sm font-light text-slate-100 mb-1.5" htmlFor="tenantSlugOlvide">
+                <label
+                  className="block text-sm font-light text-slate-100 mb-1.5"
+                  htmlFor="tenantSlugOlvide"
+                >
                   Empresa
                 </label>
                 <input
@@ -243,7 +263,10 @@ export default function LoginPage() {
             )}
 
             <div>
-              <label className="block text-sm font-light text-slate-100 mb-1.5" htmlFor="emailOlvide">
+              <label
+                className="block text-sm font-light text-slate-100 mb-1.5"
+                htmlFor="emailOlvide"
+              >
                 Correo
               </label>
               <input
@@ -259,7 +282,9 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
+              <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                {error}
+              </p>
             )}
 
             {mensajeOlvide && (
@@ -295,7 +320,10 @@ export default function LoginPage() {
           >
             {!slugResuelto && (
               <div>
-                <label className="block  text-sm font-light text-slate-100 mb-1.5" htmlFor="tenantSlug">
+                <label
+                  className="block  text-sm font-light text-slate-100 mb-1.5"
+                  htmlFor="tenantSlug"
+                >
                   Empresa
                 </label>
                 <input
@@ -370,7 +398,7 @@ export default function LoginPage() {
               {enviando ? "Ingresando..." : "Ingresar"}
             </button>
 
-            {(googleClientId || ssoDisponible) && (
+            {(googleClientId || ssoRealmenteDisponible) && (
               <div className="flex items-center gap-3 pt-1">
                 <div className="flex-1 h-px bg-slate-200" />
                 <span className="text-xs font-light text-slate-400">o continúa con</span>
@@ -380,7 +408,7 @@ export default function LoginPage() {
 
             {googleClientId && <div ref={googleBtnRef} className="flex justify-center" />}
 
-            {ssoDisponible && (
+            {ssoRealmenteDisponible && (
               <button
                 type="button"
                 onClick={() => {

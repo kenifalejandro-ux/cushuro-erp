@@ -1,6 +1,7 @@
 // client/src/components/checklists/ChecklistsView.tsx
-import { useState, useEffect } from 'react';
-import { apiFetch } from '../../services/apiClient';
+import { useState, useEffect, useCallback } from "react";
+
+import { apiFetch } from "../../services/apiClient";
 
 interface Plantilla {
   id: number;
@@ -31,10 +32,10 @@ interface Equipo {
   placa_codigo: string;
 }
 
-type ItemEstado = 'bien' | 'malo' | 'na';
+type ItemEstado = "bien" | "malo" | "na";
 
 export default function ChecklistsView() {
-  const [subTab, setSubTab] = useState<'checklists' | 'plantillas'>('checklists');
+  const [subTab, setSubTab] = useState<"checklists" | "plantillas">("checklists");
 
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [plantillas, setPlantillas] = useState<Plantilla[]>([]);
@@ -54,27 +55,24 @@ export default function ChecklistsView() {
   const [modalPlantillaAbierto, setModalPlantillaAbierto] = useState(false);
   const [modalChecklistAbierto, setModalChecklistAbierto] = useState(false);
 
-  const [formPlantilla, setFormPlantilla] = useState({ nombre: '', tipo_equipo: '', items: [''] });
+  const [formPlantilla, setFormPlantilla] = useState({ nombre: "", tipo_equipo: "", items: [""] });
 
   const [formChecklist, setFormChecklist] = useState({
-    equipo_id: '', plantilla_id: '', turno: '', observaciones_generales: '',
+    equipo_id: "",
+    plantilla_id: "",
+    turno: "",
+    observaciones_generales: "",
   });
-  const [plantillaSeleccionada, setPlantillaSeleccionada] = useState<PlantillaConItems | null>(null);
-  const [estadosItems, setEstadosItems] = useState<Record<number, { estado: ItemEstado; observacion: string }>>({});
-
-  useEffect(() => {
-    cargarTodo();
-  }, []);
-
-  const cargarTodo = async () => {
-    setLoading(true);
-    await Promise.all([cargarChecklists(), cargarPlantillas(), cargarEquipos()]);
-    setLoading(false);
-  };
+  const [plantillaSeleccionada, setPlantillaSeleccionada] = useState<PlantillaConItems | null>(
+    null
+  );
+  const [estadosItems, setEstadosItems] = useState<
+    Record<number, { estado: ItemEstado; observacion: string }>
+  >({});
 
   const cargarChecklists = async (cursor: number | null = null) => {
-    const params = new URLSearchParams({ pageSize: '50' });
-    if (cursor !== null) params.set('cursor', String(cursor));
+    const params = new URLSearchParams({ pageSize: "50" });
+    if (cursor !== null) params.set("cursor", String(cursor));
     const res = await apiFetch(`/api/erp/checklists?${params}`);
     const body = await res.json();
     setChecklists(Array.isArray(body.data) ? body.data : []);
@@ -99,44 +97,63 @@ export default function ChecklistsView() {
   };
 
   const cargarPlantillas = async () => {
-    const res = await apiFetch('/api/erp/checklists/plantillas?page=1&pageSize=50');
+    const res = await apiFetch("/api/erp/checklists/plantillas?page=1&pageSize=50");
     const body = await res.json();
     setPlantillas(Array.isArray(body.data) ? body.data : []);
   };
 
   const cargarEquipos = async () => {
-    const res = await apiFetch('/api/erp/equipos?page=1&pageSize=200');
+    const res = await apiFetch("/api/erp/equipos?page=1&pageSize=200");
     const body = await res.json();
     setEquipos(Array.isArray(body.data) ? body.data : []);
   };
 
+  const cargarTodo = useCallback(async () => {
+    setLoading(true);
+    await Promise.all([cargarChecklists(), cargarPlantillas(), cargarEquipos()]);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    // Patrón estándar de carga al montar (setCargando(true) -> fetch ->
+    // setCargando(false)), usado en toda la app.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    cargarTodo();
+  }, [cargarTodo]);
+
   // ── Plantillas ────────────────────────────────────────────────────────
   const handleCrearPlantilla = async (e: React.FormEvent) => {
     e.preventDefault();
-    const items = formPlantilla.items.map((d, i) => ({ descripcion: d, orden: i })).filter((it) => it.descripcion.trim());
+    const items = formPlantilla.items
+      .map((d, i) => ({ descripcion: d, orden: i }))
+      .filter((it) => it.descripcion.trim());
     if (items.length === 0) {
-      alert('La plantilla necesita al menos un ítem.');
+      alert("La plantilla necesita al menos un ítem.");
       return;
     }
-    const res = await apiFetch('/api/erp/checklists/plantillas', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nombre: formPlantilla.nombre, tipo_equipo: formPlantilla.tipo_equipo || undefined, items }),
+    const res = await apiFetch("/api/erp/checklists/plantillas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        nombre: formPlantilla.nombre,
+        tipo_equipo: formPlantilla.tipo_equipo || undefined,
+        items,
+      }),
     });
     if (res.ok) {
       setModalPlantillaAbierto(false);
-      setFormPlantilla({ nombre: '', tipo_equipo: '', items: [''] });
+      setFormPlantilla({ nombre: "", tipo_equipo: "", items: [""] });
       cargarPlantillas();
     } else {
-      alert('Error al crear la plantilla.');
+      alert("Error al crear la plantilla.");
     }
   };
 
   const handleEliminarPlantilla = async (id: number) => {
-    if (!window.confirm('¿Eliminar esta plantilla?')) return;
-    const res = await apiFetch(`/api/erp/checklists/plantillas/${id}`, { method: 'DELETE' });
+    if (!window.confirm("¿Eliminar esta plantilla?")) return;
+    const res = await apiFetch(`/api/erp/checklists/plantillas/${id}`, { method: "DELETE" });
     if (res.ok) cargarPlantillas();
-    else alert('No se pudo eliminar (puede estar en uso).');
+    else alert("No se pudo eliminar (puede estar en uso).");
   };
 
   // ── Checklists ────────────────────────────────────────────────────────
@@ -150,7 +167,7 @@ export default function ChecklistsView() {
     const plantilla = await res.json();
     setPlantillaSeleccionada(plantilla);
     const iniciales: Record<number, { estado: ItemEstado; observacion: string }> = {};
-    for (const item of plantilla.items) iniciales[item.id] = { estado: 'bien', observacion: '' };
+    for (const item of plantilla.items) iniciales[item.id] = { estado: "bien", observacion: "" };
     setEstadosItems(iniciales);
   };
 
@@ -160,13 +177,13 @@ export default function ChecklistsView() {
 
     const items = plantillaSeleccionada.items.map((it) => ({
       descripcion: it.descripcion,
-      estado: estadosItems[it.id]?.estado ?? 'bien',
+      estado: estadosItems[it.id]?.estado ?? "bien",
       observacion: estadosItems[it.id]?.observacion || undefined,
     }));
 
-    const res = await apiFetch('/api/erp/checklists', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const res = await apiFetch("/api/erp/checklists", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         equipo_id: Number(formChecklist.equipo_id),
         plantilla_id: Number(formChecklist.plantilla_id),
@@ -177,23 +194,23 @@ export default function ChecklistsView() {
     });
     if (res.ok) {
       setModalChecklistAbierto(false);
-      setFormChecklist({ equipo_id: '', plantilla_id: '', turno: '', observaciones_generales: '' });
+      setFormChecklist({ equipo_id: "", plantilla_id: "", turno: "", observaciones_generales: "" });
       setPlantillaSeleccionada(null);
       setHistorialCursorChecklists([]);
       cargarChecklists();
     } else {
-      alert('Error al crear el checklist.');
+      alert("Error al crear el checklist.");
     }
   };
 
   const handleEliminarChecklist = async (id: number) => {
-    if (!window.confirm('¿Eliminar este checklist?')) return;
-    const res = await apiFetch(`/api/erp/checklists/${id}`, { method: 'DELETE' });
+    if (!window.confirm("¿Eliminar este checklist?")) return;
+    const res = await apiFetch(`/api/erp/checklists/${id}`, { method: "DELETE" });
     if (res.ok) {
       setHistorialCursorChecklists([]);
       cargarChecklists();
     } else {
-      alert('No se pudo eliminar el checklist.');
+      alert("No se pudo eliminar el checklist.");
     }
   };
 
@@ -207,16 +224,32 @@ export default function ChecklistsView() {
           <p className="text-slate-500">Plantillas e inspecciones de equipos</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => setSubTab('checklists')} className={`px-4 py-2 rounded-xl font-medium text-sm ${subTab === 'checklists' ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>Checklists</button>
-          <button onClick={() => setSubTab('plantillas')} className={`px-4 py-2 rounded-xl font-medium text-sm ${subTab === 'plantillas' ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>Plantillas</button>
+          <button
+            onClick={() => setSubTab("checklists")}
+            className={`px-4 py-2 rounded-xl font-medium text-sm ${subTab === "checklists" ? "bg-slate-900 text-white" : "bg-white border border-slate-200 text-slate-600"}`}
+          >
+            Checklists
+          </button>
+          <button
+            onClick={() => setSubTab("plantillas")}
+            className={`px-4 py-2 rounded-xl font-medium text-sm ${subTab === "plantillas" ? "bg-slate-900 text-white" : "bg-white border border-slate-200 text-slate-600"}`}
+          >
+            Plantillas
+          </button>
         </div>
       </div>
 
-      {subTab === 'checklists' && (
+      {subTab === "checklists" && (
         <>
           <div className="flex justify-end mb-6">
             <button
-              onClick={() => { if (plantillas.length === 0) { alert('Primero crea una plantilla.'); return; } setModalChecklistAbierto(true); }}
+              onClick={() => {
+                if (plantillas.length === 0) {
+                  alert("Primero crea una plantilla.");
+                  return;
+                }
+                setModalChecklistAbierto(true);
+              }}
               className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl transition-all"
             >
               + Nuevo Checklist
@@ -226,28 +259,50 @@ export default function ChecklistsView() {
             <table className="w-full text-left border-collapse">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest">equipo</th>
-                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest">fecha</th>
-                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest">turno</th>
-                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest">realizado por</th>
-                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest">resultado</th>
-                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">eliminar</th>
+                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                    equipo
+                  </th>
+                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                    fecha
+                  </th>
+                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                    turno
+                  </th>
+                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                    realizado por
+                  </th>
+                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                    resultado
+                  </th>
+                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
+                    eliminar
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {checklists.map((c) => (
                   <tr key={c.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="p-5 font-mono text-sm font-semibold text-slate-800">{c.placa_codigo}</td>
+                    <td className="p-5 font-mono text-sm font-semibold text-slate-800">
+                      {c.placa_codigo}
+                    </td>
                     <td className="p-5 text-sm text-slate-600">{c.fecha}</td>
-                    <td className="p-5 text-sm text-slate-500">{c.turno || '---'}</td>
+                    <td className="p-5 text-sm text-slate-500">{c.turno || "---"}</td>
                     <td className="p-5 text-sm text-slate-500">{c.usuario_nombre}</td>
                     <td className="p-5 text-sm">
-                      <span className={`font-bold ${c.resultado === 'bien' ? 'text-emerald-600' : 'text-red-500'}`}>
-                        {c.resultado === 'bien' ? 'Bien' : 'Observado'}
+                      <span
+                        className={`font-bold ${c.resultado === "bien" ? "text-emerald-600" : "text-red-500"}`}
+                      >
+                        {c.resultado === "bien" ? "Bien" : "Observado"}
                       </span>
                     </td>
                     <td className="p-5 text-right">
-                      <button onClick={() => handleEliminarChecklist(c.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all" title="Eliminar">🗑️</button>
+                      <button
+                        onClick={() => handleEliminarChecklist(c.id)}
+                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                        title="Eliminar"
+                      >
+                        🗑️
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -273,10 +328,13 @@ export default function ChecklistsView() {
         </>
       )}
 
-      {subTab === 'plantillas' && (
+      {subTab === "plantillas" && (
         <>
           <div className="flex justify-end mb-6">
-            <button onClick={() => setModalPlantillaAbierto(true)} className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl transition-all">
+            <button
+              onClick={() => setModalPlantillaAbierto(true)}
+              className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl transition-all"
+            >
               + Nueva Plantilla
             </button>
           </div>
@@ -284,18 +342,30 @@ export default function ChecklistsView() {
             <table className="w-full text-left border-collapse">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest">nombre</th>
-                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest">tipo de equipo</th>
-                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">eliminar</th>
+                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                    nombre
+                  </th>
+                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                    tipo de equipo
+                  </th>
+                  <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
+                    eliminar
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {plantillas.map((p) => (
                   <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="p-5 text-sm font-semibold text-slate-800">{p.nombre}</td>
-                    <td className="p-5 text-sm text-slate-500">{p.tipo_equipo || 'Uso general'}</td>
+                    <td className="p-5 text-sm text-slate-500">{p.tipo_equipo || "Uso general"}</td>
                     <td className="p-5 text-right">
-                      <button onClick={() => handleEliminarPlantilla(p.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all" title="Eliminar">🗑️</button>
+                      <button
+                        onClick={() => handleEliminarPlantilla(p.id)}
+                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                        title="Eliminar"
+                      >
+                        🗑️
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -311,25 +381,48 @@ export default function ChecklistsView() {
           <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b flex justify-between items-center">
               <h3 className="text-xl font-bold">Nueva Plantilla</h3>
-              <button onClick={() => setModalPlantillaAbierto(false)} className="text-slate-400 hover:text-slate-900 text-2xl">×</button>
+              <button
+                onClick={() => setModalPlantillaAbierto(false)}
+                className="text-slate-400 hover:text-slate-900 text-2xl"
+              >
+                ×
+              </button>
             </div>
             <form onSubmit={handleCrearPlantilla} className="p-6 space-y-4">
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-500 uppercase">Nombre</label>
-                <input type="text" required className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
-                  value={formPlantilla.nombre} onChange={(e) => setFormPlantilla({ ...formPlantilla, nombre: e.target.value })} />
+                <input
+                  type="text"
+                  required
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                  value={formPlantilla.nombre}
+                  onChange={(e) => setFormPlantilla({ ...formPlantilla, nombre: e.target.value })}
+                />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">Tipo de equipo (opcional)</label>
-                <input type="text" placeholder="Ej: Camioneta" className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
-                  value={formPlantilla.tipo_equipo} onChange={(e) => setFormPlantilla({ ...formPlantilla, tipo_equipo: e.target.value })} />
+                <label className="text-xs font-bold text-slate-500 uppercase">
+                  Tipo de equipo (opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: Camioneta"
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                  value={formPlantilla.tipo_equipo}
+                  onChange={(e) =>
+                    setFormPlantilla({ ...formPlantilla, tipo_equipo: e.target.value })
+                  }
+                />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-500 uppercase">Ítems a revisar</label>
+                <label className="text-xs font-bold text-slate-500 uppercase">
+                  Ítems a revisar
+                </label>
                 {formPlantilla.items.map((valor, i) => (
                   <div key={i} className="flex gap-2">
                     <input
-                      type="text" required placeholder={`Ítem ${i + 1}`}
+                      type="text"
+                      required
+                      placeholder={`Ítem ${i + 1}`}
                       className="flex-1 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
                       value={valor}
                       onChange={(e) => {
@@ -339,15 +432,35 @@ export default function ChecklistsView() {
                       }}
                     />
                     {formPlantilla.items.length > 1 && (
-                      <button type="button" onClick={() => setFormPlantilla({ ...formPlantilla, items: formPlantilla.items.filter((_, idx) => idx !== i) })}
-                        className="px-3 text-slate-400 hover:text-red-600">✕</button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormPlantilla({
+                            ...formPlantilla,
+                            items: formPlantilla.items.filter((_, idx) => idx !== i),
+                          })
+                        }
+                        className="px-3 text-slate-400 hover:text-red-600"
+                      >
+                        ✕
+                      </button>
                     )}
                   </div>
                 ))}
-                <button type="button" onClick={() => setFormPlantilla({ ...formPlantilla, items: [...formPlantilla.items, ''] })}
-                  className="text-sm text-slate-600 hover:text-slate-900 font-medium">+ Agregar ítem</button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFormPlantilla({ ...formPlantilla, items: [...formPlantilla.items, ""] })
+                  }
+                  className="text-sm text-slate-600 hover:text-slate-900 font-medium"
+                >
+                  + Agregar ítem
+                </button>
               </div>
-              <button type="submit" className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4">
+              <button
+                type="submit"
+                className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4"
+              >
                 Crear Plantilla
               </button>
             </form>
@@ -361,43 +474,86 @@ export default function ChecklistsView() {
           <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b flex justify-between items-center">
               <h3 className="text-xl font-bold">Nuevo Checklist</h3>
-              <button onClick={() => { setModalChecklistAbierto(false); setPlantillaSeleccionada(null); }} className="text-slate-400 hover:text-slate-900 text-2xl">×</button>
+              <button
+                onClick={() => {
+                  setModalChecklistAbierto(false);
+                  setPlantillaSeleccionada(null);
+                }}
+                className="text-slate-400 hover:text-slate-900 text-2xl"
+              >
+                ×
+              </button>
             </div>
             <form onSubmit={handleCrearChecklist} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-500 uppercase">Equipo</label>
-                  <select required className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
-                    value={formChecklist.equipo_id} onChange={(e) => setFormChecklist({ ...formChecklist, equipo_id: e.target.value })}>
+                  <select
+                    required
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
+                    value={formChecklist.equipo_id}
+                    onChange={(e) =>
+                      setFormChecklist({ ...formChecklist, equipo_id: e.target.value })
+                    }
+                  >
                     <option value="">Selecciona...</option>
-                    {equipos.map((eq) => <option key={eq.id} value={eq.id}>{eq.placa_codigo}</option>)}
+                    {equipos.map((eq) => (
+                      <option key={eq.id} value={eq.id}>
+                        {eq.placa_codigo}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-500 uppercase">Plantilla</label>
-                  <select required className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
-                    value={formChecklist.plantilla_id} onChange={(e) => handleSeleccionarPlantilla(e.target.value)}>
+                  <select
+                    required
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
+                    value={formChecklist.plantilla_id}
+                    onChange={(e) => handleSeleccionarPlantilla(e.target.value)}
+                  >
                     <option value="">Selecciona...</option>
-                    {plantillas.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                    {plantillas.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.nombre}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">Turno (opcional)</label>
-                <input type="text" className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
-                  value={formChecklist.turno} onChange={(e) => setFormChecklist({ ...formChecklist, turno: e.target.value })} />
+                <label className="text-xs font-bold text-slate-500 uppercase">
+                  Turno (opcional)
+                </label>
+                <input
+                  type="text"
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                  value={formChecklist.turno}
+                  onChange={(e) => setFormChecklist({ ...formChecklist, turno: e.target.value })}
+                />
               </div>
 
               {plantillaSeleccionada && (
                 <div className="space-y-3 border-t pt-4">
                   <label className="text-xs font-bold text-slate-500 uppercase">Ítems</label>
                   {plantillaSeleccionada.items.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between gap-3 bg-slate-50 rounded-xl p-3">
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between gap-3 bg-slate-50 rounded-xl p-3"
+                    >
                       <span className="text-sm text-slate-700">{item.descripcion}</span>
                       <select
                         className="border border-slate-200 rounded-lg p-2 text-sm outline-none bg-white"
-                        value={estadosItems[item.id]?.estado ?? 'bien'}
-                        onChange={(e) => setEstadosItems({ ...estadosItems, [item.id]: { ...estadosItems[item.id], estado: e.target.value as ItemEstado } })}
+                        value={estadosItems[item.id]?.estado ?? "bien"}
+                        onChange={(e) =>
+                          setEstadosItems({
+                            ...estadosItems,
+                            [item.id]: {
+                              ...estadosItems[item.id],
+                              estado: e.target.value as ItemEstado,
+                            },
+                          })
+                        }
                       >
                         <option value="bien">Bien</option>
                         <option value="malo">Malo</option>
@@ -409,12 +565,23 @@ export default function ChecklistsView() {
               )}
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">Observaciones generales (opcional)</label>
-                <textarea className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
-                  value={formChecklist.observaciones_generales} onChange={(e) => setFormChecklist({ ...formChecklist, observaciones_generales: e.target.value })} />
+                <label className="text-xs font-bold text-slate-500 uppercase">
+                  Observaciones generales (opcional)
+                </label>
+                <textarea
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                  value={formChecklist.observaciones_generales}
+                  onChange={(e) =>
+                    setFormChecklist({ ...formChecklist, observaciones_generales: e.target.value })
+                  }
+                />
               </div>
 
-              <button type="submit" disabled={!plantillaSeleccionada} className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4 disabled:opacity-40">
+              <button
+                type="submit"
+                disabled={!plantillaSeleccionada}
+                className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4 disabled:opacity-40"
+              >
                 Registrar Checklist
               </button>
             </form>

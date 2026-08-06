@@ -19,7 +19,11 @@ async function parseOrThrow(res: Response) {
   return data;
 }
 
-export async function loginApi(tenantSlug: string, email: string, password: string): Promise<UsuarioPayload> {
+export async function loginApi(
+  tenantSlug: string,
+  email: string,
+  password: string
+): Promise<UsuarioPayload> {
   const res = await apiFetch("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -29,7 +33,10 @@ export async function loginApi(tenantSlug: string, email: string, password: stri
   return data.usuario;
 }
 
-export async function googleLoginApi(tenantSlug: string, credential: string): Promise<UsuarioPayload> {
+export async function googleLoginApi(
+  tenantSlug: string,
+  credential: string
+): Promise<UsuarioPayload> {
   const res = await apiFetch("/api/auth/google", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -63,7 +70,9 @@ export async function logoutApi(): Promise<void> {
 }
 
 export async function ssoDisponibleApi(tenantSlug: string): Promise<boolean> {
-  const res = await apiFetch(`/api/auth/sso-disponible?tenantSlug=${encodeURIComponent(tenantSlug)}`);
+  const res = await apiFetch(
+    `/api/auth/sso-disponible?tenantSlug=${encodeURIComponent(tenantSlug)}`
+  );
   const data = await parseOrThrow(res);
   return data.disponible;
 }

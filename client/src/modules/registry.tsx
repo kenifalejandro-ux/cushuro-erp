@@ -15,7 +15,7 @@
 // El componente se carga con React.lazy (code-splitting): el chunk de un
 // módulo solo viaja al navegador si ese usuario realmente lo tiene
 // habilitado y lo abre — ver App.tsx (<Suspense>).
-import { lazy, type LazyExoticComponent, type ComponentType } from 'react';
+import { lazy, type LazyExoticComponent, type ComponentType } from "react";
 
 export interface ModuloCliente {
   id: string;
@@ -25,11 +25,46 @@ export interface ModuloCliente {
 }
 
 export const MODULOS_CLIENTE: ModuloCliente[] = [
-  { id: 'dashboard', label: 'Dashboard', icono: '📊', componente: lazy(() => import('../components/dashboard/Dashboard')) },
-  { id: 'repuestos', label: 'Repuestos', icono: '🔧', componente: lazy(() => import('../components/repuestos/RepuestosTable')) },
-  { id: 'combustible', label: 'Combustible', icono: '⛽', componente: lazy(() => import('../components/combustible/CombustiblePanel')) },
-  { id: 'documentos', label: 'Documentos', icono: '📄', componente: lazy(() => import('../components/documentos/DocumentosTable')) },
-  { id: 'equipos', label: 'Equipos', icono: '🚜', componente: lazy(() => import('../components/equipos/EquiposTable')) },
-  { id: 'checklists', label: 'Checklists', icono: '✅', componente: lazy(() => import('../components/checklists/ChecklistsView')) },
-  { id: 'iperc', label: 'IPERC', icono: '⚠️', componente: lazy(() => import('../components/iperc/IpercView')) },
+  {
+    id: "dashboard",
+    label: "Dashboard",
+    icono: "📊",
+    componente: lazy(() => import("../components/dashboard/Dashboard")),
+  },
+  {
+    id: "repuestos",
+    label: "Repuestos",
+    icono: "🔧",
+    componente: lazy(() => import("../components/repuestos/RepuestosTable")),
+  },
+  {
+    id: "combustible",
+    label: "Combustible",
+    icono: "⛽",
+    componente: lazy(() => import("../components/combustible/CombustiblePanel")),
+  },
+  {
+    id: "documentos",
+    label: "Documentos",
+    icono: "📄",
+    componente: lazy(() => import("../components/documentos/DocumentosTable")),
+  },
+  {
+    id: "equipos",
+    label: "Equipos",
+    icono: "🚜",
+    componente: lazy(() => import("../components/equipos/EquiposTable")),
+  },
+  {
+    id: "checklists",
+    label: "Checklists",
+    icono: "✅",
+    componente: lazy(() => import("../components/checklists/ChecklistsView")),
+  },
+  {
+    id: "iperc",
+    label: "IPERC",
+    icono: "⚠️",
+    componente: lazy(() => import("../components/iperc/IpercView")),
+  },
 ];

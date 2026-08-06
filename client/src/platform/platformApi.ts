@@ -48,7 +48,11 @@ export interface QuienSoy {
 export async function whoamiApi(): Promise<QuienSoy> {
   const res = await platformFetch("/whoami");
   const data = await parseOrThrow(res);
-  return { actorType: data.actorType, actorLabel: data.actorLabel, esSuperAdmin: data.esSuperAdmin };
+  return {
+    actorType: data.actorType,
+    actorLabel: data.actorLabel,
+    esSuperAdmin: data.esSuperAdmin,
+  };
 }
 
 export interface PlatformAdmin {
@@ -76,7 +80,11 @@ export async function crearPlatformAdminApi(input: {
   await parseOrThrow(res);
 }
 
-export async function cambiarEstadoPlatformAdminApi(id: string, activo: boolean, motivo?: string): Promise<void> {
+export async function cambiarEstadoPlatformAdminApi(
+  id: string,
+  activo: boolean,
+  motivo?: string
+): Promise<void> {
   const res = await platformFetch(`/admins/${id}/estado`, jsonInit("PATCH", { activo, motivo }));
   await parseOrThrow(res);
 }
@@ -142,8 +150,15 @@ export async function crearTenantApi(
   await parseOrThrow(res);
 }
 
-export async function cambiarEstadoTenantApi(tenantId: string, activo: boolean, motivo?: string): Promise<void> {
-  const res = await platformFetch(`/tenants/${tenantId}/estado`, jsonInit("PATCH", { activo, motivo }));
+export async function cambiarEstadoTenantApi(
+  tenantId: string,
+  activo: boolean,
+  motivo?: string
+): Promise<void> {
+  const res = await platformFetch(
+    `/tenants/${tenantId}/estado`,
+    jsonInit("PATCH", { activo, motivo })
+  );
   await parseOrThrow(res);
 }
 
@@ -157,7 +172,10 @@ export async function actualizarDominioTenantApi(
   tenantId: string,
   dominioPersonalizado: string | null
 ): Promise<DominioTenant> {
-  const res = await platformFetch(`/tenants/${tenantId}/dominio`, jsonInit("PATCH", { dominioPersonalizado }));
+  const res = await platformFetch(
+    `/tenants/${tenantId}/dominio`,
+    jsonInit("PATCH", { dominioPersonalizado })
+  );
   const data = await parseOrThrow(res);
   return data.dominio;
 }
@@ -194,7 +212,10 @@ export async function actualizarModulosTenantApi(
   tenantId: string,
   configuraciones: ConfiguracionModulo[]
 ): Promise<ModuloEstado[]> {
-  const res = await platformFetch(`/tenants/${tenantId}/modulos`, jsonInit("PUT", { configuraciones }));
+  const res = await platformFetch(
+    `/tenants/${tenantId}/modulos`,
+    jsonInit("PUT", { configuraciones })
+  );
   const data = await parseOrThrow(res);
   return data.modulos;
 }
@@ -248,7 +269,10 @@ export interface ModuloAsignado {
   asignado: boolean;
 }
 
-export async function obtenerModulosUsuarioApi(tenantId: string, usuarioId: string): Promise<ModuloAsignado[]> {
+export async function obtenerModulosUsuarioApi(
+  tenantId: string,
+  usuarioId: string
+): Promise<ModuloAsignado[]> {
   const res = await platformFetch(`/tenants/${tenantId}/usuarios/${usuarioId}/modulos`);
   const data = await parseOrThrow(res);
   return data.modulos;
@@ -259,7 +283,10 @@ export async function actualizarModulosUsuarioApi(
   usuarioId: string,
   modulos: string[]
 ): Promise<ModuloAsignado[]> {
-  const res = await platformFetch(`/tenants/${tenantId}/usuarios/${usuarioId}/modulos`, jsonInit("PUT", { modulos }));
+  const res = await platformFetch(
+    `/tenants/${tenantId}/usuarios/${usuarioId}/modulos`,
+    jsonInit("PUT", { modulos })
+  );
   const data = await parseOrThrow(res);
   return data.modulos;
 }

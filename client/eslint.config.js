@@ -1,26 +1,39 @@
 import js from "@eslint/js";
-import globals from "globals";
-import reactHooks from "eslint-plugin-react-hooks";
-import reactRefresh from "eslint-plugin-react-refresh";
-import jsxA11y from "eslint-plugin-jsx-a11y";
-import importPlugin from "eslint-plugin-import";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
 import { defineConfig, globalIgnores } from "eslint/config";
-import prettierPlugin from "eslint-plugin-prettier";
 import eslintConfigPrettier from "eslint-config-prettier";
+import importPlugin from "eslint-plugin-import";
+import jsxA11y from "eslint-plugin-jsx-a11y";
+import prettierPlugin from "eslint-plugin-prettier";
+import reactHooks from "eslint-plugin-react-hooks";
+import reactRefresh from "eslint-plugin-react-refresh";
+import globals from "globals";
 
 export default defineConfig([
-  globalIgnores(["dist"]),
+  // meshoptimizer/ es una librería de terceros vendorizada (C++/WASM,
+  // ~130MB) que el código de la app no importa en ningún lado -- sin este
+  // ignore, eslint intenta parsear sus .ts (algunos ni son TypeScript real,
+  // son archivos de dependencias de CMake) y se cuelga.
+  globalIgnores(["dist", "meshoptimizer"]),
+  {
+    // Configs de build en la raíz de client/ -- corren en Node (CommonJS),
+    // no en el browser, así que necesitan `require`/`__dirname` como
+    // globals conocidos.
+    files: ["*.config.js"],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
   {
     files: ["**/*.{js,jsx}"],
     extends: [
       js.configs.recommended,
-      reactHooks.configs["recommended-latest"],
       reactRefresh.configs.vite,
       eslintConfigPrettier, // desactiva reglas en conflicto con Prettier
     ],
     plugins: {
+      "react-hooks": reactHooks,
       "jsx-a11y": jsxA11y,
       import: importPlugin,
       prettier: prettierPlugin,
@@ -34,6 +47,12 @@ export default defineConfig([
       },
     },
     rules: {
+      // eslint-plugin-react-hooks@7.1.1 exporta `recommended-latest` con
+      // `plugins: ["react-hooks"]` en formato viejo (array de strings),
+      // que eslint@10 rechaza en flat config -- por eso no va en
+      // `extends` de arriba, tomamos solo sus reglas acá.
+      ...reactHooks.configs["recommended-latest"].rules,
+
       // Errores comunes
       "no-unused-vars": ["error", { varsIgnorePattern: "^[A-Z_]" }],
       "no-console": ["warn", { allow: ["warn", "error"] }],
@@ -61,13 +80,9 @@ export default defineConfig([
   },
   {
     files: ["**/*.{ts,tsx}"],
-    extends: [
-      js.configs.recommended,
-      reactHooks.configs["recommended-latest"],
-      reactRefresh.configs.vite,
-      eslintConfigPrettier,
-    ],
+    extends: [js.configs.recommended, reactRefresh.configs.vite, eslintConfigPrettier],
     plugins: {
+      "react-hooks": reactHooks,
       "@typescript-eslint": tsPlugin,
       "jsx-a11y": jsxA11y,
       import: importPlugin,
@@ -83,6 +98,11 @@ export default defineConfig([
       },
     },
     rules: {
+      // Mismo motivo que arriba: tomamos solo las reglas, no el objeto
+      // `extends` completo (su `plugins` en formato viejo revienta con
+      // eslint@10).
+      ...reactHooks.configs["recommended-latest"].rules,
+
       "no-undef": "off",
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": [

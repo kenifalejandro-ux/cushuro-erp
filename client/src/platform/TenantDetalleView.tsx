@@ -1,6 +1,10 @@
 // client/src/platform/TenantDetalleView.tsx
 
 import { useEffect, useState, type FormEvent } from "react";
+
+import CambiarEstadoDialog from "./CambiarEstadoDialog";
+import PasswordInput from "./PasswordInput";
+import PlanYCuotasTenant from "./PlanYCuotasTenant";
 import {
   type TenantPlataforma,
   type ModuloEstado,
@@ -33,9 +37,6 @@ import {
   generarTokenScimApi,
   revocarTokenScimApi,
 } from "./platformApi";
-import PasswordInput from "./PasswordInput";
-import CambiarEstadoDialog from "./CambiarEstadoDialog";
-import PlanYCuotasTenant from "./PlanYCuotasTenant";
 
 export default function TenantDetalleView({
   tenant,
@@ -52,11 +53,15 @@ export default function TenantDetalleView({
   const [mostrarFormUsuario, setMostrarFormUsuario] = useState(false);
   const [usuarioExpandido, setUsuarioExpandido] = useState<string | null>(null);
   const [dialogTenantAbierto, setDialogTenantAbierto] = useState(false);
-  const [usuarioParaCambiarEstado, setUsuarioParaCambiarEstado] = useState<UsuarioPlataforma | null>(null);
+  const [usuarioParaCambiarEstado, setUsuarioParaCambiarEstado] =
+    useState<UsuarioPlataforma | null>(null);
 
   async function recargar() {
     try {
-      const [m, u] = await Promise.all([obtenerModulosTenantApi(tenant.id), listarUsuariosTenantApi(tenant.id)]);
+      const [m, u] = await Promise.all([
+        obtenerModulosTenantApi(tenant.id),
+        listarUsuariosTenantApi(tenant.id),
+      ]);
       setModulos(m);
       setUsuarios(u);
       setError(null);
@@ -66,6 +71,9 @@ export default function TenantDetalleView({
   }
 
   useEffect(() => {
+    // Patrón estándar de carga al montar (setCargando(true) -> fetch ->
+    // setCargando(false)), usado en toda la app.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     recargar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenant.id]);
@@ -127,7 +135,9 @@ export default function TenantDetalleView({
       )}
 
       {error && (
-        <p className="text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 mb-4">{error}</p>
+        <p className="text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 mb-4">
+          {error}
+        </p>
       )}
 
       <DominioTenant tenantId={tenant.id} />
@@ -143,7 +153,12 @@ export default function TenantDetalleView({
       <h3 className="text-sm font-light text-slate-400 mb-2">Módulos contratados</h3>
       <PlanYCuotasTenant tenantId={tenant.id} onError={setError} />
 
-      <ModulosTenant tenantId={tenant.id} modulos={modulos} onModulosChange={setModulos} onError={setError} />
+      <ModulosTenant
+        tenantId={tenant.id}
+        modulos={modulos}
+        onModulosChange={setModulos}
+        onError={setError}
+      />
 
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-sm font-light text-slate-400">Usuarios</h3>
@@ -247,7 +262,11 @@ function ModulosTenant({
   }
 
   async function aplicarGlobal(m: ModuloEstado) {
-    if (!window.confirm(`¿Aplicar "${m.estado}" a ${m.modulo} en TODOS los tenants? Esto no se puede deshacer.`)) {
+    if (
+      !window.confirm(
+        `¿Aplicar "${m.estado}" a ${m.modulo} en TODOS los tenants? Esto no se puede deshacer.`
+      )
+    ) {
       return;
     }
     setAplicandoGlobal(m.modulo);
@@ -281,7 +300,7 @@ function ModulosTenant({
               const estado = e.target.value as EstadoModulo;
               guardarCambio(m.modulo, {
                 estado,
-                rolloutPorcentaje: estado === "rollout" ? m.rolloutPorcentaje ?? 0 : null,
+                rolloutPorcentaje: estado === "rollout" ? (m.rolloutPorcentaje ?? 0) : null,
               });
             }}
             className="px-2 py-1 rounded-lg border border-slate-700 bg-slate-950 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-500/30 disabled:opacity-50"
@@ -298,7 +317,9 @@ function ModulosTenant({
                 min={0}
                 max={100}
                 defaultValue={m.rolloutPorcentaje ?? 0}
-                onBlur={(e) => guardarCambio(m.modulo, { rolloutPorcentaje: Number(e.target.value) })}
+                onBlur={(e) =>
+                  guardarCambio(m.modulo, { rolloutPorcentaje: Number(e.target.value) })
+                }
                 className="w-16 px-2 py-1 rounded-lg border border-slate-700 bg-slate-950 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-500/30"
               />
               <span className="text-xs text-slate-500">%</span>
@@ -348,6 +369,9 @@ function SaludTenant({ tenantId }: { tenantId: string }) {
   }
 
   useEffect(() => {
+    // Patrón estándar de carga al montar (setCargando(true) -> fetch ->
+    // setCargando(false)), usado en toda la app.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     cargar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
@@ -356,7 +380,10 @@ function SaludTenant({ tenantId }: { tenantId: string }) {
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-light text-slate-400">Salud (últimas 24h)</h3>
-        <button onClick={cargar} className="text-xs text-slate-500 hover:text-slate-300 underline underline-offset-2">
+        <button
+          onClick={cargar}
+          className="text-xs text-slate-500 hover:text-slate-300 underline underline-offset-2"
+        >
           Actualizar
         </button>
       </div>
@@ -385,7 +412,9 @@ function SaludTenant({ tenantId }: { tenantId: string }) {
             </div>
             <div>
               <p className="text-slate-500">Tasa de error</p>
-              <p className={`text-sm ${salud.tasaError > 0.05 ? "text-red-400" : "text-slate-200"}`}>
+              <p
+                className={`text-sm ${salud.tasaError > 0.05 ? "text-red-400" : "text-slate-200"}`}
+              >
                 {(salud.tasaError * 100).toFixed(1)}% ({salud.errores5xxUltimas24h})
               </p>
             </div>
@@ -406,7 +435,13 @@ function SaludTenant({ tenantId }: { tenantId: string }) {
   );
 }
 
-function BackupsTenant({ tenantId, onError }: { tenantId: string; onError: (msg: string) => void }) {
+function BackupsTenant({
+  tenantId,
+  onError,
+}: {
+  tenantId: string;
+  onError: (msg: string) => void;
+}) {
   const [backups, setBackups] = useState<TenantBackup[]>([]);
   const [cargando, setCargando] = useState(true);
   const [creando, setCreando] = useState(false);
@@ -424,6 +459,9 @@ function BackupsTenant({ tenantId, onError }: { tenantId: string; onError: (msg:
   }
 
   useEffect(() => {
+    // Patrón estándar de carga al montar (setCargando(true) -> fetch ->
+    // setCargando(false)), usado en toda la app.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     cargar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
@@ -483,7 +521,8 @@ function BackupsTenant({ tenantId, onError }: { tenantId: string; onError: (msg:
             return (
               <li key={b.id} className="flex items-center justify-between text-xs text-slate-400">
                 <span>
-                  {new Date(b.creadoEn).toLocaleString()} · {totalFilas} filas · {(b.tamanoBytes / 1024).toFixed(0)} KB
+                  {new Date(b.creadoEn).toLocaleString()} · {totalFilas} filas ·{" "}
+                  {(b.tamanoBytes / 1024).toFixed(0)} KB
                 </span>
                 <button
                   onClick={() => restaurar(b)}
@@ -510,6 +549,9 @@ function DominioTenant({ tenantId }: { tenantId: string }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Patrón estándar de carga al montar (setCargando(true) -> fetch ->
+    // setCargando(false)), usado en toda la app.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCargando(true);
     obtenerDominioTenantApi(tenantId)
       .then((data) => {
@@ -564,7 +606,11 @@ function DominioTenant({ tenantId }: { tenantId: string }) {
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-light text-slate-400">Dominio propio</h3>
-        {!cargando && <span className={`px-2 py-0.5 rounded-full text-xs ${badge[estado]}`}>{etiqueta[estado]}</span>}
+        {!cargando && (
+          <span className={`px-2 py-0.5 rounded-full text-xs ${badge[estado]}`}>
+            {etiqueta[estado]}
+          </span>
+        )}
       </div>
 
       <form onSubmit={guardar} className="flex gap-3 mb-3">
@@ -584,38 +630,46 @@ function DominioTenant({ tenantId }: { tenantId: string }) {
       </form>
 
       {error && (
-        <p className="text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 mb-3">{error}</p>
+        <p className="text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 mb-3">
+          {error}
+        </p>
       )}
 
-      {(estado === "pendiente_verificacion" || estado === "fallido") && info?.dominioRegistroEsperado && (
-        <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 space-y-2">
-          <p className="text-xs text-slate-400">
-            Agregá este registro TXT en el DNS de{" "}
-            <span className="text-slate-200">{info.dominioPersonalizado}</span> para confirmar que lo controlás:
-          </p>
-          <div className="text-xs font-mono bg-slate-900 rounded px-2 py-1.5 text-slate-300 break-all">
-            <div>Nombre: {info.dominioRegistroEsperado}</div>
-            <div>Valor: {info.dominioValorEsperado}</div>
-          </div>
-          {estado === "fallido" && (
-            <p className="text-xs text-red-400">
-              El último intento no encontró el registro esperado
-              {info.dominioUltimoIntentoEn ? ` (${new Date(info.dominioUltimoIntentoEn).toLocaleString()})` : ""} — la
-              propagación de DNS puede tardar. Volvé a intentar cuando lo hayas configurado.
+      {(estado === "pendiente_verificacion" || estado === "fallido") &&
+        info?.dominioRegistroEsperado && (
+          <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 space-y-2">
+            <p className="text-xs text-slate-400">
+              Agregá este registro TXT en el DNS de{" "}
+              <span className="text-slate-200">{info.dominioPersonalizado}</span> para confirmar que
+              lo controlás:
             </p>
-          )}
-          <button
-            onClick={verificar}
-            disabled={verificando}
-            className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-900 text-xs font-medium hover:bg-white disabled:opacity-50 transition-colors"
-          >
-            {verificando ? "Verificando..." : "Verificar ahora"}
-          </button>
-        </div>
-      )}
+            <div className="text-xs font-mono bg-slate-900 rounded px-2 py-1.5 text-slate-300 break-all">
+              <div>Nombre: {info.dominioRegistroEsperado}</div>
+              <div>Valor: {info.dominioValorEsperado}</div>
+            </div>
+            {estado === "fallido" && (
+              <p className="text-xs text-red-400">
+                El último intento no encontró el registro esperado
+                {info.dominioUltimoIntentoEn
+                  ? ` (${new Date(info.dominioUltimoIntentoEn).toLocaleString()})`
+                  : ""}{" "}
+                — la propagación de DNS puede tardar. Volvé a intentar cuando lo hayas configurado.
+              </p>
+            )}
+            <button
+              onClick={verificar}
+              disabled={verificando}
+              className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-900 text-xs font-medium hover:bg-white disabled:opacity-50 transition-colors"
+            >
+              {verificando ? "Verificando..." : "Verificar ahora"}
+            </button>
+          </div>
+        )}
 
       {estado === "activo" && info?.dominioVerificadoEn && (
-        <p className="text-xs text-slate-500">Verificado el {new Date(info.dominioVerificadoEn).toLocaleString()}.</p>
+        <p className="text-xs text-slate-500">
+          Verificado el {new Date(info.dominioVerificadoEn).toLocaleString()}.
+        </p>
       )}
     </div>
   );
@@ -633,6 +687,9 @@ function SsoTenant({ tenantId }: { tenantId: string }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Patrón estándar de carga al montar (setCargando(true) -> fetch ->
+    // setCargando(false)), usado en toda la app.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCargando(true);
     obtenerSsoTenantApi(tenantId)
       .then((data) => {
@@ -673,7 +730,9 @@ function SsoTenant({ tenantId }: { tenantId: string }) {
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-light text-slate-400">SSO (OIDC)</h3>
         {!cargando && config?.configurado && (
-          <span className={`px-2 py-0.5 rounded-full text-xs ${activo ? "bg-emerald-950 text-emerald-400" : "bg-slate-800 text-slate-400"}`}>
+          <span
+            className={`px-2 py-0.5 rounded-full text-xs ${activo ? "bg-emerald-950 text-emerald-400" : "bg-slate-800 text-slate-400"}`}
+          >
             {activo ? "Activo" : "Configurado, inactivo"}
           </span>
         )}
@@ -706,8 +765,8 @@ function SsoTenant({ tenantId }: { tenantId: string }) {
         </div>
         {config?.configurado && (
           <p className="text-xs text-slate-500">
-            El client secret nunca se muestra de nuevo — hay que volver a pegarlo cada vez que se guarda, aunque no
-            haya cambiado.
+            El client secret nunca se muestra de nuevo — hay que volver a pegarlo cada vez que se
+            guarda, aunque no haya cambiado.
           </p>
         )}
         <input
@@ -730,7 +789,9 @@ function SsoTenant({ tenantId }: { tenantId: string }) {
       </form>
 
       {error && (
-        <p className="text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 mt-3">{error}</p>
+        <p className="text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 mt-3">
+          {error}
+        </p>
       )}
     </div>
   );
@@ -753,6 +814,9 @@ function ScimTenant({ tenantId }: { tenantId: string }) {
   }
 
   useEffect(() => {
+    // Patrón estándar de carga al montar (setCargando(true) -> fetch ->
+    // setCargando(false)), usado en toda la app.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCargando(true);
     recargar().finally(() => setCargando(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -788,15 +852,17 @@ function ScimTenant({ tenantId }: { tenantId: string }) {
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-light text-slate-400">SCIM (provisioning automático)</h3>
         {!cargando && config?.configurado && (
-          <span className={`px-2 py-0.5 rounded-full text-xs ${config.activo ? "bg-emerald-950 text-emerald-400" : "bg-slate-800 text-slate-400"}`}>
+          <span
+            className={`px-2 py-0.5 rounded-full text-xs ${config.activo ? "bg-emerald-950 text-emerald-400" : "bg-slate-800 text-slate-400"}`}
+          >
             {config.activo ? "Activo" : "Revocado"}
           </span>
         )}
       </div>
 
       <p className="text-xs text-slate-500 mb-3">
-        Endpoint: <span className="font-mono text-slate-300">/scim/v2</span> — autenticado con el token de abajo
-        como bearer.
+        Endpoint: <span className="font-mono text-slate-300">/scim/v2</span> — autenticado con el
+        token de abajo como bearer.
       </p>
 
       {tokenNuevo && (
@@ -804,7 +870,9 @@ function ScimTenant({ tenantId }: { tenantId: string }) {
           <p className="text-xs text-amber-400">
             Copiá este token ahora — no se puede volver a mostrar (solo queda su hash guardado):
           </p>
-          <div className="text-xs font-mono bg-slate-900 rounded px-2 py-1.5 text-slate-200 break-all">{tokenNuevo}</div>
+          <div className="text-xs font-mono bg-slate-900 rounded px-2 py-1.5 text-slate-200 break-all">
+            {tokenNuevo}
+          </div>
         </div>
       )}
 
@@ -828,7 +896,9 @@ function ScimTenant({ tenantId }: { tenantId: string }) {
       </div>
 
       {error && (
-        <p className="text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 mt-3">{error}</p>
+        <p className="text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 mt-3">
+          {error}
+        </p>
       )}
     </div>
   );

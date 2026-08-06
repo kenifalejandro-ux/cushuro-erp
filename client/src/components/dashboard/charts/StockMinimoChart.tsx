@@ -39,12 +39,7 @@ export default function StockMinimoChart({ data }: Props) {
           <Legend />
 
           {/* 🔵 Stock actual */}
-          <Bar
-            dataKey="stock"
-            fill="#2563eb"
-            name="Stock Actual"
-            radius={[6, 6, 0, 0]}
-          />
+          <Bar dataKey="stock" fill="#2563eb" name="Stock Actual" radius={[6, 6, 0, 0]} />
 
           {/* 🟠 Stock mínimo */}
           <Line

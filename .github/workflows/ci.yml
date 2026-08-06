@@ -171,6 +171,10 @@ jobs:
         working-directory: client
         run: npx tsc --noEmit
 
+      - name: Lint
+        working-directory: client
+        run: npm run lint
+
       - name: Build de producción
         working-directory: client
         run: npm run build

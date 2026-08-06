@@ -4,6 +4,7 @@
 // un límite solo se interpreta contra el consumo real, y el plan solo se
 // entiende viendo qué límites impone. Ver docs/architecture/cuotas-por-tenant.md.
 import { useEffect, useState } from "react";
+
 import {
   listarPlanesApi,
   obtenerPlanDeTenantApi,
@@ -67,7 +68,8 @@ export default function PlanYCuotasTenant({
         setPlanActual(actual);
         setCuotas(c);
       } catch (err) {
-        if (!cancelado) onError(err instanceof Error ? err.message : "No se pudieron cargar plan y cuotas");
+        if (!cancelado)
+          onError(err instanceof Error ? err.message : "No se pudieron cargar plan y cuotas");
       }
     })();
     return () => {
@@ -105,7 +107,9 @@ export default function PlanYCuotasTenant({
     // "" → borra el override (vuelve al plan/registry); "ilimitado" → null.
     const limite = limpio === "" ? undefined : limpio === "ilimitado" ? null : Number(limpio);
     if (limite !== undefined && limite !== null && (!Number.isFinite(limite) || limite < 0)) {
-      onError(`Valor inválido para ${recurso}: usá un número, "ilimitado", o vacío para volver al plan`);
+      onError(
+        `Valor inválido para ${recurso}: usá un número, "ilimitado", o vacío para volver al plan`
+      );
       return;
     }
 
@@ -139,7 +143,9 @@ export default function PlanYCuotasTenant({
       </div>
 
       {aviso && (
-        <p className="text-xs text-amber-300 bg-amber-950/40 border border-amber-800 rounded-lg px-3 py-2">{aviso}</p>
+        <p className="text-xs text-amber-300 bg-amber-950/40 border border-amber-800 rounded-lg px-3 py-2">
+          {aviso}
+        </p>
       )}
 
       <table className="w-full text-sm">
@@ -158,7 +164,9 @@ export default function PlanYCuotasTenant({
               <td className="py-2 tabular-nums">
                 {formatearValor(c.uso, c.unidad)}
                 {c.porcentaje !== null && (
-                  <span className={`ml-2 text-xs ${c.porcentaje >= 80 ? "text-amber-400" : "text-slate-500"}`}>
+                  <span
+                    className={`ml-2 text-xs ${c.porcentaje >= 80 ? "text-amber-400" : "text-slate-500"}`}
+                  >
                     {c.porcentaje}%
                   </span>
                 )}
@@ -205,8 +213,8 @@ export default function PlanYCuotasTenant({
       </table>
 
       <p className="text-xs text-slate-500">
-        Las cuotas solo bloquean la creación de registros nuevos: nunca borran ni ocultan datos ya cargados, y leer y
-        borrar siguen funcionando aunque el tenant esté excedido.
+        Las cuotas solo bloquean la creación de registros nuevos: nunca borran ni ocultan datos ya
+        cargados, y leer y borrar siguen funcionando aunque el tenant esté excedido.
       </p>
     </section>
   );

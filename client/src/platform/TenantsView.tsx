@@ -1,10 +1,15 @@
 // client/src/platform/TenantsView.tsx
 
 import { useEffect, useState, type FormEvent } from "react";
-import { listarTenantsApi, crearTenantApi, type TenantPlataforma } from "./platformApi";
-import PasswordInput from "./PasswordInput";
 
-export default function TenantsView({ onSeleccionar }: { onSeleccionar: (tenant: TenantPlataforma) => void }) {
+import PasswordInput from "./PasswordInput";
+import { listarTenantsApi, crearTenantApi, type TenantPlataforma } from "./platformApi";
+
+export default function TenantsView({
+  onSeleccionar,
+}: {
+  onSeleccionar: (tenant: TenantPlataforma) => void;
+}) {
   const [tenants, setTenants] = useState<TenantPlataforma[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +28,9 @@ export default function TenantsView({ onSeleccionar }: { onSeleccionar: (tenant:
   }
 
   useEffect(() => {
+    // Patrón estándar de carga al montar (setCargando(true) -> fetch ->
+    // setCargando(false)), usado en toda la app.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     recargar();
   }, []);
 
@@ -38,10 +46,19 @@ export default function TenantsView({ onSeleccionar }: { onSeleccionar: (tenant:
         </button>
       </div>
 
-      {mostrarForm && <NuevoTenantForm onCreado={() => { setMostrarForm(false); recargar(); }} />}
+      {mostrarForm && (
+        <NuevoTenantForm
+          onCreado={() => {
+            setMostrarForm(false);
+            recargar();
+          }}
+        />
+      )}
 
       {error && (
-        <p className="text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 mb-4">{error}</p>
+        <p className="text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 mb-4">
+          {error}
+        </p>
       )}
 
       {cargando ? (
@@ -111,7 +128,10 @@ function NuevoTenantForm({ onCreado }: { onCreado: () => void }) {
     setError(null);
     setEnviando(true);
     try {
-      await crearTenantApi({ tenantNombre, tenantSlug, adminNombre, adminEmail, adminPassword }, idempotencyKey);
+      await crearTenantApi(
+        { tenantNombre, tenantSlug, adminNombre, adminEmail, adminPassword },
+        idempotencyKey
+      );
       onCreado();
     } catch (err: any) {
       setError(err.message || "No se pudo crear el tenant");

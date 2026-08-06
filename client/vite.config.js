@@ -1,17 +1,13 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react-swc"; // Si ya lo cambiaste, genial; si no, hacelo ahora
 import tailwindcss from "@tailwindcss/vite";
-import svgr from "vite-plugin-svgr"; // ← Nueva importación
+import react from "@vitejs/plugin-react-swc"; // Si ya lo cambiaste, genial; si no, hacelo ahora
 import path from "path";
+import { defineConfig } from "vite";
+import svgr from "vite-plugin-svgr"; // ← Nueva importación
 
 function manualChunks(id) {
   if (!id.includes("node_modules")) return;
 
-  if (
-    id.includes("/react/") ||
-    id.includes("/react-dom/") ||
-    id.includes("/scheduler/")
-  ) {
+  if (id.includes("/react/") || id.includes("/react-dom/") || id.includes("/scheduler/")) {
     return "vendor-react";
   }
 
@@ -33,7 +29,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    svgr({ exportAsDefault: true }) // ⚡ Esto asegura que default export sea componente React
+    svgr({ exportAsDefault: true }), // ⚡ Esto asegura que default export sea componente React
   ],
   resolve: {
     alias: {
@@ -41,7 +37,7 @@ export default defineConfig({
     },
   },
   server: {
-    host: true,        // 🔥 ESTO ES LA CLAVE
+    host: true, // 🔥 ESTO ES LA CLAVE
     port: 5174,
     open: false,
     proxy: {
