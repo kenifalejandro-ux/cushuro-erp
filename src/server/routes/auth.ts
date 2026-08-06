@@ -210,7 +210,7 @@ authRouter.post(
   }
 );
 
-authRouter.post("/logout", authMiddleware, async (req, res, next) => {
+authRouter.post("/logout", rateLimiter, authMiddleware, async (req, res, next) => {
   try {
     await logoutService(req.usuario!.id, req.usuario!.tenantId);
     limpiarCookiesSesion(res);
@@ -220,6 +220,6 @@ authRouter.post("/logout", authMiddleware, async (req, res, next) => {
   }
 });
 
-authRouter.get("/me", authMiddleware, (req, res) => {
+authRouter.get("/me", rateLimiter, authMiddleware, (req, res) => {
   res.status(200).json({ ok: true, usuario: aPublico(req.usuario!) });
 });
