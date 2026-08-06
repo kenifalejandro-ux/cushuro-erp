@@ -1,12 +1,13 @@
 // client/src/App.tsx
-import { Suspense, useState } from 'react';
-import Layout from './components/layout/Layout';
-import LoginPage from './pages/LoginPage';
-import { useAuth } from './context/AuthContext';
-import { MODULOS_CLIENTE } from './modules/registry';
+import { Suspense, useState } from "react";
+
+import Layout from "./components/layout/Layout";
+import { useAuth } from "./context/AuthContext";
+import { MODULOS_CLIENTE } from "./modules/registry";
+import LoginPage from "./pages/LoginPage";
 
 function App() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState("dashboard");
   const { cargando, estaAutenticado } = useAuth();
 
   if (cargando) {

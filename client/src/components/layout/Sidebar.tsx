@@ -1,6 +1,6 @@
 // client/src/components/layout/Sidebar.tsx
-import { useAuth } from '../../context/AuthContext';
-import { MODULOS_CLIENTE } from '../../modules/registry';
+import { useAuth } from "../../context/AuthContext";
+import { MODULOS_CLIENTE } from "../../modules/registry";
 
 interface SidebarProps {
   activeTab: string;
@@ -24,8 +24,8 @@ export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
             onClick={() => setActiveTab(tab.id)}
             className={`w-full text-left px-4 py-3 rounded-xl flex items-center gap-3 transition-colors ${
               activeTab === tab.id
-                ? 'bg-blue-50 text-blue-700 font-medium'
-                : 'hover:bg-gray-100 text-gray-700'
+                ? "bg-blue-50 text-blue-700 font-medium"
+                : "hover:bg-gray-100 text-gray-700"
             }`}
           >
             <span>{tab.icono}</span>

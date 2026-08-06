@@ -35,11 +35,16 @@ export default function CambiarEstadoDialog({
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4">
-      <form onSubmit={handleSubmit} className="bg-slate-900 border border-slate-800 rounded-xl p-5 w-full max-w-sm">
+      <form
+        onSubmit={handleSubmit}
+        className="bg-slate-900 border border-slate-800 rounded-xl p-5 w-full max-w-sm"
+      >
         <h3 className="text-sm font-medium text-slate-100 mb-1">
           {activarA ? "Activar" : "Desactivar"} {entidadNombre}
         </h3>
-        <p className="text-xs text-slate-500 mb-3">El motivo es opcional, pero queda en la auditoría.</p>
+        <p className="text-xs text-slate-500 mb-3">
+          El motivo es opcional, pero queda en la auditoría.
+        </p>
 
         <textarea
           value={motivo}
@@ -52,7 +57,9 @@ export default function CambiarEstadoDialog({
         />
 
         {error && (
-          <p className="text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 mb-3">{error}</p>
+          <p className="text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 mb-3">
+            {error}
+          </p>
         )}
 
         <div className="flex justify-end gap-2">

@@ -1,19 +1,20 @@
 // client/src/main.tsx
-import React from 'react';
-import { createRoot } from 'react-dom/client';
-import App from './App';
-import { AuthProvider } from './context/AuthContext';
-import ResetPasswordPage from './pages/ResetPasswordPage';
-import PlatformApp from './platform/PlatformApp';
+import React from "react";
+import { createRoot } from "react-dom/client";
+
+import App from "./App";
+import { AuthProvider } from "./context/AuthContext";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
+import PlatformApp from "./platform/PlatformApp";
 
 // Importaciones globales (mantén solo las que realmente uses)
-import './styles/globals.css';        // estilos globales
-import './styles/index.css';          // si lo necesitas
+import "./styles/globals.css"; // estilos globales
+import "./styles/index.css"; // si lo necesitas
 
 // Opcional: si vas a usar íconos (Lucide, Heroicons, etc.)
 // import './lib/icons';
 
-const rootElement = document.getElementById('root');
+const rootElement = document.getElementById("root");
 
 if (!rootElement) {
   throw new Error('Root element not found. Make sure <div id="root"></div> exists in index.html');
@@ -25,11 +26,11 @@ if (!rootElement) {
 // FUERA de <AuthProvider>: no dependen de (ni deben tocar) la sesión de
 // ningún tenant.
 function renderizarApp() {
-  if (window.location.pathname === '/reset-password') {
+  if (window.location.pathname === "/reset-password") {
     return <ResetPasswordPage />;
   }
 
-  if (window.location.pathname === '/plataforma') {
+  if (window.location.pathname === "/plataforma") {
     return <PlatformApp />;
   }
 
@@ -40,6 +41,4 @@ function renderizarApp() {
   );
 }
 
-createRoot(rootElement).render(
-  <React.StrictMode>{renderizarApp()}</React.StrictMode>
-);
+createRoot(rootElement).render(<React.StrictMode>{renderizarApp()}</React.StrictMode>);

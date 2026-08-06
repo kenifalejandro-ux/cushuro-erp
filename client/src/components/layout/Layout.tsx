@@ -1,6 +1,6 @@
 // client/src/components/layout/Layout.tsx
-import Header from './Header';
-import Sidebar from './Sidebar';
+import Header from "./Header";
+import Sidebar from "./Sidebar";
 
 interface LayoutProps {
   activeTab: string;
@@ -14,9 +14,7 @@ export default function Layout({ activeTab, setActiveTab, children }: LayoutProp
       <Header />
       <div className="flex">
         <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-        <main className="flex-1 p-8 overflow-auto">
-          {children}
-        </main>
+        <main className="flex-1 p-8 overflow-auto">{children}</main>
       </div>
     </div>
   );

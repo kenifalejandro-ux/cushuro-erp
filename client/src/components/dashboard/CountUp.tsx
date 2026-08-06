@@ -1,6 +1,6 @@
 /**client/src/components/dashboard/countUP.tsx */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
 
 interface CountUpProps {
   end: number;
@@ -13,9 +13,9 @@ interface CountUpProps {
 export default function CountUp({
   end,
   duration = 2000,
-  prefix = '',
-  suffix = '',
-  decimals = 0
+  prefix = "",
+  suffix = "",
+  decimals = 0,
 }: CountUpProps) {
   const [count, setCount] = useState(0);
 
@@ -42,9 +42,8 @@ export default function CountUp({
   return (
     <>
       {prefix}
-      {count.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+      {count.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
       {suffix}
     </>
   );
 }
-

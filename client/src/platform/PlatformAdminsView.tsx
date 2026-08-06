@@ -6,6 +6,9 @@
 // botón que va a terminar en 403.
 
 import { useEffect, useState, type FormEvent } from "react";
+
+import CambiarEstadoDialog from "./CambiarEstadoDialog";
+import PasswordInput from "./PasswordInput";
 import {
   listarPlatformAdminsApi,
   crearPlatformAdminApi,
@@ -15,8 +18,6 @@ import {
   type PlatformAdmin,
   type SesionActivaAdmin,
 } from "./platformApi";
-import PasswordInput from "./PasswordInput";
-import CambiarEstadoDialog from "./CambiarEstadoDialog";
 
 export default function PlatformAdminsView() {
   const [admins, setAdmins] = useState<PlatformAdmin[]>([]);
@@ -39,6 +40,9 @@ export default function PlatformAdminsView() {
   }
 
   useEffect(() => {
+    // Patrón estándar de carga al montar (setCargando(true) -> fetch ->
+    // setCargando(false)), usado en toda la app.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     recargar();
   }, []);
 
@@ -54,14 +58,23 @@ export default function PlatformAdminsView() {
         </button>
       </div>
       <p className="text-xs text-slate-500 mb-6">
-        Cuentas individuales del panel de plataforma. El secreto compartido sigue funcionando como acceso de
-        emergencia — no depende de que exista ningún admin acá.
+        Cuentas individuales del panel de plataforma. El secreto compartido sigue funcionando como
+        acceso de emergencia — no depende de que exista ningún admin acá.
       </p>
 
-      {mostrarForm && <NuevoAdminForm onCreado={() => { setMostrarForm(false); recargar(); }} />}
+      {mostrarForm && (
+        <NuevoAdminForm
+          onCreado={() => {
+            setMostrarForm(false);
+            recargar();
+          }}
+        />
+      )}
 
       {error && (
-        <p className="text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 mb-4">{error}</p>
+        <p className="text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 mb-4">
+          {error}
+        </p>
       )}
 
       {adminParaCambiarEstado && (
@@ -69,7 +82,11 @@ export default function PlatformAdminsView() {
           activarA={!adminParaCambiarEstado.activo}
           entidadNombre={adminParaCambiarEstado.email}
           onConfirmar={async (motivo) => {
-            await cambiarEstadoPlatformAdminApi(adminParaCambiarEstado.id, !adminParaCambiarEstado.activo, motivo);
+            await cambiarEstadoPlatformAdminApi(
+              adminParaCambiarEstado.id,
+              !adminParaCambiarEstado.activo,
+              motivo
+            );
             setAdminParaCambiarEstado(null);
             recargar();
           }}
@@ -116,7 +133,9 @@ export default function PlatformAdminsView() {
             </div>
           ))}
           {admins.length === 0 && (
-            <p className="px-4 py-6 text-center text-slate-500 text-sm">No hay admins de plataforma todavía.</p>
+            <p className="px-4 py-6 text-center text-slate-500 text-sm">
+              No hay admins de plataforma todavía.
+            </p>
           )}
         </div>
       )}
@@ -124,7 +143,13 @@ export default function PlatformAdminsView() {
   );
 }
 
-function SesionesDeAdmin({ adminId, onError }: { adminId: string; onError: (msg: string) => void }) {
+function SesionesDeAdmin({
+  adminId,
+  onError,
+}: {
+  adminId: string;
+  onError: (msg: string) => void;
+}) {
   const [sesiones, setSesiones] = useState<SesionActivaAdmin[] | null>(null);
 
   async function cargar() {
@@ -136,6 +161,9 @@ function SesionesDeAdmin({ adminId, onError }: { adminId: string; onError: (msg:
   }
 
   useEffect(() => {
+    // Patrón estándar de carga al montar (setCargando(true) -> fetch ->
+    // setCargando(false)), usado en toda la app.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     cargar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminId]);
@@ -157,17 +185,23 @@ function SesionesDeAdmin({ adminId, onError }: { adminId: string; onError: (msg:
     <div className="px-4 pb-3 bg-slate-950/40">
       {sesiones.length === 0 ? (
         <p className="text-xs text-slate-500">
-          Sin sesiones activas (ya expiraron, se cerraron, o no hay Redis configurado — sin Redis no hay sesión
-          revocable).
+          Sin sesiones activas (ya expiraron, se cerraron, o no hay Redis configurado — sin Redis no
+          hay sesión revocable).
         </p>
       ) : (
         <ul className="space-y-1.5">
           {sesiones.map((s) => (
-            <li key={s.sessionId} className="flex items-center justify-between text-xs text-slate-400">
+            <li
+              key={s.sessionId}
+              className="flex items-center justify-between text-xs text-slate-400"
+            >
               <span>
                 {s.ip} · desde {new Date(s.creadaEn).toLocaleString()}
               </span>
-              <button onClick={() => revocar(s.sessionId)} className="text-red-400 hover:text-red-300 font-medium">
+              <button
+                onClick={() => revocar(s.sessionId)}
+                className="text-red-400 hover:text-red-300 font-medium"
+              >
                 Revocar
               </button>
             </li>

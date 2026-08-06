@@ -1,6 +1,7 @@
 /**client/src/components/combustible/CombustiblePanel */
 
 import { useState, useEffect } from "react";
+
 import { apiFetch } from "../../services/apiClient";
 import CountUp from "../dashboard/CountUp";
 
@@ -18,7 +19,9 @@ export default function CombustiblePanel() {
   const [barWidth, setBarWidth] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  {/** lo quitamos temporal para usar mocks */}
+  {
+    /** lo quitamos temporal para usar mocks */
+  }
   useEffect(() => {
     apiFetch("/api/erp/combustible")
       .then((res) => res.json())
@@ -42,10 +45,6 @@ export default function CombustiblePanel() {
     return <div className="p-10">No hay datos disponibles.</div>;
   }
 
-  const nivel = Number(tanque.nivel_actual);
-  const capacidad = Number(tanque.capacidad_total);
-
-
   return (
     <div className="animate-in fade-in duration-700 slide-in-from-bottom-4">
       {/* Header */}
@@ -62,14 +61,15 @@ export default function CombustiblePanel() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-
         {/* Tanque Principal */}
         <div className="bg-white border border-slate-200 rounded-xl p-8 hover:shadow-sm transition-all duration-300">
           <div className="space-y-8">
             {/* Header del tanque */}
             <div className="flex items-start justify-between">
               <div className="space-y-1">
-                <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Tanque Principal</p>
+                <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">
+                  Tanque Principal
+                </p>
                 <div className="flex items-baseline gap-2 mt-2">
                   <p className="text-4xl font-light text-slate-900">6,500</p>
                   <span className="text-slate-400 text-sm font-light">/ 10,000 L</span>
@@ -123,7 +123,6 @@ export default function CombustiblePanel() {
             </p>
           </div>
         </div>
-
       </div>
     </div>
   );

@@ -5,6 +5,7 @@
 // falta del lado del backend (ver restablecerPasswordService).
 
 import { useState, type FormEvent } from "react";
+
 import { resetPasswordApi } from "../services/authApi";
 
 export default function ResetPasswordPage() {
@@ -55,7 +56,8 @@ export default function ResetPasswordPage() {
           {token && listo && (
             <>
               <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
-                Contraseña actualizada correctamente. Ya puedes iniciar sesión con tu nueva contraseña.
+                Contraseña actualizada correctamente. Ya puedes iniciar sesión con tu nueva
+                contraseña.
               </p>
               <a
                 href="/"
@@ -69,7 +71,10 @@ export default function ResetPasswordPage() {
           {token && !listo && (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-light text-slate-100 mb-1.5" htmlFor="password">
+                <label
+                  className="block text-sm font-light text-slate-100 mb-1.5"
+                  htmlFor="password"
+                >
                   Nueva contraseña
                 </label>
                 <input
@@ -86,7 +91,10 @@ export default function ResetPasswordPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-light text-slate-100 mb-1.5" htmlFor="confirmacion">
+                <label
+                  className="block text-sm font-light text-slate-100 mb-1.5"
+                  htmlFor="confirmacion"
+                >
                   Confirmar contraseña
                 </label>
                 <input
@@ -103,7 +111,9 @@ export default function ResetPasswordPage() {
               </div>
 
               {error && (
-                <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
+                <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                  {error}
+                </p>
               )}
 
               <button

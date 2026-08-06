@@ -5,9 +5,7 @@
 // (ver platformApi.ts), completamente separada de la de cualquier tenant.
 
 import { useEffect, useState } from "react";
-import PlatformLoginPage from "./PlatformLoginPage";
-import TenantsView from "./TenantsView";
-import TenantDetalleView from "./TenantDetalleView";
+
 import AuditoriaView from "./AuditoriaView";
 import PlatformAdminsView from "./PlatformAdminsView";
 import {
@@ -17,6 +15,9 @@ import {
   type TenantPlataforma,
   type QuienSoy,
 } from "./platformApi";
+import PlatformLoginPage from "./PlatformLoginPage";
+import TenantDetalleView from "./TenantDetalleView";
+import TenantsView from "./TenantsView";
 
 type Seccion = "tenants" | "auditoria" | "admins";
 
@@ -53,7 +54,9 @@ export default function PlatformApp() {
     <div className="min-h-screen bg-slate-950">
       <header className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-6">
-          <span className="text-slate-100 font-light text-sm tracking-tight">MinCore ERP · Plataforma</span>
+          <span className="text-slate-100 font-light text-sm tracking-tight">
+            MinCore ERP · Plataforma
+          </span>
           <nav className="flex items-center gap-4">
             <button
               onClick={() => {
@@ -85,7 +88,11 @@ export default function PlatformApp() {
             className={`text-xs ${
               quienSoy.actorType === "emergency_shared_secret" ? "text-amber-400" : "text-slate-500"
             }`}
-            title={quienSoy.actorType === "emergency_shared_secret" ? "Acceso de emergencia (secreto compartido)" : ""}
+            title={
+              quienSoy.actorType === "emergency_shared_secret"
+                ? "Acceso de emergencia (secreto compartido)"
+                : ""
+            }
           >
             {quienSoy.actorLabel}
           </span>
