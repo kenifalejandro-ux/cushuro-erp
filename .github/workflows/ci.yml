@@ -241,6 +241,14 @@ jobs:
       E2E_ADMIN_NOMBRE: E2E Admin
       E2E_ADMIN_EMAIL: e2e@mincoreerp.test
       E2E_ADMIN_PASSWORD: E2eTestPass!2026
+      # Segundo tenant, para aislamiento-tenants.spec.ts: sin datos ajenos
+      # que intentar alcanzar no hay nada que probar. Este NO entra por la
+      # UI (el slug horneado en el bundle es el de arriba) — el spec lo
+      # maneja por API.
+      E2E_TENANT_B_SLUG: e2e-b
+      E2E_ADMIN_B_NOMBRE: E2E Admin B
+      E2E_ADMIN_B_EMAIL: e2e-b@mincoreerp.test
+      E2E_ADMIN_B_PASSWORD: E2eTestPassB!2026
 
     steps:
       - uses: actions/checkout@v7
@@ -272,6 +280,15 @@ jobs:
             --adminNombre="$E2E_ADMIN_NOMBRE" \
             --adminEmail="$E2E_ADMIN_EMAIL" \
             --adminPassword="$E2E_ADMIN_PASSWORD"
+
+      - name: Sembrar segundo tenant (para el spec de aislamiento)
+        run: |
+          npm run tenant:create -- \
+            --tenantNombre="E2E Test B" \
+            --tenantSlug="$E2E_TENANT_B_SLUG" \
+            --adminNombre="$E2E_ADMIN_B_NOMBRE" \
+            --adminEmail="$E2E_ADMIN_B_EMAIL" \
+            --adminPassword="$E2E_ADMIN_B_PASSWORD"
 
       - name: Instalar dependencias del frontend
         working-directory: client
