@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 
+import { identificarUsuarioSentry } from "../config/sentry";
 import { registrarSesionExpirada } from "../services/apiClient";
 import { getMeApi, logoutApi, type UsuarioPayload } from "../services/authApi";
 
@@ -27,6 +28,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => setUsuario(null))
       .finally(() => setCargando(false));
   }, []);
+
+  // Etiqueta los eventos de Sentry con el tenant y el rol del usuario
+  // activo. Acá y no en el login: este efecto también corre cuando la
+  // sesión se restaura sola al abrir la app (el getMe de arriba) y cuando
+  // se cae por un refresh vencido, casos que no pasan por login(). Sin
+  // esto, un error reportado no dice de qué tenant vino, que es lo primero
+  // que hace falta para saber si algo le pasa a un cliente o a todos.
+  useEffect(() => {
+    identificarUsuarioSentry(usuario);
+  }, [usuario]);
 
   // apiFetch llama acá cuando un 401 no se pudo resolver con /api/auth/refresh
   // (refresh token vencido, revocado, o inexistente) — cualquier pantalla que
