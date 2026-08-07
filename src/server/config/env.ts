@@ -204,6 +204,18 @@ export const env = {
   // que no hay una decisión de negocio que tomar para activarlo — corre
   // siempre, con el mismo intervalo por defecto que particionesCheckIntervalMs.
   backupDrillCheckIntervalMs: readNumber(process.env.BACKUP_DRILL_CHECK_INTERVAL_MS, 24 * 60 * 60_000),
+  // Restore drill de ESCRITURA (platformBackupWriteDrill.worker.ts): a
+  // diferencia del de arriba, este sí inserta filas de verdad (dentro de
+  // una transacción que nunca comitea — ver runSiPrimero/siempreRollback),
+  // así que sí hay una decisión de negocio que tomar antes de prenderlo:
+  // apagado por default, mismo criterio que la retención de backups.
+  // Intervalo semanal por default (no diario como el de lectura): cada
+  // corrida escribe de verdad en Postgres de producción.
+  backupWriteDrillEnabled: process.env.BACKUP_WRITE_DRILL_ENABLED === "true",
+  backupWriteDrillCheckIntervalMs: readNumber(
+    process.env.BACKUP_WRITE_DRILL_CHECK_INTERVAL_MS,
+    7 * 24 * 60 * 60_000
+  ),
   // Clave de cifrado reversible para secretos de plataforma (hoy: el
   // client_secret OIDC de tenant_sso_config) — ver platformCrypto.ts.
   // Deliberadamente separada de JWT_SECRET: son cosas distintas (firmar vs
