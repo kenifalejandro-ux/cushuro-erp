@@ -18,6 +18,7 @@ import { createSystemRouter } from "./routes/system";
 import { createPlatformRouter } from "./routes/platform";
 import { createScimRouter } from "./routes/scim";
 import { createApiRouter } from "./routes";
+import { Sentry } from "./config/sentry";
 import { errorHandler } from "./shared/middlewares/error.middleware";
 import { requestContextMiddleware } from "./shared/middlewares/requestContext.middleware";
 
@@ -142,6 +143,15 @@ export function createApp() {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
+
+  // Después de todas las rutas, antes del errorHandler propio: reporta a
+  // Sentry los errores no controlados (>= 500 por default -- lee
+  // error.statusCode, que AppError ya expone, así que un 404/409/422 de
+  // negocio no cuenta como incidente) y deja que errorHandler siga
+  // respondiéndole al cliente igual que siempre. Seguro de llamar aunque
+  // Sentry no esté configurado (SENTRY_DSN vacío): sin un client activo,
+  // captureException es un no-op -- ver config/sentry.ts.
+  Sentry.setupExpressErrorHandler(app);
 
   app.use(errorHandler);
 

@@ -218,6 +218,13 @@ export const env = {
   platformSsoIssuerUrl: process.env.PLATFORM_SSO_ISSUER_URL || "",
   platformSsoClientId: process.env.PLATFORM_SSO_CLIENT_ID || "",
   platformSsoClientSecret: process.env.PLATFORM_SSO_CLIENT_SECRET || "",
+  // Monitoreo de errores (config/sentry.ts). Vacío por default = Sentry no
+  // se inicializa y capturarError() queda como no-op — mismo criterio que
+  // el resto de la config opcional (APP_ENCRYPTION_KEY, PLATFORM_ADMIN_TOKEN):
+  // apagado hasta que alguien lo configure a propósito, nunca a medias.
+  sentryDsn: process.env.SENTRY_DSN || "",
+  sentryEnvironment:
+    process.env.SENTRY_ENVIRONMENT || (process.env.NODE_ENV === "production" ? "production" : "development"),
 };
 
 // Si hay DATABASE_URL (Railway u otro proveedor gestionado), las variables
