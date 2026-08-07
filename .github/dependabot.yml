@@ -53,6 +53,22 @@ updates:
     groups:
       minor-y-patch:
         update-types: ["minor", "patch"]
+    # ⚠️ PUNTO CIEGO: `xlsx` se instala desde un tarball del CDN de SheetJS,
+    # no desde el registry — Dependabot y `npm audit` NO pueden revisarlo.
+    # No es un descuido: SheetJS se fue de npm en 2023 y dejó el paquete
+    # `xlsx` del registry congelado en 0.18.5, que arrastra la prototype
+    # pollution de CVE-2023-30533. Volver a npm sería BAJAR a una CVE
+    # conocida; el CDN es la distribución oficial y hoy da 0.20.3 (con esa
+    # CVE y la ReDoS de CVE-2024-22363 ya corregidas).
+    #
+    # La URL está fijada a la versión exacta (`xlsx-0.20.3/`), no a
+    # `xlsx-latest/`: esa última es mutable y el día que SheetJS publique,
+    # el hash del lockfile deja de coincidir y `npm ci` revienta en CI sin
+    # que nadie haya tocado nada.
+    #
+    # A cambio, actualizar es MANUAL: revisar https://cdn.sheetjs.com/
+    # cada tanto y al subir de versión cambiar la URL en client/package.json
+    # y correr `npm install --package-lock-only`.
     ignore:
       # TypeScript 7 rompe el tsconfig.json de client/ (moduleResolution:
       # "node10", baseUrl, rutas no relativas) — ESO se arregla fácil

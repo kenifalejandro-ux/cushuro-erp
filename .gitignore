@@ -15,9 +15,11 @@ client/.env.*
 # de clientes (incluidos password_hash), nunca van al repo.
 /backups
 
-# Estado interno de Vitest (qué test falló la última corrida) — cambia en
-# cada run, no aporta nada versionado.
+# Estado interno de Vitest (qué test falló la última corrida) y de
+# Playwright (traces/screenshots de fallos) — cambia en cada run, no aporta
+# nada versionado.
 /test-results
+/playwright-report
 
 # Reporte de coverage (vitest run --coverage) — se regenera en cada corrida.
 /coverage
