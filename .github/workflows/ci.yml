@@ -249,6 +249,20 @@ jobs:
       E2E_ADMIN_B_NOMBRE: E2E Admin B
       E2E_ADMIN_B_EMAIL: e2e-b@mincoreerp.test
       E2E_ADMIN_B_PASSWORD: E2eTestPassB!2026
+      # El rate limiter de /login cuenta por `form:<path>:<ip>` (ver
+      # rateLimiter.ts): no distingue usuario ni tenant, así que TODOS los
+      # logins del job comparten un mismo contador. Los 3 navegadores del
+      # config corren en paralelo y cada spec loguea —el de aislamiento dos
+      # veces, una por tenant— así que son 9 intentos en menos de un minuto
+      # contra un default de 5/min. El tercer navegador se come un 429 y el
+      # job falla por algo que no tiene nada que ver con lo que se está
+      # probando (pasó con WebKit, pero le habría tocado a cualquiera: es el
+      # último en correr, no el culpable).
+      #
+      # Subirlo acá no debilita nada: el rate limiter tiene su propia
+      # cobertura en tests/erp-rate-limit.test.ts, donde SÍ es el sujeto del
+      # test. Acá solo estorba.
+      RATE_LIMIT_MAX_REQUESTS: 100
 
     steps:
       - uses: actions/checkout@v7
