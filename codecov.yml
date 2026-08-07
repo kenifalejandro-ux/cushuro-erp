@@ -1,0 +1,44 @@
+# Codecov = reporting, no gate. El gate duro de cobertura vive en
+# vitest.config.mts (thresholds que fallan el job de CI). Esta config solo
+# controla los status checks informativos y los comentarios en PRs.
+#
+# Docs: https://docs.codecov.com/docs/codecovyml-reference
+
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  status:
+    # Cobertura total del repo: no debe caer más de 1% respecto al target
+    # automático (el % del branch base), con margen chico para no ser
+    # ruidoso al principio.
+    project:
+      default:
+        target: auto
+        threshold: 1%
+        flags:
+          - backend
+
+    # Cobertura del código nuevo/modificado en cada PR: mismo criterio,
+    # separado del check de "project" porque un PR chico puede bajar el
+    # total del repo sin que el código que toca esté mal cubierto.
+    patch:
+      default:
+        target: auto
+        threshold: 1%
+        flags:
+          - backend
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false
+
+flags:
+  backend:
+    paths:
+      - src/
+    carryforward: false
+  # Preparado para cuando el frontend (client/) empiece a generar
+  # cobertura — agregar acá el flag "frontend" con su propio path y subir
+  # su lcov con name/flags: frontend en el workflow correspondiente.
