@@ -42,8 +42,38 @@ const requestLogger = pinoHttp({
   },
 }) as unknown as RequestHandler;
 
+// CSP en bloqueo real -- se probó primero en modo Report-Only (2026-08-06,
+// con Playwright: login, botón de Google, dashboard) sin ninguna violación
+// una vez agregados accounts.google.com y fonts.google*.com. Recursos
+// externos reales que usa el frontend:
+// - accounts.google.com: script + iframe + stylesheet propia (gsi/style)
+//   del botón "Continuar con Google"
+// - fonts.googleapis.com / fonts.gstatic.com: Google Fonts (Inter, Space Grotesk)
+// - 'unsafe-inline' en styleSrc: el <style> crítico inline en index.html
+//   (evita flash de contenido sin estilo) -- inline scripts NO se permiten,
+//   ahí es donde importa de verdad la protección contra XSS.
+// - o4511866017480704.ingest.us.sentry.io en connectSrc: es a donde el SDK
+//   de Sentry del frontend manda los reportes de error. Sin esta entrada el
+//   navegador los bloquea SIN avisar -- no hay error visible en consola de
+//   la app ni falla nada, los eventos simplemente nunca llegan a Sentry, y
+//   uno cree que tiene monitoreo cuando no lo tiene. El host sale del DSN
+//   (VITE_SENTRY_DSN); si alguna vez se cambia de proyecto u organización
+//   en Sentry, hay que actualizarlo acá también.
+const cspDirectives = {
+  defaultSrc: ["'self'"],
+  scriptSrc: ["'self'", "https://accounts.google.com"],
+  styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://accounts.google.com"],
+  fontSrc: ["'self'", "https://fonts.gstatic.com"],
+  imgSrc: ["'self'", "data:"],
+  connectSrc: ["'self'", "https://o4511866017480704.ingest.us.sentry.io"],
+  frameSrc: ["https://accounts.google.com"],
+};
+
 const helmetMiddleware = helmet({
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: cspDirectives,
+  },
   crossOriginEmbedderPolicy: false,
   crossOriginOpenerPolicy: false,
   crossOriginResourcePolicy: { policy: "same-site" },
