@@ -14,6 +14,7 @@
 import { getRedis } from "../config/redis";
 import { logger } from "../config/logger";
 import { env } from "../config/env";
+import { capturarError } from "../config/sentry";
 import {
   reclamarPendientes,
   marcarProcesado,
@@ -73,5 +74,8 @@ export async function drenarUnaVez(): Promise<void> {
 }
 
 setInterval(() => {
-  drenarUnaVez().catch((err) => logger.warn({ err }, "Error inesperado drenando platform_outbox"));
+  drenarUnaVez().catch((err) => {
+    logger.warn({ err }, "Error inesperado drenando platform_outbox");
+    capturarError(err, { worker: "platformOutbox" });
+  });
 }, env.platformOutboxPollIntervalMs).unref();

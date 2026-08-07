@@ -54,6 +54,7 @@ export const LOCK_IDS = {
   backupRetention: 483922,
   auditRetention: 483923,
   backupDrill: 483924,
+  backupWriteDrill: 483925,
 } as const;
 
 /** Corre `fn(client)` solo si logra tomar el lock `lockId`, dentro de una
@@ -61,8 +62,20 @@ export const LOCK_IDS = {
  *  tiene, no hace nada y devuelve `undefined`. `fn` DEBE hacer su trabajo
  *  con el `client` que recibe (no con `pool` directo): son dos conexiones
  *  distintas, y usar `pool` dejaría ese trabajo corriendo por fuera de la
- *  transacción que sostiene el lock — sin ninguna protección real. */
-export async function runSiPrimero<T>(lockId: number, fn: (client: PoolClient) => Promise<T>): Promise<T | undefined> {
+ *  transacción que sostiene el lock — sin ninguna protección real.
+ *
+ *  `siempreRollback`: por default (`false`) un `fn` que resuelve sin error
+ *  termina en COMMIT, como siempre. En `true`, termina SIEMPRE en ROLLBACK
+ *  — incluso si `fn` no tiró error — y `fn` sigue devolviendo su resultado
+ *  igual. Pensado para tareas que deliberadamente no deben dejar rastro
+ *  (ver platformBackupWriteDrill.worker.ts): un restore de prueba que
+ *  necesita ejercitar el camino real de escritura sin que nada de lo que
+ *  escribe sobreviva, pase lo que pase. */
+export async function runSiPrimero<T>(
+  lockId: number,
+  fn: (client: PoolClient) => Promise<T>,
+  opciones?: { siempreRollback?: boolean }
+): Promise<T | undefined> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -77,7 +90,7 @@ export async function runSiPrimero<T>(lockId: number, fn: (client: PoolClient) =
     }
     try {
       const resultado = await fn(client);
-      await client.query("COMMIT");
+      await client.query(opciones?.siempreRollback ? "ROLLBACK" : "COMMIT");
       return resultado;
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});

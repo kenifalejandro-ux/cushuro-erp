@@ -49,7 +49,7 @@ const TABLAS_TENANT: MetaTabla[] = [{ nombre: "usuarios", pk: "uuid" }, ...MODUL
 // por la misma razón que se inserta primero.
 const RAICES_WIPE: string[] = [...MODULOS.flatMap((m) => m.raices)].reverse();
 
-interface ContenidoBackup {
+export interface ContenidoBackup {
   version: 1;
   tenantId: string;
   tenantSlug: string;
@@ -197,7 +197,7 @@ export async function listarBackupsTenantService(tenantId: string): Promise<Tena
 /** Wipe en orden que respeta las FK — ver RAICES_WIPE. Se apoya en ON
  *  DELETE CASCADE de las tablas "hijas" de cada módulo (las que no
  *  aparecen en `raices`) igual que tests/helpers.ts. */
-async function vaciarDatosDeTenant(client: PoolClient, tenantId: string): Promise<void> {
+export async function vaciarDatosDeTenant(client: PoolClient, tenantId: string): Promise<void> {
   for (const tabla of RAICES_WIPE) {
     await client.query(`DELETE FROM ${tabla} WHERE tenant_id = $1`, [tenantId]);
   }
@@ -222,7 +222,7 @@ async function vaciarDatosDeTenant(client: PoolClient, tenantId: string): Promis
  *    (UUID nuevo, o dejar que SERIAL asigne el suyo) y se recuerda el
  *    mapeo viejo→nuevo por tabla, para reescribir cualquier FK de una
  *    fila posterior que apunte a esa fila (ver `fks` en TABLAS_TENANT). */
-async function restaurarTablas(
+export async function restaurarTablas(
   client: PoolClient,
   backup: ContenidoBackup,
   targetTenantId: string,

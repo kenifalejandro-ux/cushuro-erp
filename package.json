@@ -11,6 +11,7 @@
     "diagnose:queries": "tsx scripts/diagnosticoQueries.ts",
     "tenant:create": "tsx scripts/onboardTenant.ts",
     "backup:restore-drill": "tsx scripts/restoreDrill.ts",
+    "backup:restore-drill:escritura": "tsx scripts/restoreDrillEscritura.ts",
     "preview": "npm run preview --prefix client",
     "start": "tsx server.ts",
     "server": "tsx server.ts",

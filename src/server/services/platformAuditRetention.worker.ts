@@ -38,6 +38,7 @@ import { pool } from "../config/database";
 import { logger } from "../config/logger";
 import { env } from "../config/env";
 import { runSiPrimero, LOCK_IDS } from "../shared/utils/advisoryLock";
+import { capturarError } from "../config/sentry";
 
 const LOTE = 5000; // borra en lotes para no tomar un lock largo sobre una tabla que se sigue escribiendo en paralelo
 
@@ -101,7 +102,8 @@ async function correrRetencionAuditoriaCoordinada(): Promise<void> {
 }
 
 setInterval(() => {
-  correrRetencionAuditoriaCoordinada().catch((err) =>
-    logger.warn({ err }, "Error inesperado en la retención de platform_audit_log")
-  );
+  correrRetencionAuditoriaCoordinada().catch((err) => {
+    logger.warn({ err }, "Error inesperado en la retención de platform_audit_log");
+    capturarError(err, { worker: "platformAuditRetention" });
+  });
 }, env.platformAuditRetentionCheckIntervalMs).unref();

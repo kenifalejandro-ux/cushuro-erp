@@ -154,7 +154,7 @@ Un backup nunca restaurado no es una garantía, es una suposición. `platformBac
 2. Parsea el JSON.
 3. Compara la cantidad de filas por tabla contra el manifiesto guardado en `tenant_backups.tablas` / `platform_backups.tablas` al momento de crear el backup.
 
-**Deliberadamente no restaura de verdad** sobre un esquema descartable (eso sería un drill completo — más caro, más superficie de riesgo, y usa recursos de la base de PRODUCCIÓN para el ensayo). Es de solo lectura de punta a punta: nunca escribe en Postgres, solo lee el índice de backups y el objeto de storage.
+**Deliberadamente no restaura de verdad.** Es de solo lectura de punta a punta: nunca escribe en Postgres, solo lee el índice de backups y el objeto de storage. El drill que sí restaura de verdad —`platformBackupWriteDrill.worker.ts`— se documenta aparte más abajo.
 
 ### Ejecución manual: `npm run backup:restore-drill`
 
@@ -183,6 +183,25 @@ Construir el drill y estabilizar `platform-backup.test.ts` en la suite completa 
 - **Colisión de keys de storage.** `timestampParaKey()` recortaba los milisegundos del timestamp ISO. Dos backups del mismo tenant (o dos de plataforma) creados dentro del mismo segundo terminaban compartiendo key, y el segundo write pisaba el archivo del primero — la fila de metadata del primero quedaba "completa" pero apuntando al contenido del otro backup. Corregido agregando milisegundos + un sufijo random corto a la key (ver [backups en S3](backups-s3.md)). Encontrado por el restore drill.
 - **Restore de plataforma con FK stale.** `restaurarTablasPlataforma()` pre-chequeaba en JS "¿existe este usuario hoy?" con un `SELECT` al principio de la transacción, y confiaba en ese resultado más tarde. Si el usuario se borraba (por otro tenant, en paralelo) en el medio, el `INSERT` reventaba con FK violation y abortaba el restore **completo** — un tenant borrado por otro motivo, un rato antes, tiraba abajo el restore de todos los demás. Corregido con `SAVEPOINT` por fila: se deja que la FK real de Postgres decida en el momento exacto del `INSERT`, nunca un chequeo previo que puede quedar viejo.
 - **`setval()` a ciegas en el restore por tenant.** `restaurarTablas()` (restore sobre el mismo tenant, preservando ids) hacía `setval(secuencia, MAX(id))` después de insertar filas con id explícito. `equipos.id` es una secuencia **global** (no por tenant): mientras este restore corría, cualquier OTRO tenant insertando una fila nueva por su cuenta avanzaba la secuencia de verdad — y un `setval` que ignora eso puede **retrocederla**, haciendo que el próximo `nextval()` de una inserción totalmente ajena choque contra una fila que ya existía. Corregido tomando el `GREATEST` contra el valor actual de la secuencia (`pg_sequence_last_value`), nunca un valor a ciegas.
+
+---
+
+## 5. Restore drill de escritura: probando el camino real, sin dejar rastro
+
+El drill de la sección anterior responde "¿el archivo todavía se puede leer?". No responde "¿el camino de escritura de un restore real todavía funciona?" — esas son preguntas distintas, y la segunda solo se puede responder escribiendo de verdad. `platformBackupWriteDrill.worker.ts` hace exactamente eso, apagado por default (`BACKUP_WRITE_DRILL_ENABLED`).
+
+Reusa las mismas funciones que `restaurarBackupService()` usa en un restore real (`vaciarDatosDeTenant()`, `restaurarTablas()`, exportadas de `platformBackup.service.ts` para este propósito) — nunca una reimplementación paralela, para que un cambio futuro en la lógica de restore no pueda quedar sin ejercitar por el drill sin que nadie se entere.
+
+**Aislamiento:** este sistema no es schema-per-tenant (es RLS de fila sobre un único esquema, ver `withTenant()`), así que "tenant descartable" es una fila nueva en `tenants`, con `nombre`/`slug` marcados (`__drill__<uuid>`) y un UUID propio generado en el momento — nunca un id que llegue de otro lado, así es estructuralmente imposible apuntar por error a un tenant real.
+
+**Por qué nunca hace `COMMIT`, ni siquiera cuando sale bien:** todo el flujo (crear el tenant descartable, vaciar, restaurar, comparar conteos contra el manifiesto) corre sobre un único `client`, dentro de una única transacción que siempre termina en `ROLLBACK`. Es más fuerte que "insertar y borrar en un `finally`": un `finally` no corre si el proceso entero crashea; una transacción sin `COMMIT` se aborda sola al cerrarse la conexión, así que no hay escenario —ni siquiera un crash a mitad de camino— que deje un tenant huérfano o filas de prueba en producción.
+
+Dos piezas de infraestructura compartida necesitaron un ajuste para soportar esto, ninguna cambia el comportamiento default de sus otros usos:
+
+- `withTenant()` siempre comitea — no sirve para este flujo (abriría su propia conexión/transacción, ajena a la que sostiene el drill). Por eso el drill maneja su transacción a mano en vez de usar `withTenant()`.
+- `runSiPrimero()` (el advisory lock que comparten todos los workers periódicos) ahora acepta `{ siempreRollback: true }`: fuerza `ROLLBACK` en vez de `COMMIT` cuando `fn` resuelve sin error, sin tocar el comportamiento de los demás callers (`particionado`, `backupRetention`, `auditRetention`, el drill de lectura), que siguen comiteando normal.
+
+Corre un solo backup por ejecución —el más reciente completo, de cualquier tenant— a propósito: el objetivo es certificar que el CAMINO de escritura funciona, no volver a verificar cada backup individual (eso ya lo cubre el drill de lectura, que sí itera por tenant).
 
 ---
 
