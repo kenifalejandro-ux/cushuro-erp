@@ -147,6 +147,21 @@ jobs:
       - name: Tests + coverage mínimo (incluye aislamiento entre tenants vía RLS)
         run: npm run test:coverage
 
+      - name: Subir cobertura a Codecov
+        # Solo reporting: fail_ci_if_error en false a propósito. Este
+        # workflow alimenta el deploy (cd.yml dispara por workflow_run al
+        # ver "CI" en success) — un blip de red o rate-limit del lado de
+        # Codecov no debe tumbar este job ni bloquear producción. El gate
+        # duro de cobertura sigue siendo el threshold de vitest.config.mts
+        # en el step de arriba, que si falla sí corta el job.
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          flags: backend
+          name: backend
+          fail_ci_if_error: false
+
   frontend:
     runs-on: ubuntu-latest
 
