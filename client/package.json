@@ -13,6 +13,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "@sentry/react": "^10.69.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-is": "^19.2.8",
