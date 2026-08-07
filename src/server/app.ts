@@ -52,13 +52,20 @@ const requestLogger = pinoHttp({
 // - 'unsafe-inline' en styleSrc: el <style> crítico inline en index.html
 //   (evita flash de contenido sin estilo) -- inline scripts NO se permiten,
 //   ahí es donde importa de verdad la protección contra XSS.
+// - o4511866017480704.ingest.us.sentry.io en connectSrc: es a donde el SDK
+//   de Sentry del frontend manda los reportes de error. Sin esta entrada el
+//   navegador los bloquea SIN avisar -- no hay error visible en consola de
+//   la app ni falla nada, los eventos simplemente nunca llegan a Sentry, y
+//   uno cree que tiene monitoreo cuando no lo tiene. El host sale del DSN
+//   (VITE_SENTRY_DSN); si alguna vez se cambia de proyecto u organización
+//   en Sentry, hay que actualizarlo acá también.
 const cspDirectives = {
   defaultSrc: ["'self'"],
   scriptSrc: ["'self'", "https://accounts.google.com"],
   styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://accounts.google.com"],
   fontSrc: ["'self'", "https://fonts.gstatic.com"],
   imgSrc: ["'self'", "data:"],
-  connectSrc: ["'self'"],
+  connectSrc: ["'self'", "https://o4511866017480704.ingest.us.sentry.io"],
   frameSrc: ["https://accounts.google.com"],
 };
 
