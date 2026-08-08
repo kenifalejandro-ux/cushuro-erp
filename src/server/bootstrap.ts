@@ -22,7 +22,7 @@ export async function startServer() {
 
   // ====================== CONEXIÓN A BASE DE DATOS ======================
   logger.info("🔌 Intentando conectar a PostgreSQL...");
-  testDatabaseConnection().then(connected => {
+  testDatabaseConnection().then((connected) => {
     if (!connected && env.isProduction) {
       logger.error("❌ No se pudo conectar a PostgreSQL en entorno de producción");
       process.exit(1);
@@ -51,10 +51,10 @@ export async function startServer() {
 
   // ====================== INICIO DEL SERVIDOR ======================
   const app = createApp();
-  
+
   const server = app.listen(env.port, () => {
     logger.info(`🚀 MinCore ERP API iniciada correctamente en http://localhost:${env.port}`);
-    logger.info(`📊 Entorno: ${env.isProduction ? 'PRODUCCIÓN' : 'DESARROLLO'}`);
+    logger.info(`📊 Entorno: ${env.isProduction ? "PRODUCCIÓN" : "DESARROLLO"}`);
   });
 
   // ====================== SHUTDOWN GRACIOSO ======================

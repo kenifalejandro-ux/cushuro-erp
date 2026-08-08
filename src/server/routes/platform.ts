@@ -9,9 +9,18 @@ import platformTenantRateLimiter from "../middleware/platformTenantRateLimiter";
 import platformAdminLoginRateLimiter from "../middleware/platformAdminLoginRateLimiter";
 import { env } from "../config/env";
 import { getRedis } from "../config/redis";
-import { platformAdminMiddleware, PLATFORM_SESSION_COOKIE } from "../shared/middlewares/platformAdmin.middleware";
+import {
+  platformAdminMiddleware,
+  PLATFORM_SESSION_COOKIE,
+} from "../shared/middlewares/platformAdmin.middleware";
 import { platformSuperAdminMiddleware } from "../shared/middlewares/platformSuperAdmin.middleware";
-import { getClientIp, getRequestId, getUserAgent, getPlatformSessionId, getPlatformActor } from "../shared/utils/request";
+import {
+  getClientIp,
+  getRequestId,
+  getUserAgent,
+  getPlatformSessionId,
+  getPlatformActor,
+} from "../shared/utils/request";
 import {
   crearSesion,
   revocarSesion,
@@ -21,7 +30,10 @@ import {
   listarSesionesDeAdmin,
   type ActorSesion,
 } from "../services/platformSession.service";
-import { consultarIdempotencia, liberarIdempotencia } from "../services/platformIdempotency.service";
+import {
+  consultarIdempotencia,
+  liberarIdempotencia,
+} from "../services/platformIdempotency.service";
 import { buscarRespuestaPorClave, escribirEventoOutbox } from "../services/platformOutbox.service";
 import "../services/platformOutbox.worker"; // se activa solo con importarse (setInterval + .unref())
 import "../services/platformAuditRetention.worker"; // ídem — deshabilitado si PLATFORM_AUDIT_RETENTION_DAYS no está seteado
@@ -144,7 +156,9 @@ function contextoDe(req: Request): ContextoAuditoria {
   };
 }
 
-function actorAContexto(actor: ActorSesion | undefined): Pick<ContextoAuditoria, "actorType" | "actorId" | "actorLabel"> {
+function actorAContexto(
+  actor: ActorSesion | undefined
+): Pick<ContextoAuditoria, "actorType" | "actorId" | "actorLabel"> {
   if (!actor) return { actorType: "unauthenticated", actorLabel: "sin_credencial" };
   if (actor.actorType === "platform_admin") {
     return { actorType: "platform_admin", actorId: actor.actorId, actorLabel: actor.actorLabel };
@@ -168,7 +182,10 @@ function tokensCoinciden(a: string, b: string): boolean {
 function validarConAuditoria(
   schema: ZodTypeAny,
   accion: string,
-  resolverIds: (req: Request) => { tenantId?: string | null; usuarioId?: string | null } = () => ({})
+  resolverIds: (req: Request) => {
+    tenantId?: string | null;
+    usuarioId?: string | null;
+  } = () => ({})
 ) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -176,7 +193,10 @@ function validarConAuditoria(
       next();
     } catch (error: unknown) {
       if (error instanceof ZodError) {
-        const errors = error.issues.map((issue) => ({ field: issue.path.join("."), message: issue.message }));
+        const errors = error.issues.map((issue) => ({
+          field: issue.path.join("."),
+          message: issue.message,
+        }));
         const { tenantId, usuarioId } = resolverIds(req);
 
         await registrarAuditoria({
@@ -217,11 +237,18 @@ export function createPlatformRouter() {
     const { token } = req.validatedBody as { token: string };
 
     if (!env.platformAdminToken || !tokensCoinciden(token, env.platformAdminToken)) {
-      await registrarAuditoria({ accion: "platform.session.started", contexto: contextoDe(req), resultado: "failure" });
+      await registrarAuditoria({
+        accion: "platform.session.started",
+        contexto: contextoDe(req),
+        resultado: "failure",
+      });
       return res.status(401).json({ ok: false, message: "Token inválido" });
     }
 
-    const actor: ActorSesion = { actorType: "emergency_shared_secret", actorLabel: "secreto-compartido" };
+    const actor: ActorSesion = {
+      actorType: "emergency_shared_secret",
+      actorLabel: "secreto-compartido",
+    };
     // sessionId es null si Redis no está disponible — en ese caso la
     // cookie cae al formato legado (token crudo), sin sesión revocable
     // individualmente (ver platformSession.service.ts).
@@ -266,7 +293,8 @@ export function createPlatformRouter() {
       if (!getRedis()) {
         return res.status(503).json({
           ok: false,
-          message: "Inicio de sesión individual no disponible ahora mismo — usá el acceso de emergencia",
+          message:
+            "Inicio de sesión individual no disponible ahora mismo — usá el acceso de emergencia",
         });
       }
 
@@ -281,12 +309,18 @@ export function createPlatformRouter() {
         return res.status(401).json({ ok: false, message: "Credenciales inválidas" });
       }
 
-      const actor: ActorSesion = { actorType: "platform_admin", actorId: admin.id, actorLabel: admin.email };
+      const actor: ActorSesion = {
+        actorType: "platform_admin",
+        actorId: admin.id,
+        actorLabel: admin.email,
+      };
       const sessionId = await crearSesion(getClientIp(req), actor);
       if (!sessionId) {
         // Redis falló justo entre el chequeo de arriba y acá — ventana
         // chica, pero sin fallback legado posible para un admin individual.
-        return res.status(503).json({ ok: false, message: "No se pudo iniciar sesión — intentá de nuevo" });
+        return res
+          .status(503)
+          .json({ ok: false, message: "No se pudo iniciar sesión — intentá de nuevo" });
       }
 
       res.cookie(PLATFORM_SESSION_COOKIE, cookieDeSesion(sessionId), {
@@ -329,10 +363,16 @@ export function createPlatformRouter() {
       const currentUrl = new URL(`${req.protocol}://${req.get("host")}${req.originalUrl}`);
       const { admin } = await manejarCallbackSsoPlatformAdminService(state, currentUrl);
 
-      const actor: ActorSesion = { actorType: "platform_admin", actorId: admin.id, actorLabel: admin.email };
+      const actor: ActorSesion = {
+        actorType: "platform_admin",
+        actorId: admin.id,
+        actorLabel: admin.email,
+      };
       const sessionId = await crearSesion(getClientIp(req), actor);
       if (!sessionId) {
-        return res.redirect(`${env.appPublicUrl}/plataforma?ssoError=${encodeURIComponent("No se pudo iniciar sesión")}`);
+        return res.redirect(
+          `${env.appPublicUrl}/plataforma?ssoError=${encodeURIComponent("No se pudo iniciar sesión")}`
+        );
       }
 
       res.cookie(PLATFORM_SESSION_COOKIE, cookieDeSesion(sessionId), {
@@ -357,7 +397,9 @@ export function createPlatformRouter() {
   });
 
   router.post("/sesion/salir", async (req, res) => {
-    const cookieValue = (req as Request & { cookies?: Record<string, string> }).cookies?.[PLATFORM_SESSION_COOKIE];
+    const cookieValue = (req as Request & { cookies?: Record<string, string> }).cookies?.[
+      PLATFORM_SESSION_COOKIE
+    ];
     const sessionId = cookieValue ? idSesionDeCookie(cookieValue) : null;
 
     let actor: ActorSesion | undefined;
@@ -428,7 +470,12 @@ export function createPlatformRouter() {
     validarConAuditoria(crearPlatformAdminSchema, "crear_platform_admin"),
     async (req, res, next) => {
       try {
-        const input = req.validatedBody as { email: string; password: string; nombre: string; rol: "super_admin" | "admin" };
+        const input = req.validatedBody as {
+          email: string;
+          password: string;
+          nombre: string;
+          rol: "super_admin" | "admin";
+        };
         const admin = await crearPlatformAdminService(input);
         await registrarAuditoria({
           accion: "crear_platform_admin",
@@ -470,7 +517,12 @@ export function createPlatformRouter() {
         await registrarAuditoria({
           accion: "cambiar_estado_platform_admin",
           contexto: contextoDe(req),
-          detalle: { before: { activo: before }, after: { activo }, motivo: motivo ?? null, email: admin.email },
+          detalle: {
+            before: { activo: before },
+            after: { activo },
+            motivo: motivo ?? null,
+            email: admin.email,
+          },
         });
         res.status(200).json({ ok: true, admin });
       } catch (err) {
@@ -538,7 +590,11 @@ export function createPlatformRouter() {
     async (req, res, next) => {
       try {
         const { targetTenantId } = req.validatedBody as { targetTenantId: string; confirmar: true };
-        const resultado = await restaurarBackupService(req.params.backupId, targetTenantId, contextoDe(req));
+        const resultado = await restaurarBackupService(
+          req.params.backupId,
+          targetTenantId,
+          contextoDe(req)
+        );
         res.status(200).json({ ok: true, ...resultado });
       } catch (err) {
         next(err);
@@ -590,7 +646,12 @@ export function createPlatformRouter() {
     async (req, res, next) => {
       try {
         const { plan, motivo } = req.validatedBody as { plan: string | null; motivo?: string };
-        const resultado = await asignarPlanATenantService(req.params.id, plan, contextoDe(req), motivo);
+        const resultado = await asignarPlanATenantService(
+          req.params.id,
+          plan,
+          contextoDe(req),
+          motivo
+        );
         res.status(200).json({ ok: true, ...resultado });
       } catch (err) {
         next(err);
@@ -655,7 +716,11 @@ export function createPlatformRouter() {
         await registrarAuditoria({
           accion: "actualizar_cuota_tenant",
           tenantId: req.params.id,
-          detalle: { recurso, limite: nuevoLimite === undefined ? "(default)" : nuevoLimite, motivo: motivo ?? null },
+          detalle: {
+            recurso,
+            limite: nuevoLimite === undefined ? "(default)" : nuevoLimite,
+            motivo: motivo ?? null,
+          },
           contexto: contextoDe(req),
         });
 
@@ -705,7 +770,10 @@ export function createPlatformRouter() {
     validate(restaurarBackupPlataformaSchema),
     async (req, res, next) => {
       try {
-        const resultado = await restaurarBackupPlataformaService(req.params.backupId, contextoDe(req));
+        const resultado = await restaurarBackupPlataformaService(
+          req.params.backupId,
+          contextoDe(req)
+        );
         res.status(200).json({ ok: true, ...resultado });
       } catch (err) {
         next(err);
@@ -730,7 +798,9 @@ export function createPlatformRouter() {
       if (idempotencyKey) {
         const estado = await consultarIdempotencia(idempotencyKey);
         if (estado.estado === "en_progreso") {
-          return res.status(409).json({ ok: false, message: "Ya hay una solicitud en curso con esa Idempotency-Key" });
+          return res
+            .status(409)
+            .json({ ok: false, message: "Ya hay una solicitud en curso con esa Idempotency-Key" });
         }
         if (estado.estado === "resuelta") {
           return res.status(201).json(estado.respuesta);
@@ -786,11 +856,18 @@ export function createPlatformRouter() {
 
   router.patch(
     "/tenants/:id/estado",
-    validarConAuditoria(cambiarEstadoTenantSchema, "cambiar_estado_tenant", (req) => ({ tenantId: req.params.id })),
+    validarConAuditoria(cambiarEstadoTenantSchema, "cambiar_estado_tenant", (req) => ({
+      tenantId: req.params.id,
+    })),
     async (req, res, next) => {
       try {
         const { activo, motivo } = req.validatedBody as { activo: boolean; motivo?: string };
-        const tenant = await cambiarEstadoTenantService(req.params.id, activo, motivo, contextoDe(req));
+        const tenant = await cambiarEstadoTenantService(
+          req.params.id,
+          activo,
+          motivo,
+          contextoDe(req)
+        );
         res.status(200).json({ ok: true, tenant });
       } catch (err) {
         next(err);
@@ -807,15 +884,25 @@ export function createPlatformRouter() {
     }
   });
 
-  router.patch("/tenants/:id/dominio", validate(actualizarDominioSchema), async (req, res, next) => {
-    try {
-      const { dominioPersonalizado } = req.validatedBody as { dominioPersonalizado: string | null };
-      const dominio = await asignarDominioTenantService(req.params.id, dominioPersonalizado, contextoDe(req));
-      res.status(200).json({ ok: true, dominio });
-    } catch (err) {
-      next(err);
+  router.patch(
+    "/tenants/:id/dominio",
+    validate(actualizarDominioSchema),
+    async (req, res, next) => {
+      try {
+        const { dominioPersonalizado } = req.validatedBody as {
+          dominioPersonalizado: string | null;
+        };
+        const dominio = await asignarDominioTenantService(
+          req.params.id,
+          dominioPersonalizado,
+          contextoDe(req)
+        );
+        res.status(200).json({ ok: true, dominio });
+      } catch (err) {
+        next(err);
+      }
     }
-  });
+  );
 
   // Consulta DNS de verdad (TXT record) y activa el dominio si coincide —
   // se puede llamar cuantas veces haga falta mientras el cliente termina
@@ -841,7 +928,11 @@ export function createPlatformRouter() {
 
   router.put("/tenants/:id/sso", validate(configurarSsoTenantSchema), async (req, res, next) => {
     try {
-      const sso = await configurarSsoTenantService(req.params.id, req.validatedBody as any, contextoDe(req));
+      const sso = await configurarSsoTenantService(
+        req.params.id,
+        req.validatedBody as any,
+        contextoDe(req)
+      );
       res.status(200).json({ ok: true, sso });
     } catch (err) {
       next(err);
@@ -888,15 +979,23 @@ export function createPlatformRouter() {
     }
   });
 
-  router.put("/tenants/:id/modulos", validate(actualizarModulosTenantSchema), async (req, res, next) => {
-    try {
-      const { configuraciones } = req.validatedBody as { configuraciones: ConfiguracionModulo[] };
-      const resultado = await actualizarModulosTenantService(req.params.id, configuraciones, contextoDe(req));
-      res.status(200).json({ ok: true, modulos: resultado });
-    } catch (err) {
-      next(err);
+  router.put(
+    "/tenants/:id/modulos",
+    validate(actualizarModulosTenantSchema),
+    async (req, res, next) => {
+      try {
+        const { configuraciones } = req.validatedBody as { configuraciones: ConfiguracionModulo[] };
+        const resultado = await actualizarModulosTenantService(
+          req.params.id,
+          configuraciones,
+          contextoDe(req)
+        );
+        res.status(200).json({ ok: true, modulos: resultado });
+      } catch (err) {
+        next(err);
+      }
     }
-  });
+  );
 
   // Aplica el mismo estado a un módulo en TODOS los tenants de una sola
   // vez — "apagar en caliente globalmente". Blast radius alto (toca cada
@@ -912,7 +1011,11 @@ export function createPlatformRouter() {
           return res.status(400).json({ ok: false, message: "Módulo desconocido" });
         }
         const config = req.validatedBody as ActualizarModuloGlobalInput;
-        const resultado = await actualizarModuloGlobalService(req.params.modulo, config, contextoDe(req));
+        const resultado = await actualizarModuloGlobalService(
+          req.params.modulo,
+          config,
+          contextoDe(req)
+        );
         res.status(200).json({ ok: true, ...resultado });
       } catch (err) {
         next(err);
@@ -931,10 +1034,16 @@ export function createPlatformRouter() {
 
   router.post(
     "/tenants/:id/usuarios",
-    validarConAuditoria(crearUsuarioEnTenantSchema, "crear_usuario", (req) => ({ tenantId: req.params.id })),
+    validarConAuditoria(crearUsuarioEnTenantSchema, "crear_usuario", (req) => ({
+      tenantId: req.params.id,
+    })),
     async (req, res, next) => {
       try {
-        const usuario = await crearUsuarioEnTenantService(req.params.id, req.validatedBody as any, contextoDe(req));
+        const usuario = await crearUsuarioEnTenantService(
+          req.params.id,
+          req.validatedBody as any,
+          contextoDe(req)
+        );
         res.status(201).json({ ok: true, usuario });
       } catch (err) {
         next(err);
@@ -1010,7 +1119,10 @@ export function createPlatformRouter() {
       const hasta = typeof q.hasta === "string" ? q.hasta : undefined;
       const limit = typeof q.limit === "string" ? Number(q.limit) : undefined;
 
-      if ((desde && Number.isNaN(Date.parse(desde))) || (hasta && Number.isNaN(Date.parse(hasta)))) {
+      if (
+        (desde && Number.isNaN(Date.parse(desde))) ||
+        (hasta && Number.isNaN(Date.parse(hasta)))
+      ) {
         return res.status(400).json({ ok: false, message: "Rango de fechas inválido" });
       }
 
@@ -1036,7 +1148,9 @@ export function createPlatformRouter() {
       });
 
       const siguienteCursor = pagina.siguienteCursor
-        ? Buffer.from(`${pagina.siguienteCursor.creadoEn}|${pagina.siguienteCursor.id}`).toString("base64url")
+        ? Buffer.from(`${pagina.siguienteCursor.creadoEn}|${pagina.siguienteCursor.id}`).toString(
+            "base64url"
+          )
         : null;
 
       res.status(200).json({ ok: true, entradas: pagina.entradas, siguienteCursor });

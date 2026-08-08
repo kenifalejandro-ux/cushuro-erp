@@ -115,9 +115,13 @@ export async function cambiarEstadoPlatformAdminService(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    await client.query("SELECT pg_advisory_xact_lock(hashtext('platform_admins_super_admin_guard'))");
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('platform_admins_super_admin_guard'))"
+    );
 
-    const anterior = await client.query(`SELECT activo, rol FROM platform_admins WHERE id = $1`, [id]);
+    const anterior = await client.query(`SELECT activo, rol FROM platform_admins WHERE id = $1`, [
+      id,
+    ]);
     if (anterior.rows.length === 0) {
       throw new AppError(404, "Admin de plataforma no encontrado");
     }

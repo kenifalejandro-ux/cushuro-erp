@@ -27,7 +27,11 @@ const BEARER = `Bearer ${env.platformAdminToken}`;
 const password = "ClaveDePrueba123";
 const tenantsCreados: string[] = [];
 
-const contexto = { ip: "127.0.0.1", actorType: "emergency_shared_secret" as const, actorLabel: "tests" };
+const contexto = {
+  ip: "127.0.0.1",
+  actorType: "emergency_shared_secret" as const,
+  actorLabel: "tests",
+};
 
 async function nuevoTenant() {
   const creado = await crearTenantDePrueba(password);
@@ -49,7 +53,9 @@ describe("seed de planes", () => {
   });
 
   it("corporativo tiene los módulos ilimitados pero SÍ topea backups (es el único con costo real)", async () => {
-    const res = await request(app).get("/api/platform/planes/corporativo").set("Authorization", BEARER);
+    const res = await request(app)
+      .get("/api/platform/planes/corporativo")
+      .set("Authorization", BEARER);
 
     expect(res.body.plan.limites.usuarios).toBeNull();
     expect(res.body.plan.limites.equipos).toBeNull();
@@ -58,7 +64,9 @@ describe("seed de planes", () => {
   });
 
   it("se puede buscar un plan por UUID además de por código", async () => {
-    const porCodigo = await request(app).get("/api/platform/planes/mype").set("Authorization", BEARER);
+    const porCodigo = await request(app)
+      .get("/api/platform/planes/mype")
+      .set("Authorization", BEARER);
     const porUuid = await request(app)
       .get(`/api/platform/planes/${porCodigo.body.plan.id}`)
       .set("Authorization", BEARER);
@@ -77,7 +85,9 @@ describe("seed de planes", () => {
   });
 
   it("404 con un plan que no existe", async () => {
-    const res = await request(app).get("/api/platform/planes/inexistente").set("Authorization", BEARER);
+    const res = await request(app)
+      .get("/api/platform/planes/inexistente")
+      .set("Authorization", BEARER);
     expect(res.status).toBe(404);
   });
 });
@@ -153,7 +163,9 @@ describe("precedencia: override > plan > registry", () => {
     // Se le saca a MYPE la fila de 'equipos': el plan deja de opinar sobre
     // ese recurso. Es el mismo caso que un módulo NUEVO, que todavía no
     // tiene fila en ningún plan.
-    await pool.query(`DELETE FROM plan_limites WHERE plan_id = $1 AND recurso = 'equipos'`, [plan.body.plan.id]);
+    await pool.query(`DELETE FROM plan_limites WHERE plan_id = $1 AND recurso = 'equipos'`, [
+      plan.body.plan.id,
+    ]);
     // Este DELETE es directo a la tabla, sin pasar por fijarCuotaTenant ni
     // asignarPlanATenantService — así que hay que invalidar a mano el
     // caché de resolverLimite() (ver platformCuotas.service.ts), igual que
@@ -165,9 +177,10 @@ describe("precedencia: override > plan > registry", () => {
       expect(r.origen).toBe("registry");
       expect(r.limite).toBe(2000);
     } finally {
-      await pool.query(`INSERT INTO plan_limites (plan_id, recurso, limite) VALUES ($1, 'equipos', 20)`, [
-        plan.body.plan.id,
-      ]);
+      await pool.query(
+        `INSERT INTO plan_limites (plan_id, recurso, limite) VALUES ($1, 'equipos', 20)`,
+        [plan.body.plan.id]
+      );
       await invalidarCacheLimite(tenantId, "equipos");
     }
   });
@@ -197,21 +210,32 @@ describe("el enforcement respeta el plan", () => {
       `INSERT INTO planes (codigo, nombre) VALUES ($1, 'Plan de prueba') ON CONFLICT DO NOTHING`,
       ["test-mini-" + Date.now()]
     );
-    const codigo = (await pool.query(`SELECT codigo FROM planes WHERE codigo LIKE 'test-mini-%' ORDER BY creado_en DESC LIMIT 1`))
-      .rows[0].codigo;
-    const planId = (await pool.query(`SELECT id FROM planes WHERE codigo = $1`, [codigo])).rows[0].id;
-    await pool.query(`INSERT INTO plan_limites (plan_id, recurso, limite) VALUES ($1, 'equipos', 2)`, [planId]);
+    const codigo = (
+      await pool.query(
+        `SELECT codigo FROM planes WHERE codigo LIKE 'test-mini-%' ORDER BY creado_en DESC LIMIT 1`
+      )
+    ).rows[0].codigo;
+    const planId = (await pool.query(`SELECT id FROM planes WHERE codigo = $1`, [codigo])).rows[0]
+      .id;
+    await pool.query(
+      `INSERT INTO plan_limites (plan_id, recurso, limite) VALUES ($1, 'equipos', 2)`,
+      [planId]
+    );
 
     try {
       await asignarPlanATenantService(tenant.id, codigo, contexto);
       const agente = await agenteDe(tenant, usuario.email);
 
       for (const n of [1, 2]) {
-        const ok = await agente.post("/api/erp/equipos").send({ placa_codigo: idUnico(`EQ-${n}`), tipo: "X" });
+        const ok = await agente
+          .post("/api/erp/equipos")
+          .send({ placa_codigo: idUnico(`EQ-${n}`), tipo: "X" });
         expect(ok.status).toBe(201);
       }
 
-      const rechazado = await agente.post("/api/erp/equipos").send({ placa_codigo: idUnico("EQ-3"), tipo: "X" });
+      const rechazado = await agente
+        .post("/api/erp/equipos")
+        .send({ placa_codigo: idUnico("EQ-3"), tipo: "X" });
       expect(rechazado.status).toBe(403);
       expect(rechazado.body.limite).toBe(2); // el del plan, no los 2000 del registry
     } finally {
@@ -226,7 +250,9 @@ describe("el enforcement respeta el plan", () => {
     const agente = await agenteDe(tenant, usuario.email);
 
     for (let i = 0; i < 3; i++) {
-      const res = await agente.post("/api/erp/equipos").send({ placa_codigo: idUnico("EQ"), tipo: "X" });
+      const res = await agente
+        .post("/api/erp/equipos")
+        .send({ placa_codigo: idUnico("EQ"), tipo: "X" });
       expect(res.status).toBe(201);
     }
   });
@@ -236,7 +262,9 @@ describe("cambio de plan: nunca destruye datos", () => {
   it("bajar de plan deja al tenant EXCEDIDO pero conserva todo lo cargado", async () => {
     const { tenant, usuario } = await nuevoTenant();
     const agente = request.agent(app);
-    await agente.post("/api/auth/login").send({ tenantSlug: tenant.slug, email: usuario.email, password });
+    await agente
+      .post("/api/auth/login")
+      .send({ tenantSlug: tenant.slug, email: usuario.email, password });
 
     // Con el default del registry (2000) se cargan 3 equipos sin problema.
     for (let i = 0; i < 3; i++) {
@@ -252,14 +280,18 @@ describe("cambio de plan: nunca destruye datos", () => {
     expect(listado.body.pagination.total).toBe(3);
 
     // Pero no puede crear más.
-    const rechazado = await agente.post("/api/erp/equipos").send({ placa_codigo: idUnico("EQ"), tipo: "X" });
+    const rechazado = await agente
+      .post("/api/erp/equipos")
+      .send({ placa_codigo: idUnico("EQ"), tipo: "X" });
     expect(rechazado.status).toBe(403);
   });
 
   it("asignar un plan reporta qué recursos quedan excedidos, para poder advertirlo en el momento", async () => {
     const { tenant, usuario } = await nuevoTenant();
     const agente = request.agent(app);
-    await agente.post("/api/auth/login").send({ tenantSlug: tenant.slug, email: usuario.email, password });
+    await agente
+      .post("/api/auth/login")
+      .send({ tenantSlug: tenant.slug, email: usuario.email, password });
     for (let i = 0; i < 3; i++) {
       await agente.post("/api/erp/equipos").send({ placa_codigo: idUnico("EQ"), tipo: "X" });
     }
@@ -267,9 +299,14 @@ describe("cambio de plan: nunca destruye datos", () => {
     // Se crea un plan con menos equipos de los que el tenant ya tiene.
     const codigo = "test-bajo-" + Date.now();
     const planId = (
-      await pool.query(`INSERT INTO planes (codigo, nombre) VALUES ($1, 'Bajo') RETURNING id`, [codigo])
+      await pool.query(`INSERT INTO planes (codigo, nombre) VALUES ($1, 'Bajo') RETURNING id`, [
+        codigo,
+      ])
     ).rows[0].id;
-    await pool.query(`INSERT INTO plan_limites (plan_id, recurso, limite) VALUES ($1, 'equipos', 1)`, [planId]);
+    await pool.query(
+      `INSERT INTO plan_limites (plan_id, recurso, limite) VALUES ($1, 'equipos', 1)`,
+      [planId]
+    );
 
     try {
       const res = await request(app)
@@ -307,7 +344,9 @@ describe("API y auditoría", () => {
     expect(res.status).toBe(200);
     expect(res.body.plan.codigo).toBe("pequena");
 
-    const leido = await request(app).get(`/api/platform/tenants/${tenant.id}/plan`).set("Authorization", BEARER);
+    const leido = await request(app)
+      .get(`/api/platform/tenants/${tenant.id}/plan`)
+      .set("Authorization", BEARER);
     expect(leido.body.plan.codigo).toBe("pequena");
     expect(leido.body.plan.nombre).toBe("Pequeña");
   });
@@ -338,11 +377,15 @@ describe("API y auditoría", () => {
     const { tenant } = await nuevoTenant();
     const codigo = "test-baja-" + Date.now();
     const planId = (
-      await pool.query(`INSERT INTO planes (codigo, nombre, activo) VALUES ($1, 'De baja', false) RETURNING id`, [
-        codigo,
-      ])
+      await pool.query(
+        `INSERT INTO planes (codigo, nombre, activo) VALUES ($1, 'De baja', false) RETURNING id`,
+        [codigo]
+      )
     ).rows[0].id;
-    await pool.query(`INSERT INTO plan_limites (plan_id, recurso, limite) VALUES ($1, 'equipos', 7)`, [planId]);
+    await pool.query(
+      `INSERT INTO plan_limites (plan_id, recurso, limite) VALUES ($1, 'equipos', 7)`,
+      [planId]
+    );
 
     try {
       const res = await request(app)
@@ -364,13 +407,16 @@ describe("API y auditoría", () => {
   it("?soloActivos=true no devuelve los planes dados de baja", async () => {
     const codigo = "test-oculto-" + Date.now();
     const planId = (
-      await pool.query(`INSERT INTO planes (codigo, nombre, activo) VALUES ($1, 'Oculto', false) RETURNING id`, [
-        codigo,
-      ])
+      await pool.query(
+        `INSERT INTO planes (codigo, nombre, activo) VALUES ($1, 'Oculto', false) RETURNING id`,
+        [codigo]
+      )
     ).rows[0].id;
     try {
       const todos = await request(app).get("/api/platform/planes").set("Authorization", BEARER);
-      const activos = await request(app).get("/api/platform/planes?soloActivos=true").set("Authorization", BEARER);
+      const activos = await request(app)
+        .get("/api/platform/planes?soloActivos=true")
+        .set("Authorization", BEARER);
 
       expect(todos.body.planes.some((p: any) => p.codigo === codigo)).toBe(true);
       expect(activos.body.planes.some((p: any) => p.codigo === codigo)).toBe(false);
@@ -383,9 +429,14 @@ describe("API y auditoría", () => {
     const { tenant } = await nuevoTenant();
     const codigo = "test-efimero-" + Date.now();
     const planId = (
-      await pool.query(`INSERT INTO planes (codigo, nombre) VALUES ($1, 'Efímero') RETURNING id`, [codigo])
+      await pool.query(`INSERT INTO planes (codigo, nombre) VALUES ($1, 'Efímero') RETURNING id`, [
+        codigo,
+      ])
     ).rows[0].id;
-    await pool.query(`INSERT INTO plan_limites (plan_id, recurso, limite) VALUES ($1, 'equipos', 3)`, [planId]);
+    await pool.query(
+      `INSERT INTO plan_limites (plan_id, recurso, limite) VALUES ($1, 'equipos', 3)`,
+      [planId]
+    );
     await asignarPlanATenantService(tenant.id, codigo, contexto);
     expect(await limiteEfectivo(tenant.id, "equipos")).toBe(3);
 
@@ -409,7 +460,9 @@ describe("el resumen de cuotas expone de dónde sale cada límite", () => {
     await asignarPlanATenantService(tenant.id, "mype", contexto);
     await fijarCuotaTenant(tenant.id, "usuarios", 3, "excepción");
 
-    const res = await request(app).get(`/api/platform/tenants/${tenant.id}/cuotas`).set("Authorization", BEARER);
+    const res = await request(app)
+      .get(`/api/platform/tenants/${tenant.id}/cuotas`)
+      .set("Authorization", BEARER);
 
     const porRecurso = Object.fromEntries(res.body.cuotas.map((c: any) => [c.recurso, c]));
     expect(porRecurso.usuarios.origen).toBe("override");

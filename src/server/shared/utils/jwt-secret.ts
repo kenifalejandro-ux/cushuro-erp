@@ -8,7 +8,9 @@
 export function requerirJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    throw new Error("JWT_SECRET no está configurado. Defínelo en el archivo .env antes de iniciar el servidor.");
+    throw new Error(
+      "JWT_SECRET no está configurado. Defínelo en el archivo .env antes de iniciar el servidor."
+    );
   }
   return secret;
 }

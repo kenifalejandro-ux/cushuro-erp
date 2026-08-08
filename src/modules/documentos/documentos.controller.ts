@@ -7,13 +7,14 @@ import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/uti
 import { DocumentosService } from "./documentos.service";
 
 export const DocumentosController = {
-
   // 📄 LISTAR DOCUMENTOS (paginado)
   async getAll(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
       const paginacion = parsePaginacion(req.query);
-      const filas = await withTenant(tenantId, (client) => DocumentosService.getAll(client, tenantId, paginacion));
+      const filas = await withTenant(tenantId, (client) =>
+        DocumentosService.getAll(client, tenantId, paginacion)
+      );
       res.json(armarRespuestaPaginada(filas, paginacion));
     } catch (error) {
       res.status(500).json({ error: "Error al obtener documentos" });
@@ -24,7 +25,9 @@ export const DocumentosController = {
   async create(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const data = await withTenant(tenantId, (client) => DocumentosService.create(client, tenantId, req.body));
+      const data = await withTenant(tenantId, (client) =>
+        DocumentosService.create(client, tenantId, req.body)
+      );
       res.status(201).json(data);
     } catch {
       res.status(500).json({ error: "Error al crear documento" });
@@ -73,7 +76,9 @@ export const DocumentosController = {
   async bulkCreate(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const data = await withTenant(tenantId, (client) => DocumentosService.bulkCreate(client, tenantId, req.body));
+      const data = await withTenant(tenantId, (client) =>
+        DocumentosService.bulkCreate(client, tenantId, req.body)
+      );
       res.status(201).json(data);
     } catch {
       res.status(500).json({ error: "Error en carga masiva" });
@@ -84,11 +89,12 @@ export const DocumentosController = {
   async kpis(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const data = await withTenant(tenantId, (client) => DocumentosService.getKPIs(client, tenantId));
+      const data = await withTenant(tenantId, (client) =>
+        DocumentosService.getKPIs(client, tenantId)
+      );
       res.json(data);
     } catch {
       res.status(500).json({ error: "Error en KPIs" });
     }
-  }
-
+  },
 };

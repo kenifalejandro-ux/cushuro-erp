@@ -5,10 +5,7 @@ import path from "path";
 import dotenv from "dotenv";
 
 const rootDir = process.cwd();
-const envCandidates = [
-  path.resolve(rootDir, ".env"),
-  path.resolve(rootDir, "client", ".env"),
-];
+const envCandidates = [path.resolve(rootDir, ".env"), path.resolve(rootDir, "client", ".env")];
 
 for (const envPath of envCandidates) {
   if (fs.existsSync(envPath)) {
@@ -121,8 +118,14 @@ export const env = {
   // rateLimiter genérico (form:${path}:${ip}), que comparte ventana con
   // cualquier formulario de la app y no alcanza para una acción de tanto
   // blast radius como crear un tenant nuevo.
-  platformTenantCreationWindowMs: readNumber(process.env.PLATFORM_TENANT_CREATION_WINDOW_MS, 15 * 60_000),
-  platformTenantCreationMaxRequests: readNumber(process.env.PLATFORM_TENANT_CREATION_MAX_REQUESTS, 5),
+  platformTenantCreationWindowMs: readNumber(
+    process.env.PLATFORM_TENANT_CREATION_WINDOW_MS,
+    15 * 60_000
+  ),
+  platformTenantCreationMaxRequests: readNumber(
+    process.env.PLATFORM_TENANT_CREATION_MAX_REQUESTS,
+    5
+  ),
   // Ídem para POST /api/platform/admin-sesion — separado del rateLimiter
   // genérico por la misma razón (no queremos que subir el límite de un
   // formulario cualquiera afloje sin querer la protección contra fuerza
@@ -149,7 +152,10 @@ export const env = {
   // al día alcanza de sobra: cada corrida deja 3 meses de margen, así que
   // ni una corrida atrasada por horas ni un server caído un par de días
   // arriesgan quedarse sin partición donde insertar.
-  particionesCheckIntervalMs: readNumber(process.env.PARTICIONES_CHECK_INTERVAL_MS, 24 * 60 * 60_000),
+  particionesCheckIntervalMs: readNumber(
+    process.env.PARTICIONES_CHECK_INTERVAL_MS,
+    24 * 60 * 60_000
+  ),
   particionesMesesAdelante: readNumber(process.env.PARTICIONES_MESES_ADELANTE, 3),
   // Backups de tenant (platformBackup.service.ts) — filesystem local por
   // default. El storage queda detrás de platformBackupStorage.ts a
@@ -203,7 +209,10 @@ export const env = {
   // retención, esto es de solo lectura (nunca borra ni modifica nada), así
   // que no hay una decisión de negocio que tomar para activarlo — corre
   // siempre, con el mismo intervalo por defecto que particionesCheckIntervalMs.
-  backupDrillCheckIntervalMs: readNumber(process.env.BACKUP_DRILL_CHECK_INTERVAL_MS, 24 * 60 * 60_000),
+  backupDrillCheckIntervalMs: readNumber(
+    process.env.BACKUP_DRILL_CHECK_INTERVAL_MS,
+    24 * 60 * 60_000
+  ),
   // Restore drill de ESCRITURA (platformBackupWriteDrill.worker.ts): a
   // diferencia del de arriba, este sí inserta filas de verdad (dentro de
   // una transacción que nunca comitea — ver runSiPrimero/siempreRollback),
@@ -236,7 +245,8 @@ export const env = {
   // apagado hasta que alguien lo configure a propósito, nunca a medias.
   sentryDsn: process.env.SENTRY_DSN || "",
   sentryEnvironment:
-    process.env.SENTRY_ENVIRONMENT || (process.env.NODE_ENV === "production" ? "production" : "development"),
+    process.env.SENTRY_ENVIRONMENT ||
+    (process.env.NODE_ENV === "production" ? "production" : "development"),
 };
 
 // Si hay DATABASE_URL (Railway u otro proveedor gestionado), las variables
@@ -259,9 +269,5 @@ export const requiredEnvNames = [
 export const missingRequiredEnv = requiredEnvNames.filter((name) => !process.env[name]);
 
 export const emailConfigured = Boolean(
-  env.emailHost &&
-    env.emailPort &&
-    env.emailUser &&
-    env.emailPass &&
-    env.contactDestination
+  env.emailHost && env.emailPort && env.emailUser && env.emailPass && env.contactDestination
 );

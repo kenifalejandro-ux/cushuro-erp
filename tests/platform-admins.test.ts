@@ -24,7 +24,12 @@ import {
   esSuperAdminVigente,
 } from "../src/server/services/platformAdminAccount.service";
 import { AppError } from "../src/server/shared/middlewares/error.middleware";
-import { crearSesion, obtenerSesion, revocarSesion, revocarSesionesDeAdmin } from "../src/server/services/platformSession.service";
+import {
+  crearSesion,
+  obtenerSesion,
+  revocarSesion,
+  revocarSesionesDeAdmin,
+} from "../src/server/services/platformSession.service";
 
 const BEARER = `Bearer ${env.platformAdminToken}`;
 const emailsCreados: string[] = [];
@@ -95,9 +100,11 @@ describe("platform_admins: CRUD vía HTTP con el secreto compartido (Bearer, sin
        ORDER BY creado_en DESC LIMIT 5`,
       ["password"]
     );
-    expect(auditoria.rows.some((r) => r.resultado === "failure" && r.actor_type === "emergency_shared_secret")).toBe(
-      true
-    );
+    expect(
+      auditoria.rows.some(
+        (r) => r.resultado === "failure" && r.actor_type === "emergency_shared_secret"
+      )
+    ).toBe(true);
   });
 
   it("desactiva un admin (soft-delete) y el cambio de estado queda auditado con before/after", async () => {
@@ -127,7 +134,9 @@ describe("platform_admins: CRUD vía HTTP con el secreto compartido (Bearer, sin
     expect(auditoria.rows[0].detalle.motivo).toBe("prueba automatizada");
 
     // No borra la fila — sigue existiendo, solo desactivada.
-    const sigueExistiendo = await pool.query(`SELECT activo FROM platform_admins WHERE id = $1`, [id]);
+    const sigueExistiendo = await pool.query(`SELECT activo FROM platform_admins WHERE id = $1`, [
+      id,
+    ]);
     expect(sigueExistiendo.rows[0].activo).toBe(false);
   });
 
@@ -153,7 +162,10 @@ describe("verificarCredencialesPlatformAdminService (Redis-independiente)", () =
     const mal = await verificarCredencialesPlatformAdminService(email, "otra-clave-cualquiera");
     expect(mal).toBeNull();
 
-    const inexistente = await verificarCredencialesPlatformAdminService("no-existe@platform-admin-test.local", "x");
+    const inexistente = await verificarCredencialesPlatformAdminService(
+      "no-existe@platform-admin-test.local",
+      "x"
+    );
     expect(inexistente).toBeNull();
 
     await pool.query(`UPDATE platform_admins SET activo = false WHERE id = $1`, [admin.id]);
@@ -164,9 +176,12 @@ describe("verificarCredencialesPlatformAdminService (Redis-independiente)", () =
 
 describe("esSuperAdminVigente (gate de platformSuperAdminMiddleware, Redis-independiente)", () => {
   it("el secreto compartido siempre es super-admin equivalente", async () => {
-    expect(await esSuperAdminVigente({ actorType: "emergency_shared_secret", actorLabel: "secreto-compartido" })).toBe(
-      true
-    );
+    expect(
+      await esSuperAdminVigente({
+        actorType: "emergency_shared_secret",
+        actorLabel: "secreto-compartido",
+      })
+    ).toBe(true);
   });
 
   it("un platform_admin con rol super_admin y activo es super-admin vigente", async () => {
@@ -178,7 +193,11 @@ describe("esSuperAdminVigente (gate de platformSuperAdminMiddleware, Redis-indep
       rol: "super_admin",
     });
     expect(
-      await esSuperAdminVigente({ actorType: "platform_admin", actorId: admin.id, actorLabel: admin.email })
+      await esSuperAdminVigente({
+        actorType: "platform_admin",
+        actorId: admin.id,
+        actorLabel: admin.email,
+      })
     ).toBe(true);
   });
 
@@ -191,7 +210,11 @@ describe("esSuperAdminVigente (gate de platformSuperAdminMiddleware, Redis-indep
       rol: "admin",
     });
     expect(
-      await esSuperAdminVigente({ actorType: "platform_admin", actorId: admin.id, actorLabel: admin.email })
+      await esSuperAdminVigente({
+        actorType: "platform_admin",
+        actorId: admin.id,
+        actorLabel: admin.email,
+      })
     ).toBe(false);
   });
 
@@ -203,7 +226,11 @@ describe("esSuperAdminVigente (gate de platformSuperAdminMiddleware, Redis-indep
       nombre: "Super a desactivar",
       rol: "super_admin",
     });
-    const actor = { actorType: "platform_admin" as const, actorId: admin.id, actorLabel: admin.email };
+    const actor = {
+      actorType: "platform_admin" as const,
+      actorId: admin.id,
+      actorLabel: admin.email,
+    };
     expect(await esSuperAdminVigente(actor)).toBe(true);
 
     await pool.query(`UPDATE platform_admins SET activo = false WHERE id = $1`, [admin.id]);
@@ -215,8 +242,18 @@ describe("protección del último super_admin activo (Redis-independiente)", () 
   it("desactivar un super_admin cuando hay otro activo funciona normal", async () => {
     const unoEmail = emailDePrueba("guardUno");
     const dosEmail = emailDePrueba("guardDos");
-    const uno = await crearPlatformAdminService({ email: unoEmail, password: "ClaveDePrueba123", nombre: "Uno", rol: "super_admin" });
-    await crearPlatformAdminService({ email: dosEmail, password: "ClaveDePrueba123", nombre: "Dos", rol: "super_admin" });
+    const uno = await crearPlatformAdminService({
+      email: unoEmail,
+      password: "ClaveDePrueba123",
+      nombre: "Uno",
+      rol: "super_admin",
+    });
+    await crearPlatformAdminService({
+      email: dosEmail,
+      password: "ClaveDePrueba123",
+      nombre: "Dos",
+      rol: "super_admin",
+    });
 
     const { admin, before } = await cambiarEstadoPlatformAdminService(uno.id, false);
     expect(before).toBe(true);
@@ -261,12 +298,17 @@ describe("protección del último super_admin activo (Redis-independiente)", () 
 
 describe.skipIf(conRedis)("sin Redis en este entorno: todo degrada con gracia", () => {
   it("POST /admin-sesion responde 503 (no hay a dónde guardar una sesión revocable sin Redis)", async () => {
-    const res = await request(app).post("/api/platform/admin-sesion").send({ email: "x@x.com", password: "x" });
+    const res = await request(app)
+      .post("/api/platform/admin-sesion")
+      .send({ email: "x@x.com", password: "x" });
     expect(res.status).toBe(503);
   });
 
   it("crearSesion/obtenerSesion/revocarSesion/revocarSesionesDeAdmin nunca lanzan sin Redis", async () => {
-    const sessionId = await crearSesion("127.0.0.1", { actorType: "emergency_shared_secret", actorLabel: "x" });
+    const sessionId = await crearSesion("127.0.0.1", {
+      actorType: "emergency_shared_secret",
+      actorLabel: "x",
+    });
     expect(sessionId).toBeNull();
     expect(await obtenerSesion("cualquier-id")).toBeNull();
     expect(await revocarSesion("cualquier-id")).toBe(false);
@@ -274,128 +316,157 @@ describe.skipIf(conRedis)("sin Redis en este entorno: todo degrada con gracia", 
   });
 
   it("POST /sesion (secreto compartido) sigue funcionando igual que siempre sin Redis (cookie legada)", async () => {
-    const res = await request(app).post("/api/platform/sesion").send({ token: env.platformAdminToken });
+    const res = await request(app)
+      .post("/api/platform/sesion")
+      .send({ token: env.platformAdminToken });
     expect(res.status).toBe(200);
     const cookie = res.headers["set-cookie"];
     expect(cookie).toBeDefined();
   });
 });
 
-describe.skipIf(!conRedis)("con Redis real: login individual, revocación y guards de punta a punta", () => {
-  it("login individual: credenciales correctas dan cookie de sesión; /whoami refleja el admin autenticado", async () => {
-    const email = emailDePrueba("e2eLogin");
-    await crearPlatformAdminService({ email, password: "ClaveDePrueba123", nombre: "E2E Login", rol: "admin" });
+describe.skipIf(!conRedis)(
+  "con Redis real: login individual, revocación y guards de punta a punta",
+  () => {
+    it("login individual: credenciales correctas dan cookie de sesión; /whoami refleja el admin autenticado", async () => {
+      const email = emailDePrueba("e2eLogin");
+      await crearPlatformAdminService({
+        email,
+        password: "ClaveDePrueba123",
+        nombre: "E2E Login",
+        rol: "admin",
+      });
 
-    const agent = request.agent(app);
-    const login = await agent.post("/api/platform/admin-sesion").send({ email, password: "ClaveDePrueba123" });
-    expect(login.status).toBe(200);
-    expect(extraerCookie(login.headers["set-cookie"], "platform_session")).toMatch(/^sid\./);
+      const agent = request.agent(app);
+      const login = await agent
+        .post("/api/platform/admin-sesion")
+        .send({ email, password: "ClaveDePrueba123" });
+      expect(login.status).toBe(200);
+      expect(extraerCookie(login.headers["set-cookie"], "platform_session")).toMatch(/^sid\./);
 
-    const whoami = await agent.get("/api/platform/whoami");
-    expect(whoami.status).toBe(200);
-    expect(whoami.body.actorType).toBe("platform_admin");
-    expect(whoami.body.actorLabel).toBe(email);
-    expect(whoami.body.esSuperAdmin).toBe(false);
+      const whoami = await agent.get("/api/platform/whoami");
+      expect(whoami.status).toBe(200);
+      expect(whoami.body.actorType).toBe("platform_admin");
+      expect(whoami.body.actorLabel).toBe(email);
+      expect(whoami.body.esSuperAdmin).toBe(false);
 
-    // La cookie de sesión alcanza para las rutas de negocio, sin Bearer.
-    const tenants = await agent.get("/api/platform/tenants");
-    expect(tenants.status).toBe(200);
-  });
+      // La cookie de sesión alcanza para las rutas de negocio, sin Bearer.
+      const tenants = await agent.get("/api/platform/tenants");
+      expect(tenants.status).toBe(200);
+    });
 
-  it("login individual con contraseña incorrecta da 401 y queda auditado", async () => {
-    const email = emailDePrueba("e2eLoginMal");
-    await crearPlatformAdminService({ email, password: "ClaveCorrecta123", nombre: "E2E Login Mal", rol: "admin" });
+    it("login individual con contraseña incorrecta da 401 y queda auditado", async () => {
+      const email = emailDePrueba("e2eLoginMal");
+      await crearPlatformAdminService({
+        email,
+        password: "ClaveCorrecta123",
+        nombre: "E2E Login Mal",
+        rol: "admin",
+      });
 
-    const res = await request(app).post("/api/platform/admin-sesion").send({ email, password: "otra-cosa" });
-    expect(res.status).toBe(401);
+      const res = await request(app)
+        .post("/api/platform/admin-sesion")
+        .send({ email, password: "otra-cosa" });
+      expect(res.status).toBe(401);
 
-    const auditoria = await pool.query(
-      `SELECT resultado, actor_type FROM platform_audit_log
+      const auditoria = await pool.query(
+        `SELECT resultado, actor_type FROM platform_audit_log
        WHERE accion = 'platform.session.started' AND detalle->>'via' = 'admin'
        ORDER BY creado_en DESC LIMIT 1`
-    );
-    expect(auditoria.rows[0].resultado).toBe("failure");
-  });
-
-  it("desactivar un admin revoca su sesión de inmediato — el próximo request con la cookie vieja da 401", async () => {
-    const email = emailDePrueba("e2eRevocacion");
-    const admin = await crearPlatformAdminService({
-      email,
-      password: "ClaveDePrueba123",
-      nombre: "A revocar",
-      rol: "admin",
+      );
+      expect(auditoria.rows[0].resultado).toBe("failure");
     });
 
-    const agent = request.agent(app);
-    const login = await agent.post("/api/platform/admin-sesion").send({ email, password: "ClaveDePrueba123" });
-    expect(login.status).toBe(200);
-    expect((await agent.get("/api/platform/tenants")).status).toBe(200);
+    it("desactivar un admin revoca su sesión de inmediato — el próximo request con la cookie vieja da 401", async () => {
+      const email = emailDePrueba("e2eRevocacion");
+      const admin = await crearPlatformAdminService({
+        email,
+        password: "ClaveDePrueba123",
+        nombre: "A revocar",
+        rol: "admin",
+      });
 
-    const desactivar = await request(app)
-      .patch(`/api/platform/admins/${admin.id}/estado`)
-      .set("Authorization", BEARER)
-      .send({ activo: false });
-    expect(desactivar.status).toBe(200);
+      const agent = request.agent(app);
+      const login = await agent
+        .post("/api/platform/admin-sesion")
+        .send({ email, password: "ClaveDePrueba123" });
+      expect(login.status).toBe(200);
+      expect((await agent.get("/api/platform/tenants")).status).toBe(200);
 
-    // Misma cookie de antes, ahora sin sesión válida detrás.
-    const despues = await agent.get("/api/platform/tenants");
-    expect(despues.status).toBe(401);
-  });
+      const desactivar = await request(app)
+        .patch(`/api/platform/admins/${admin.id}/estado`)
+        .set("Authorization", BEARER)
+        .send({ activo: false });
+      expect(desactivar.status).toBe(200);
 
-  it("un admin no puede desactivarse a sí mismo, aunque no sea el último super_admin", async () => {
-    const unoEmail = emailDePrueba("e2eAutoUno");
-    const dosEmail = emailDePrueba("e2eAutoDos");
-    const uno = await crearPlatformAdminService({
-      email: unoEmail,
-      password: "ClaveDePrueba123",
-      nombre: "Auto uno",
-      rol: "super_admin",
-    });
-    await crearPlatformAdminService({
-      email: dosEmail,
-      password: "ClaveDePrueba123",
-      nombre: "Auto dos",
-      rol: "super_admin",
+      // Misma cookie de antes, ahora sin sesión válida detrás.
+      const despues = await agent.get("/api/platform/tenants");
+      expect(despues.status).toBe(401);
     });
 
-    const agent = request.agent(app);
-    await agent.post("/api/platform/admin-sesion").send({ email: unoEmail, password: "ClaveDePrueba123" });
+    it("un admin no puede desactivarse a sí mismo, aunque no sea el último super_admin", async () => {
+      const unoEmail = emailDePrueba("e2eAutoUno");
+      const dosEmail = emailDePrueba("e2eAutoDos");
+      const uno = await crearPlatformAdminService({
+        email: unoEmail,
+        password: "ClaveDePrueba123",
+        nombre: "Auto uno",
+        rol: "super_admin",
+      });
+      await crearPlatformAdminService({
+        email: dosEmail,
+        password: "ClaveDePrueba123",
+        nombre: "Auto dos",
+        rol: "super_admin",
+      });
 
-    const res = await agent.patch(`/api/platform/admins/${uno.id}/estado`).send({ activo: false });
-    expect(res.status).toBe(400);
+      const agent = request.agent(app);
+      await agent
+        .post("/api/platform/admin-sesion")
+        .send({ email: unoEmail, password: "ClaveDePrueba123" });
 
-    const sigueActivo = await pool.query(`SELECT activo FROM platform_admins WHERE id = $1`, [uno.id]);
-    expect(sigueActivo.rows[0].activo).toBe(true);
-  });
+      const res = await agent
+        .patch(`/api/platform/admins/${uno.id}/estado`)
+        .send({ activo: false });
+      expect(res.status).toBe(400);
 
-  it("listar y revocar sesiones activas de un admin puntual", async () => {
-    const email = emailDePrueba("e2eSesiones");
-    const admin = await crearPlatformAdminService({
-      email,
-      password: "ClaveDePrueba123",
-      nombre: "Con sesiones",
-      rol: "admin",
+      const sigueActivo = await pool.query(`SELECT activo FROM platform_admins WHERE id = $1`, [
+        uno.id,
+      ]);
+      expect(sigueActivo.rows[0].activo).toBe(true);
     });
 
-    const agent = request.agent(app);
-    await agent.post("/api/platform/admin-sesion").send({ email, password: "ClaveDePrueba123" });
+    it("listar y revocar sesiones activas de un admin puntual", async () => {
+      const email = emailDePrueba("e2eSesiones");
+      const admin = await crearPlatformAdminService({
+        email,
+        password: "ClaveDePrueba123",
+        nombre: "Con sesiones",
+        rol: "admin",
+      });
 
-    const listar = await request(app).get(`/api/platform/admins/${admin.id}/sesiones`).set("Authorization", BEARER);
-    expect(listar.status).toBe(200);
-    expect(listar.body.sesiones).toHaveLength(1);
-    const { sessionId } = listar.body.sesiones[0];
+      const agent = request.agent(app);
+      await agent.post("/api/platform/admin-sesion").send({ email, password: "ClaveDePrueba123" });
 
-    const revocar = await request(app)
-      .post(`/api/platform/sesiones/${sessionId}/revocar`)
-      .set("Authorization", BEARER);
-    expect(revocar.status).toBe(200);
-    expect(revocar.body.revocada).toBe(true);
+      const listar = await request(app)
+        .get(`/api/platform/admins/${admin.id}/sesiones`)
+        .set("Authorization", BEARER);
+      expect(listar.status).toBe(200);
+      expect(listar.body.sesiones).toHaveLength(1);
+      const { sessionId } = listar.body.sesiones[0];
 
-    expect((await agent.get("/api/platform/tenants")).status).toBe(401);
+      const revocar = await request(app)
+        .post(`/api/platform/sesiones/${sessionId}/revocar`)
+        .set("Authorization", BEARER);
+      expect(revocar.status).toBe(200);
+      expect(revocar.body.revocada).toBe(true);
 
-    const listarDespues = await request(app)
-      .get(`/api/platform/admins/${admin.id}/sesiones`)
-      .set("Authorization", BEARER);
-    expect(listarDespues.body.sesiones).toHaveLength(0);
-  });
-});
+      expect((await agent.get("/api/platform/tenants")).status).toBe(401);
+
+      const listarDespues = await request(app)
+        .get(`/api/platform/admins/${admin.id}/sesiones`)
+        .set("Authorization", BEARER);
+      expect(listarDespues.body.sesiones).toHaveLength(0);
+    });
+  }
+);

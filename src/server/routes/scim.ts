@@ -69,7 +69,13 @@ function extraerUserNameDelFiltro(filter: unknown): string | null {
 }
 
 function errorScim(res: Response, status: number, detail: string) {
-  return res.status(status).json({ schemas: ["urn:ietf:params:scim:api:messages:2.0:Error"], status: String(status), detail });
+  return res
+    .status(status)
+    .json({
+      schemas: ["urn:ietf:params:scim:api:messages:2.0:Error"],
+      status: String(status),
+      detail,
+    });
 }
 
 export function createScimRouter() {
@@ -137,9 +143,17 @@ export function createScimRouter() {
       });
 
       const usuario = await crearUsuarioEnTenantService(tenantId, input, contextoScim(req));
-      res.status(201).json(
-        usuarioAScim({ id: usuario.id, nombre: usuario.nombre, email: usuario.email, rol: usuario.rol, activo: true })
-      );
+      res
+        .status(201)
+        .json(
+          usuarioAScim({
+            id: usuario.id,
+            nombre: usuario.nombre,
+            email: usuario.email,
+            rol: usuario.rol,
+            activo: true,
+          })
+        );
     } catch (err) {
       next(err);
     }
@@ -149,9 +163,16 @@ export function createScimRouter() {
     try {
       const tenantId = getScimTenantId(req);
       const activo = leerActivoDePatch(req.body);
-      if (activo === null) return errorScim(res, 400, "Solo se soporta cambiar el atributo 'active'");
+      if (activo === null)
+        return errorScim(res, 400, "Solo se soporta cambiar el atributo 'active'");
 
-      const usuario = await cambiarEstadoUsuarioService(tenantId, req.params.id, activo, undefined, contextoScim(req));
+      const usuario = await cambiarEstadoUsuarioService(
+        tenantId,
+        req.params.id,
+        activo,
+        undefined,
+        contextoScim(req)
+      );
       res.status(200).json(usuarioAScim(usuario));
     } catch (err) {
       next(err);
@@ -161,7 +182,13 @@ export function createScimRouter() {
   router.delete("/Users/:id", async (req, res, next) => {
     try {
       const tenantId = getScimTenantId(req);
-      await cambiarEstadoUsuarioService(tenantId, req.params.id, false, "baja vía SCIM", contextoScim(req));
+      await cambiarEstadoUsuarioService(
+        tenantId,
+        req.params.id,
+        false,
+        "baja vía SCIM",
+        contextoScim(req)
+      );
       res.status(204).send();
     } catch (err) {
       next(err);

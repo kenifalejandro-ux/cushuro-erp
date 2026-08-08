@@ -22,14 +22,11 @@ import { Sentry } from "./config/sentry";
 import { errorHandler } from "./shared/middlewares/error.middleware";
 import { requestContextMiddleware } from "./shared/middlewares/requestContext.middleware";
 
-
 const requestLogger = pinoHttp({
   logger,
   genReqId(req, res) {
     const requestId =
-      typeof req.headers["x-request-id"] === "string"
-        ? req.headers["x-request-id"]
-        : randomUUID();
+      typeof req.headers["x-request-id"] === "string" ? req.headers["x-request-id"] : randomUUID();
     res.setHeader("x-request-id", requestId);
     return requestId;
   },
@@ -63,7 +60,12 @@ const requestLogger = pinoHttp({
 const cspDirectives = {
   defaultSrc: ["'self'"],
   scriptSrc: ["'self'", "https://accounts.google.com"],
-  styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://accounts.google.com"],
+  styleSrc: [
+    "'self'",
+    "'unsafe-inline'",
+    "https://fonts.googleapis.com",
+    "https://accounts.google.com",
+  ],
   fontSrc: ["'self'", "https://fonts.gstatic.com"],
   imgSrc: ["'self'", "data:"],
   connectSrc: ["'self'", "https://o4511866017480704.ingest.us.sentry.io"],

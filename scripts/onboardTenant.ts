@@ -25,7 +25,13 @@ const args = new Map(
   })
 );
 
-const CAMPOS_REQUERIDOS = ["tenantNombre", "tenantSlug", "adminNombre", "adminEmail", "adminPassword"] as const;
+const CAMPOS_REQUERIDOS = [
+  "tenantNombre",
+  "tenantSlug",
+  "adminNombre",
+  "adminEmail",
+  "adminPassword",
+] as const;
 
 function leerInput(): OnboardTenantInput {
   const faltantes = CAMPOS_REQUERIDOS.filter((campo) => !args.get(campo));

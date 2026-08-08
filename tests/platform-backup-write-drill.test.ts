@@ -29,10 +29,10 @@ async function nuevoTenant() {
 
 async function cargarUnEquipo(tenantId: string) {
   await withTenant(tenantId, (client) =>
-    client.query(`INSERT INTO equipos (tenant_id, placa_codigo, tipo) VALUES ($1, $2, 'Camioneta')`, [
-      tenantId,
-      idUnico("EQ"),
-    ])
+    client.query(
+      `INSERT INTO equipos (tenant_id, placa_codigo, tipo) VALUES ($1, $2, 'Camioneta')`,
+      [tenantId, idUnico("EQ")]
+    )
   );
 }
 
@@ -55,7 +55,9 @@ describe("correrRestoreDrillEscritura", () => {
   it("con el backup más reciente completo, restaura sobre un tenant descartable, verifica, y no deja rastro", async () => {
     const { tenant } = await nuevoTenant();
     await cargarUnEquipo(tenant.id);
-    const creado = await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
+    const creado = await request(app)
+      .post(`/api/platform/tenants/${tenant.id}/backups`)
+      .set("Authorization", BEARER);
     expect(creado.status).toBe(201);
 
     const resultado = await correrRestoreDrillEscritura({ habilitado: true });
@@ -74,7 +76,9 @@ describe("correrRestoreDrillEscritura", () => {
   it("un fallo a mitad del restore igual termina en rollback — no queda ningún rastro del tenant descartable", async () => {
     const { tenant } = await nuevoTenant();
     await cargarUnEquipo(tenant.id);
-    const creado = await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
+    const creado = await request(app)
+      .post(`/api/platform/tenants/${tenant.id}/backups`)
+      .set("Authorization", BEARER);
     expect(creado.status).toBe(201);
 
     const espia = vi

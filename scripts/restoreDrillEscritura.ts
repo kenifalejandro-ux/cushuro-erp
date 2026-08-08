@@ -17,7 +17,9 @@ import { correrRestoreDrillEscritura } from "../src/server/services/platformBack
 import { closeDatabase } from "../src/server/config/database";
 
 async function main(): Promise<void> {
-  console.log("Restore drill de escritura — restaurando el backup completo más reciente sobre un tenant descartable...\n");
+  console.log(
+    "Restore drill de escritura — restaurando el backup completo más reciente sobre un tenant descartable...\n"
+  );
 
   const resultado = await correrRestoreDrillEscritura({ habilitado: true });
 

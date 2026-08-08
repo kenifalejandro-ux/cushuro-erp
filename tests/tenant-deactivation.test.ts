@@ -26,7 +26,9 @@ describe("tenant desactivado pierde acceso de verdad", () => {
     tenantId = creado.tenant.id;
 
     const agent = request.agent(app);
-    const login = await agent.post("/api/auth/login").send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
+    const login = await agent
+      .post("/api/auth/login")
+      .send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
     expect(login.status).toBe(200);
 
     const meAntes = await agent.get("/api/auth/me");

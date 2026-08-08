@@ -67,7 +67,9 @@ function logSiHuboBorrados(total: number, retentionDays: number): void {
 
 /** Uso directo, sin coordinación entre instancias — ver el comentario del
  *  archivo. Es la que usan los tests y una corrida manual. */
-export async function limpiarAuditoriaVieja(opciones?: { retentionDays?: number }): Promise<{ filasBorradas: number }> {
+export async function limpiarAuditoriaVieja(opciones?: {
+  retentionDays?: number;
+}): Promise<{ filasBorradas: number }> {
   const retentionDays = opciones?.retentionDays ?? env.platformAuditRetentionDays;
   if (!retentionDays || retentionDays <= 0) {
     return { filasBorradas: 0 };
@@ -92,7 +94,9 @@ async function correrRetencionAuditoriaCoordinada(): Promise<void> {
 
   let total = 0;
   for (;;) {
-    const borradas = await runSiPrimero(LOCK_IDS.auditRetention, (client) => borrarUnLote(client, retentionDays));
+    const borradas = await runSiPrimero(LOCK_IDS.auditRetention, (client) =>
+      borrarUnLote(client, retentionDays)
+    );
     if (borradas === undefined) break; // el lock de este lote ya lo tiene otra instancia
     total += borradas;
     if (borradas < LOTE) break;

@@ -25,10 +25,10 @@ async function nuevoTenant() {
 
 async function cargarUnEquipo(tenantId: string) {
   await withTenant(tenantId, (client) =>
-    client.query(`INSERT INTO equipos (tenant_id, placa_codigo, tipo) VALUES ($1, $2, 'Camioneta')`, [
-      tenantId,
-      idUnico("EQ"),
-    ])
+    client.query(
+      `INSERT INTO equipos (tenant_id, placa_codigo, tipo) VALUES ($1, $2, 'Camioneta')`,
+      [tenantId, idUnico("EQ")]
+    )
   );
 }
 
@@ -41,7 +41,9 @@ describe("correrRestoreDrill", () => {
   it("un backup íntegro pasa la verificación sin discrepancias", async () => {
     const { tenant } = await nuevoTenant();
     await cargarUnEquipo(tenant.id);
-    const creado = await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
+    const creado = await request(app)
+      .post(`/api/platform/tenants/${tenant.id}/backups`)
+      .set("Authorization", BEARER);
     expect(creado.status).toBe(201);
 
     const resumen = await correrRestoreDrill();
@@ -52,14 +54,17 @@ describe("correrRestoreDrill", () => {
   it("detecta cuando el manifiesto no coincide con el contenido real del archivo", async () => {
     const { tenant } = await nuevoTenant();
     await cargarUnEquipo(tenant.id);
-    const creado = await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
+    const creado = await request(app)
+      .post(`/api/platform/tenants/${tenant.id}/backups`)
+      .set("Authorization", BEARER);
 
     // Desalinea el manifiesto a mano — es la señal exacta que este chequeo
     // existe para detectar (un backup que dice tener más o menos filas de
     // las que el archivo realmente tiene).
-    await pool.query(`UPDATE tenant_backups SET tablas = jsonb_set(tablas, '{equipos}', '999') WHERE id = $1`, [
-      creado.body.backup.id,
-    ]);
+    await pool.query(
+      `UPDATE tenant_backups SET tablas = jsonb_set(tablas, '{equipos}', '999') WHERE id = $1`,
+      [creado.body.backup.id]
+    );
 
     const resumen = await correrRestoreDrill();
     const propio = resumen.tenants.find((r) => r.backupId === creado.body.backup.id);
@@ -75,7 +80,9 @@ describe("correrRestoreDrill", () => {
     const fantasma = await request(app)
       .post(`/api/platform/tenants/${tenantFantasma.id}/backups`)
       .set("Authorization", BEARER);
-    const sano = await request(app).post(`/api/platform/tenants/${tenantSano.id}/backups`).set("Authorization", BEARER);
+    const sano = await request(app)
+      .post(`/api/platform/tenants/${tenantSano.id}/backups`)
+      .set("Authorization", BEARER);
 
     await pool.query(`UPDATE tenant_backups SET storage_key = $2 WHERE id = $1`, [
       fantasma.body.backup.id,
@@ -95,7 +102,9 @@ describe("correrRestoreDrill", () => {
   });
 
   it("también verifica el backup de plataforma más reciente", async () => {
-    const backup = await request(app).post("/api/platform/backups/plataforma").set("Authorization", BEARER);
+    const backup = await request(app)
+      .post("/api/platform/backups/plataforma")
+      .set("Authorization", BEARER);
     expect(backup.status).toBe(201);
 
     const resumen = await correrRestoreDrill();

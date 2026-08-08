@@ -3,7 +3,11 @@
 import { Router } from "express";
 import { validate } from "../../server/middleware/validate";
 import { requireRole } from "../../server/shared/middlewares/roles.middleware";
-import { crearIpercSchema, cambiarEstadoIpercSchema, crearLineaBaseSchema } from "../../server/schemas/iperc.schema";
+import {
+  crearIpercSchema,
+  cambiarEstadoIpercSchema,
+  crearLineaBaseSchema,
+} from "../../server/schemas/iperc.schema";
 import { IpercController } from "./iperc.controller";
 
 const router = Router();
@@ -28,7 +32,12 @@ router.delete("/lineas-base/:id", requireRole("admin"), IpercController.eliminar
 // Continuo / Específico (ver campo `tipo`)
 router.get("/", IpercController.getAll);
 router.get("/:id", IpercController.getById);
-router.post("/", requireRole("admin", "operador"), validate(crearIpercSchema), IpercController.crear);
+router.post(
+  "/",
+  requireRole("admin", "operador"),
+  validate(crearIpercSchema),
+  IpercController.crear
+);
 
 // Aprobar/rechazar: solo admin — se reutiliza el rol existente en vez de
 // sumar un rol "supervisor" nuevo (decisión documentada desde que se armó

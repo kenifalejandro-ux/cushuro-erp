@@ -1,0 +1,8 @@
+node_modules
+client/
+coverage
+test-results
+dist
+build
+backups
+package-lock.json

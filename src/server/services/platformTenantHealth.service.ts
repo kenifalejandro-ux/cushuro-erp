@@ -89,7 +89,9 @@ async function calcularSalud(tenantId: string): Promise<SaludTenant> {
         [tenantId]
       )
     ),
-    pool.query(`SELECT max(creado_en) AS ultimo FROM refresh_tokens WHERE tenant_id = $1`, [tenantId]),
+    pool.query(`SELECT max(creado_en) AS ultimo FROM refresh_tokens WHERE tenant_id = $1`, [
+      tenantId,
+    ]),
     pool.query(
       `SELECT COALESCE(sum(requests_total), 0) AS requests,
               COALESCE(sum(requests_error_5xx), 0) AS errores_5xx,

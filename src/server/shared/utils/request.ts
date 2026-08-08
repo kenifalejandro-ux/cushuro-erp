@@ -2,9 +2,7 @@ import type { Request } from "express";
 
 export function getClientIp(req: Request) {
   const forwardedFor = req.headers["x-forwarded-for"];
-  const forwardedIp = Array.isArray(forwardedFor)
-    ? forwardedFor[0]
-    : forwardedFor?.split(",")[0];
+  const forwardedIp = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor?.split(",")[0];
 
   return req.ip || forwardedIp?.trim() || req.socket.remoteAddress || "unknown";
 }

@@ -44,7 +44,12 @@ export function crearLimitadorPorIp(opciones: {
     try {
       await escribirEventoOutbox(pool, {
         tipo: "alerta_rafaga",
-        payload: { limitador: opciones.prefijoClave, ip, maxRequests: opciones.maxRequests, retryAfterSeconds },
+        payload: {
+          limitador: opciones.prefijoClave,
+          ip,
+          maxRequests: opciones.maxRequests,
+          retryAfterSeconds,
+        },
       });
     } catch (err) {
       logger.warn({ err }, "No se pudo registrar el evento de outbox de ráfaga");
@@ -70,7 +75,8 @@ export function crearLimitadorPorIp(opciones: {
           const ttl = await redis.pttl(key);
           const retryAfterSeconds =
             ttl > 0 ? Math.max(1, Math.ceil(ttl / 1000)) : Math.ceil(opciones.windowMs / 1000);
-          if (intentos === opciones.maxRequests + 1) await avisarPrimerRechazo(ip, retryAfterSeconds);
+          if (intentos === opciones.maxRequests + 1)
+            await avisarPrimerRechazo(ip, retryAfterSeconds);
           return rechazar(res, retryAfterSeconds);
         }
         return next();
@@ -89,7 +95,8 @@ export function crearLimitadorPorIp(opciones: {
     actual.count += 1;
     if (actual.count > opciones.maxRequests) {
       const retryAfterSeconds = Math.max(1, Math.ceil((actual.resetAt - ahora) / 1000));
-      if (actual.count === opciones.maxRequests + 1) await avisarPrimerRechazo(ip, retryAfterSeconds);
+      if (actual.count === opciones.maxRequests + 1)
+        await avisarPrimerRechazo(ip, retryAfterSeconds);
       return rechazar(res, retryAfterSeconds);
     }
 

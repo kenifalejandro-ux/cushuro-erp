@@ -36,7 +36,11 @@ import type { Pool, PoolClient } from "pg";
 import { pool } from "../config/database";
 import { logger } from "../config/logger";
 import { env } from "../config/env";
-import { borrarBackupsEnLote, type UbicacionBackup, type DriverStorage } from "./platformBackupStorage";
+import {
+  borrarBackupsEnLote,
+  type UbicacionBackup,
+  type DriverStorage,
+} from "./platformBackupStorage";
 import { runSiPrimero, LOCK_IDS } from "../shared/utils/advisoryLock";
 import { capturarError } from "../config/sentry";
 
@@ -114,7 +118,10 @@ async function podarTabla(
   const { borrar } = clasificarBackupsAPodar(filas.rows, { diarioDias, mensualMeses, ahora });
   if (borrar.length === 0) return { borrados: 0, fallidos: 0 };
 
-  const ubicaciones: UbicacionBackup[] = borrar.map((b) => ({ storage: b.storage, key: b.storage_key }));
+  const ubicaciones: UbicacionBackup[] = borrar.map((b) => ({
+    storage: b.storage,
+    key: b.storage_key,
+  }));
   const { fallidas } = await borrarBackupsEnLote(ubicaciones);
 
   // Solo se borra la fila si el objeto se borró de verdad. Al revés
@@ -138,7 +145,10 @@ export async function podarBackupsViejos(opciones?: {
   mensualMeses?: number;
   ahora?: Date;
   ejecutor?: Pool | PoolClient;
-}): Promise<{ tenants: { borrados: number; fallidos: number }; plataforma: { borrados: number; fallidos: number } }> {
+}): Promise<{
+  tenants: { borrados: number; fallidos: number };
+  plataforma: { borrados: number; fallidos: number };
+}> {
   const diarioDias = opciones?.diarioDias ?? env.backupRetentionDiarioDias;
   const mensualMeses = opciones?.mensualMeses ?? env.backupRetentionMensualMeses;
   const ejecutor = opciones?.ejecutor ?? pool;
@@ -151,8 +161,20 @@ export async function podarBackupsViejos(opciones?: {
   // error que no se puede permitir en un borrado automático de backups.
   if (diarioDias <= 0 || mensualMeses <= 0) return vacio;
 
-  const tenants = await podarTabla(ejecutor, "tenant_backups", diarioDias, mensualMeses, opciones?.ahora);
-  const plataforma = await podarTabla(ejecutor, "platform_backups", diarioDias, mensualMeses, opciones?.ahora);
+  const tenants = await podarTabla(
+    ejecutor,
+    "tenant_backups",
+    diarioDias,
+    mensualMeses,
+    opciones?.ahora
+  );
+  const plataforma = await podarTabla(
+    ejecutor,
+    "platform_backups",
+    diarioDias,
+    mensualMeses,
+    opciones?.ahora
+  );
 
   if (tenants.borrados + plataforma.borrados > 0 || tenants.fallidos + plataforma.fallidos > 0) {
     logger.info(
@@ -171,7 +193,9 @@ export async function podarBackupsViejos(opciones?: {
 }
 
 setInterval(() => {
-  runSiPrimero(LOCK_IDS.backupRetention, (client) => podarBackupsViejos({ ejecutor: client })).catch((err) => {
+  runSiPrimero(LOCK_IDS.backupRetention, (client) =>
+    podarBackupsViejos({ ejecutor: client })
+  ).catch((err) => {
     logger.error({ err }, "Error inesperado en la retención de backups");
     capturarError(err, { worker: "platformBackupRetention" });
   });

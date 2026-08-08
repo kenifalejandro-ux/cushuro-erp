@@ -5,7 +5,6 @@ import type { Paginacion } from "../../server/shared/utils/pagination";
 import { DocumentosRepository } from "./documentos.repository";
 
 export const DocumentosService = {
-
   getAll(client: PoolClient, tenantId: string, paginacion: Paginacion) {
     return DocumentosRepository.findAll(client, tenantId, paginacion);
   },
@@ -28,6 +27,5 @@ export const DocumentosService = {
 
   getKPIs(client: PoolClient, tenantId: string) {
     return DocumentosRepository.getKPIs(client, tenantId);
-  }
-
+  },
 };

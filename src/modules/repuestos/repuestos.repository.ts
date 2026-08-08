@@ -4,12 +4,12 @@ import type { PoolClient } from "pg";
 import type { Paginacion } from "../../server/shared/utils/pagination";
 
 export const RepuestosRepository = {
-
   // =========================================================
   // 📥 LISTAR REPUESTOS (del tenant activo, paginado)
   // =========================================================
   async findAll(client: PoolClient, tenantId: string, { pageSize, offset }: Paginacion) {
-    const result = await client.query(`
+    const result = await client.query(
+      `
       SELECT
         id,
         codigo,
@@ -25,7 +25,9 @@ export const RepuestosRepository = {
       WHERE tenant_id = $1
       ORDER BY id DESC
       LIMIT $2 OFFSET $3
-    `, [tenantId, pageSize, offset]);
+    `,
+      [tenantId, pageSize, offset]
+    );
 
     return result.rows;
   },
@@ -34,15 +36,7 @@ export const RepuestosRepository = {
   // ➕ CREAR REPUESTO
   // =========================================================
   async create(client: PoolClient, tenantId: string, data: any) {
-    const {
-      codigo,
-      nombre,
-      categoria,
-      stock,
-      stock_minimo,
-      stock_maximo,
-      precio
-    } = data;
+    const { codigo, nombre, categoria, stock, stock_minimo, stock_maximo, precio } = data;
 
     const result = await client.query(
       `
@@ -62,16 +56,7 @@ export const RepuestosRepository = {
       )
       RETURNING *
       `,
-      [
-        tenantId,
-        codigo,
-        nombre,
-        categoria,
-        stock,
-        stock_minimo,
-        stock_maximo,
-        precio
-      ]
+      [tenantId, codigo, nombre, categoria, stock, stock_minimo, stock_maximo, precio]
     );
 
     return result.rows[0];
@@ -81,15 +66,7 @@ export const RepuestosRepository = {
   // ✏️ ACTUALIZAR REPUESTO (solo si pertenece al tenant activo)
   // =========================================================
   async update(client: PoolClient, tenantId: string, id: number, data: any) {
-    const {
-      codigo,
-      nombre,
-      categoria,
-      stock,
-      stock_minimo,
-      stock_maximo,
-      precio
-    } = data;
+    const { codigo, nombre, categoria, stock, stock_minimo, stock_maximo, precio } = data;
 
     const result = await client.query(
       `
@@ -104,17 +81,7 @@ export const RepuestosRepository = {
       WHERE id = $8 AND tenant_id = $9
       RETURNING *
       `,
-      [
-        codigo,
-        nombre,
-        categoria,
-        stock,
-        stock_minimo,
-        stock_maximo,
-        precio,
-        id,
-        tenantId
-      ]
+      [codigo, nombre, categoria, stock, stock_minimo, stock_maximo, precio, id, tenantId]
     );
 
     return result.rows[0] ?? null;
@@ -124,10 +91,10 @@ export const RepuestosRepository = {
   // 🗑 ELIMINAR REPUESTO (solo si pertenece al tenant activo)
   // =========================================================
   async delete(client: PoolClient, tenantId: string, id: number) {
-    const result = await client.query(
-      `DELETE FROM repuestos WHERE id = $1 AND tenant_id = $2`,
-      [id, tenantId]
-    );
+    const result = await client.query(`DELETE FROM repuestos WHERE id = $1 AND tenant_id = $2`, [
+      id,
+      tenantId,
+    ]);
     return (result.rowCount ?? 0) > 0;
   },
 
@@ -149,18 +116,28 @@ export const RepuestosRepository = {
            stock_maximo = EXCLUDED.stock_maximo,
            precio = EXCLUDED.precio
          RETURNING *`,
-        [tenantId, codigo, nombre, categoria ?? 'General', stock ?? 0, stock_minimo ?? 5, stock_maximo ?? 30, precio ?? 0]
+        [
+          tenantId,
+          codigo,
+          nombre,
+          categoria ?? "General",
+          stock ?? 0,
+          stock_minimo ?? 5,
+          stock_maximo ?? 30,
+          precio ?? 0,
+        ]
       );
       results.push(result.rows[0]);
     }
     return results;
   },
 
- // =========================================================
-// 📊 KPIs DASHBOARD
-// =========================================================
-async getDashboardKPIs(client: PoolClient, tenantId: string) {
-  const result = await client.query(`
+  // =========================================================
+  // 📊 KPIs DASHBOARD
+  // =========================================================
+  async getDashboardKPIs(client: PoolClient, tenantId: string) {
+    const result = await client.query(
+      `
     SELECT
       (SELECT COUNT(*) FROM repuestos WHERE tenant_id = $1) AS total_repuestos,
 
@@ -183,8 +160,10 @@ async getDashboardKPIs(client: PoolClient, tenantId: string) {
       -- 💰 Valor inventario
       (SELECT COALESCE(ROUND(SUM(stock * precio),2),0)
        FROM repuestos WHERE tenant_id = $1) AS valor_inventario
-  `, [tenantId]);
+  `,
+      [tenantId]
+    );
 
-  return result.rows[0];
-}
+    return result.rows[0];
+  },
 };

@@ -3,7 +3,12 @@
 import { Request, Response } from "express";
 import { withTenant } from "../../server/config/database";
 import { getTenantId } from "../../server/shared/utils/request";
-import { parsePaginacion, armarRespuestaPaginada, parseCursorPaginacion, armarRespuestaCursor } from "../../server/shared/utils/pagination";
+import {
+  parsePaginacion,
+  armarRespuestaPaginada,
+  parseCursorPaginacion,
+  armarRespuestaCursor,
+} from "../../server/shared/utils/pagination";
 import { contextoAuditoriaModulo } from "../../server/shared/utils/moduleAudit";
 import { registrarAuditoria } from "../../server/services/platformAudit.service";
 import type {
@@ -14,13 +19,14 @@ import type {
 import { IpercService } from "./iperc.service";
 
 export const IpercController = {
-
   async getAll(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
       const paginacion = parseCursorPaginacion(req.query);
       const tipo = typeof req.query.tipo === "string" ? req.query.tipo : undefined;
-      const filas = await withTenant(tenantId, (client) => IpercService.getAll(client, tenantId, paginacion, tipo));
+      const filas = await withTenant(tenantId, (client) =>
+        IpercService.getAll(client, tenantId, paginacion, tipo)
+      );
       res.json(armarRespuestaCursor(filas, paginacion.pageSize));
     } catch {
       res.status(500).json({ message: "Error al obtener IPERC" });
@@ -30,7 +36,9 @@ export const IpercController = {
   async getById(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const iperc = await withTenant(tenantId, (client) => IpercService.getById(client, tenantId, Number(req.params.id)));
+      const iperc = await withTenant(tenantId, (client) =>
+        IpercService.getById(client, tenantId, Number(req.params.id))
+      );
       if (!iperc) {
         res.status(404).json({ message: "IPERC no encontrado" });
         return;
@@ -45,7 +53,9 @@ export const IpercController = {
     try {
       const tenantId = getTenantId(req);
       const data = req.validatedBody as CrearIpercInput;
-      const iperc = await withTenant(tenantId, (client) => IpercService.crear(client, tenantId, req.usuario!.id, data));
+      const iperc = await withTenant(tenantId, (client) =>
+        IpercService.crear(client, tenantId, req.usuario!.id, data)
+      );
       await registrarAuditoria({
         accion: "iperc.crear",
         tenantId,
@@ -92,7 +102,9 @@ export const IpercController = {
     try {
       const tenantId = getTenantId(req);
       const id = Number(req.params.id);
-      const eliminado = await withTenant(tenantId, (client) => IpercService.eliminar(client, tenantId, id));
+      const eliminado = await withTenant(tenantId, (client) =>
+        IpercService.eliminar(client, tenantId, id)
+      );
       if (!eliminado) {
         res.status(404).json({ message: "IPERC no encontrado" });
         return;
@@ -115,7 +127,9 @@ export const IpercController = {
     try {
       const tenantId = getTenantId(req);
       const paginacion = parsePaginacion(req.query);
-      const filas = await withTenant(tenantId, (client) => IpercService.getLineasBase(client, tenantId, paginacion));
+      const filas = await withTenant(tenantId, (client) =>
+        IpercService.getLineasBase(client, tenantId, paginacion)
+      );
       res.json(armarRespuestaPaginada(filas, paginacion));
     } catch {
       res.status(500).json({ message: "Error al obtener líneas base" });
@@ -187,7 +201,9 @@ export const IpercController = {
     try {
       const tenantId = getTenantId(req);
       const id = Number(req.params.id);
-      const eliminado = await withTenant(tenantId, (client) => IpercService.eliminarLineaBase(client, tenantId, id));
+      const eliminado = await withTenant(tenantId, (client) =>
+        IpercService.eliminarLineaBase(client, tenantId, id)
+      );
       if (!eliminado) {
         res.status(404).json({ message: "Línea base no encontrada" });
         return;

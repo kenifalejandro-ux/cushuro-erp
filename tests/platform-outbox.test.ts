@@ -24,7 +24,11 @@ import { getRedis } from "../src/server/config/redis";
 import { pool, closeDatabase } from "../src/server/config/database";
 import { crearTenantConAdminService } from "../src/server/services/platform.service";
 import { consultarIdempotencia } from "../src/server/services/platformIdempotency.service";
-import { escribirEventoOutbox, reclamarPendientes, marcarFallo } from "../src/server/services/platformOutbox.service";
+import {
+  escribirEventoOutbox,
+  reclamarPendientes,
+  marcarFallo,
+} from "../src/server/services/platformOutbox.service";
 import { drenarUnaVez } from "../src/server/services/platformOutbox.worker";
 import type { ContextoAuditoria } from "../src/server/services/platformAudit.service";
 
@@ -143,22 +147,29 @@ describe("platformOutbox.worker: drenarUnaVez", () => {
     expect(fila.rows[0].estado).toBe("procesado");
   });
 
-  it.skipIf(!conRedis)("con Redis real: puebla el cache de una respuesta idempotente ya durable en el outbox", async () => {
-    const idempotencyKey = idUnico("worker-redis");
-    const slug = idUnico("worker-redis-tenant");
+  it.skipIf(!conRedis)(
+    "con Redis real: puebla el cache de una respuesta idempotente ya durable en el outbox",
+    async () => {
+      const idempotencyKey = idUnico("worker-redis");
+      const slug = idUnico("worker-redis-tenant");
 
-    const resultado = await crearTenantConAdminService(bodyTenant(slug), CONTEXTO, idempotencyKey);
-    tenantIdsCreados.push(resultado.tenant.id);
+      const resultado = await crearTenantConAdminService(
+        bodyTenant(slug),
+        CONTEXTO,
+        idempotencyKey
+      );
+      tenantIdsCreados.push(resultado.tenant.id);
 
-    await drenarUnaVez();
+      await drenarUnaVez();
 
-    const redis = getRedis()!;
-    const crudo = await redis.get(`platform-idempotency:crear-tenant:${idempotencyKey}`);
-    expect(crudo).not.toBeNull();
-    const parsed = JSON.parse(crudo as string);
-    expect(parsed.estado).toBe("resuelta");
-    expect(parsed.respuesta.tenant.id).toBe(resultado.tenant.id);
-  });
+      const redis = getRedis()!;
+      const crudo = await redis.get(`platform-idempotency:crear-tenant:${idempotencyKey}`);
+      expect(crudo).not.toBeNull();
+      const parsed = JSON.parse(crudo as string);
+      expect(parsed.estado).toBe("resuelta");
+      expect(parsed.respuesta.tenant.id).toBe(resultado.tenant.id);
+    }
+  );
 });
 
 describe("reclamarPendientes: lease + backoff (multi-instancia)", () => {
@@ -215,12 +226,17 @@ describe("reclamarPendientes: lease + backoff (multi-instancia)", () => {
       await marcarFallo(evento.id, intentos, `intento ${intentos}`);
     }
 
-    const fila = await pool.query(`SELECT estado, intentos FROM platform_outbox WHERE id = $1`, [evento.id]);
+    const fila = await pool.query(`SELECT estado, intentos FROM platform_outbox WHERE id = $1`, [
+      evento.id,
+    ]);
     expect(fila.rows[0].estado).toBe("fallido");
     expect(fila.rows[0].intentos).toBe(5);
   });
 });
 
 async function marcarProcesadoDePrueba(id: string): Promise<void> {
-  await pool.query(`UPDATE platform_outbox SET estado = 'procesado', procesado_en = now() WHERE id = $1`, [id]);
+  await pool.query(
+    `UPDATE platform_outbox SET estado = 'procesado', procesado_en = now() WHERE id = $1`,
+    [id]
+  );
 }

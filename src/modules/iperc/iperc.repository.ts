@@ -5,10 +5,14 @@ import type { Paginacion, CursorPaginacion } from "../../server/shared/utils/pag
 import type { CrearIpercInput, CrearLineaBaseInput } from "../../server/schemas/iperc.schema";
 
 export const IpercRepository = {
-
   // Paginación por cursor (ver src/server/shared/utils/pagination.ts): la
   // otra tabla particionada además de checklists (migrations/0037).
-  async findAll(client: PoolClient, tenantId: string, { pageSize, cursor }: CursorPaginacion, tipo?: string) {
+  async findAll(
+    client: PoolClient,
+    tenantId: string,
+    { pageSize, cursor }: CursorPaginacion,
+    tipo?: string
+  ) {
     const params: any[] = [tenantId, cursor];
     let filtroTipo = "";
     if (tipo) {
@@ -17,7 +21,8 @@ export const IpercRepository = {
     }
     params.push(pageSize + 1);
 
-    const result = await client.query(`
+    const result = await client.query(
+      `
       SELECT i.id, i.tipo, i.fecha, i.turno, i.area_frente, i.equipo_id, e.placa_codigo,
         i.linea_base_id, i.tarea_especifica,
         i.usuario_id, u.nombre AS usuario_nombre, i.estado,
@@ -29,7 +34,9 @@ export const IpercRepository = {
       WHERE i.tenant_id = $1 AND ($2::int IS NULL OR i.id < $2)${filtroTipo}
       ORDER BY i.id DESC
       LIMIT $${params.length}
-    `, params);
+    `,
+      params
+    );
     return result.rows;
   },
 
@@ -98,14 +105,26 @@ export const IpercRepository = {
         if (base.rows.length === 0) {
           throw new Error(`linea_base_item_id ${item.linea_base_item_id} no existe en este tenant`);
         }
-        ({ etapa_actividad, peligro, riesgo, probabilidad, severidad, medidas_control } = base.rows[0]);
+        ({ etapa_actividad, peligro, riesgo, probabilidad, severidad, medidas_control } =
+          base.rows[0]);
       }
 
       const result = await client.query(
         `INSERT INTO iperc_items (tenant_id, iperc_id, iperc_creado_en, linea_base_item_id, etapa_actividad, peligro, riesgo, probabilidad, severidad, medidas_control)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING id, linea_base_item_id, etapa_actividad, peligro, riesgo, probabilidad, severidad, nivel_riesgo, medidas_control`,
-        [tenantId, ipercId, ipercCreadoEn, item.linea_base_item_id ?? null, etapa_actividad, peligro, riesgo, probabilidad, severidad, medidas_control]
+        [
+          tenantId,
+          ipercId,
+          ipercCreadoEn,
+          item.linea_base_item_id ?? null,
+          etapa_actividad,
+          peligro,
+          riesgo,
+          probabilidad,
+          severidad,
+          medidas_control,
+        ]
       );
       items.push(result.rows[0]);
     }
@@ -130,23 +149,26 @@ export const IpercRepository = {
   },
 
   async eliminar(client: PoolClient, tenantId: string, id: number) {
-    const result = await client.query(
-      `DELETE FROM ipercs WHERE id = $1 AND tenant_id = $2`,
-      [id, tenantId]
-    );
+    const result = await client.query(`DELETE FROM ipercs WHERE id = $1 AND tenant_id = $2`, [
+      id,
+      tenantId,
+    ]);
     return (result.rowCount ?? 0) > 0;
   },
 
   // ── Línea Base ───────────────────────────────────────────────────────
   async findLineasBase(client: PoolClient, tenantId: string, { pageSize, offset }: Paginacion) {
-    const result = await client.query(`
+    const result = await client.query(
+      `
       SELECT id, proceso_actividad, area_frente, estado, aprobado_por, aprobado_en, creado_por, creado_en,
         COUNT(*) OVER() AS total_count
       FROM iperc_lineas_base
       WHERE tenant_id = $1
       ORDER BY id DESC
       LIMIT $2 OFFSET $3
-    `, [tenantId, pageSize, offset]);
+    `,
+      [tenantId, pageSize, offset]
+    );
     return result.rows;
   },
 
@@ -169,7 +191,12 @@ export const IpercRepository = {
     return { ...lineaBase.rows[0], items: items.rows };
   },
 
-  async crearLineaBase(client: PoolClient, tenantId: string, creadoPor: string, data: CrearLineaBaseInput) {
+  async crearLineaBase(
+    client: PoolClient,
+    tenantId: string,
+    creadoPor: string,
+    data: CrearLineaBaseInput
+  ) {
     const lineaBase = await client.query(
       `INSERT INTO iperc_lineas_base (tenant_id, proceso_actividad, area_frente, creado_por)
        VALUES ($1, $2, $3, $4)
@@ -184,7 +211,16 @@ export const IpercRepository = {
         `INSERT INTO iperc_linea_base_items (tenant_id, linea_base_id, etapa_actividad, peligro, riesgo, probabilidad, severidad, medidas_control)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING id, etapa_actividad, peligro, riesgo, probabilidad, severidad, nivel_riesgo, medidas_control`,
-        [tenantId, lineaBaseId, item.etapa_actividad, item.peligro, item.riesgo, item.probabilidad, item.severidad, item.medidas_control]
+        [
+          tenantId,
+          lineaBaseId,
+          item.etapa_actividad,
+          item.peligro,
+          item.riesgo,
+          item.probabilidad,
+          item.severidad,
+          item.medidas_control,
+        ]
       );
       items.push(result.rows[0]);
     }

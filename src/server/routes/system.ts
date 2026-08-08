@@ -1,6 +1,5 @@
 /**src/server/routes/formulario.ts */
 
-
 import { Router } from "express";
 import { emailConfigured, env } from "../config/env";
 import { getRedis } from "../config/redis";

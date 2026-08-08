@@ -12,7 +12,7 @@
   --overlay-bg: rgb(6, 7, 7);
   --about-bg: linear-gradient(to bottom, #e6e0e0, #ffffff);
   --section-bg: linear-gradient(to bottom, #67148d, #ffffff);
-  --fade-light-bg: linear-gradient(to bottom,  #999393, #4d4545, #201c1c);
+  --fade-light-bg: linear-gradient(to bottom, #999393, #4d4545, #201c1c);
 
   /* Texto */
   --primary-text: #000000;
@@ -20,9 +20,9 @@
   --tertiary-text: #ffffff;
   --light-text: #bdbdbd;
 
-  --font-family-base: 'Inter', sans-serif;
-  --font-family-title: 'Inter', sans-serif;
-  --font-family-description: 'Inter', sans-serif;
+  --font-family-base: "Inter", sans-serif;
+  --font-family-title: "Inter", sans-serif;
+  --font-family-description: "Inter", sans-serif;
   --font-weight-thin: 100;
   --font-weight-light: 300;
   --font-weight-normal: 300;
@@ -46,11 +46,10 @@
   --font-size-smFooter: clamp(0.6rem, 1.5vw + 0.4rem, 0.9rem);
   --font-size-pFooter: clamp(0.9rem, 2vw, 1.3rem);
   --font-size-psmallFooter: clamp(0.85rem, 1.8vw, 1.1rem);
-  
 
   /* Espaciados */
   --padding-section: clamp(1rem, 5vw, 4rem);
-    --padding-section-chat: clamp(4rem, 5vw, 10rem);
+  --padding-section-chat: clamp(4rem, 5vw, 10rem);
   --padding-container: clamp(1.5rem, 4vw, 2.5rem);
   --gap-sm: clamp(0.5rem, 2vw, 1rem);
   --gap-md: clamp(1rem, 3vw, 2rem);
@@ -76,8 +75,8 @@
 
   /*  glb */
   --width-glb: clamp(300px, 100vw, 400px);
-  --margin-top-glb: clamp(50px, 10vw,  500px);
-  --margin-top-glbBot: clamp(5px, 10vw,  10px);
+  --margin-top-glb: clamp(50px, 10vw, 500px);
+  --margin-top-glbBot: clamp(5px, 10vw, 10px);
 
   /* Banner */
   --banner-width: 100%;
@@ -105,14 +104,14 @@
 
   /* Imágenes de galería */
   --img-gallery-width: clamp(250px, 100%, 800px);
-  --img-gallery-height:auto;
+  --img-gallery-height: auto;
   --img-gallery-mockup: clamp(10px, 100%, 400px);
   --img-gallery-max-width: 100%;
   --img-gallery-max-height: auto;
 
   /* imagenes de pestaña de contacto */
   --img-gallery-widthContacto: clamp(250px, 100%, 600px);
-  --img-gallery-heightContacto:auto;
+  --img-gallery-heightContacto: auto;
   --margin-block-titleContact: clamp(50px, 50vw, 400px); /* equivale aprox a 24px - 200px */
   --margin-block-endcontact: clamp(10px, 10vw, 50px); /* equivale aprox a 24px - 200px */
 
@@ -140,13 +139,12 @@
   /* margin top */
   --margin-top-image: clamp(10px, 10vw, 200px);
   --margin-top-threeBox: clamp(100px, 4vw, 100px);
-  --margin-top-serviceText: clamp(100px, 40vw,  200px);
-  --margin-top-imageContact: clamp(100px, 40vw,  300px);
-  --margin-top-video: clamp(0px, 1vw,  100px);
-  --margin-top-subTitle: clamp(50px, 10vw,  300px);
-  --margin-top-trabajos: clamp(50px, 10vw,  300px);
-  --margin-top-chatbox: clamp(100px, 20vw,  10px);
-
+  --margin-top-serviceText: clamp(100px, 40vw, 200px);
+  --margin-top-imageContact: clamp(100px, 40vw, 300px);
+  --margin-top-video: clamp(0px, 1vw, 100px);
+  --margin-top-subTitle: clamp(50px, 10vw, 300px);
+  --margin-top-trabajos: clamp(50px, 10vw, 300px);
+  --margin-top-chatbox: clamp(100px, 20vw, 10px);
 
   --margin-section: clamp(2rem, 5vw, 6rem);
   --margin-section-header: clamp(2rem, 10vw, 10rem);
@@ -164,20 +162,20 @@
 
 /* Fondo específico para la página QUIENES-SOMOS */
 body.quienes-somos {
-  background: none; 
+  background: none;
 }
 
 /* Transparencia en el fondo del hero para que no tape el gradiente del body */
 body.quienes-somos .hero-header::before {
-  background: linear-gradient(to bottom, #e6e0e0, #e6e0e0,#ffffff);
+  background: linear-gradient(to bottom, #e6e0e0, #e6e0e0, #ffffff);
 }
 /* Transparencia en el fondo del footer para que no tape el gradiente del body */
 body.quienes-somos .footer::before {
-  background: linear-gradient(to bottom, #ffffff,  #e6e0e0);
+  background: linear-gradient(to bottom, #ffffff, #e6e0e0);
 }
 /* Fondo específico para la página PUERTA DEL VALLE */
 body.puerta-del-valle {
-  background: linear-gradient(to bottom,#6fc9dbff); 
+  background: linear-gradient(to bottom, #6fc9dbff);
 }
 
 /* Transparencia en el fondo del hero para que no tape el gradiente del body */
@@ -192,7 +190,7 @@ body.puerta-del-valle .footer::before {
 /* -------------------------------------- */
 /* Fondo específico para la página INTI PINTAY */
 body.inti-pintay {
-  background: linear-gradient(to bottom,rgb(192, 179, 0)); 
+  background: linear-gradient(to bottom, rgb(192, 179, 0));
 }
 
 /* Transparencia en el fondo del hero para que no tape el gradiente del body */
@@ -206,7 +204,7 @@ body.inti-pintay .footer::before {
 
 /* Fondo específico para la página DBARBITO COFFEE */
 body.dbarbito-coffee {
-  background: linear-gradient(to bottom,rgb(255, 236, 184)); 
+  background: linear-gradient(to bottom, rgb(255, 236, 184));
 }
 
 /* Transparencia en el fondo del hero para que no tape el gradiente del body */

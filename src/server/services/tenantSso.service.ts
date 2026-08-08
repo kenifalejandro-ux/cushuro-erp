@@ -51,7 +51,9 @@ export interface TenantSsoConfigPublica {
   activo: boolean;
 }
 
-export async function obtenerConfigSsoTenantService(tenantId: string): Promise<TenantSsoConfigPublica> {
+export async function obtenerConfigSsoTenantService(
+  tenantId: string
+): Promise<TenantSsoConfigPublica> {
   const result = await pool.query(
     `SELECT proveedor, issuer_url AS "issuerUrl", client_id AS "clientId",
             dominio_email_permitido AS "dominioEmailPermitido", activo
@@ -60,7 +62,14 @@ export async function obtenerConfigSsoTenantService(tenantId: string): Promise<T
   );
   const fila = result.rows[0];
   if (!fila) {
-    return { configurado: false, proveedor: null, issuerUrl: null, clientId: null, dominioEmailPermitido: null, activo: false };
+    return {
+      configurado: false,
+      proveedor: null,
+      issuerUrl: null,
+      clientId: null,
+      dominioEmailPermitido: null,
+      activo: false,
+    };
   }
   return { configurado: true, ...fila };
 }
@@ -97,7 +106,14 @@ export async function configurarSsoTenantService(
      ON CONFLICT (tenant_id) DO UPDATE SET
        issuer_url = $2, client_id = $3, client_secret_cifrado = $4,
        dominio_email_permitido = $5, activo = $6, actualizado_en = now()`,
-    [tenantId, input.issuerUrl, input.clientId, cifrar(input.clientSecret), input.dominioEmailPermitido ?? null, input.activo]
+    [
+      tenantId,
+      input.issuerUrl,
+      input.clientId,
+      cifrar(input.clientSecret),
+      input.dominioEmailPermitido ?? null,
+      input.activo,
+    ]
   );
 
   // Si ya había una config previa (issuer/client distintos), invalida la
@@ -167,15 +183,25 @@ export async function iniciarSsoTenantService(tenantSlug: string): Promise<Inici
   if (!tenant) throw new AppError(404, "Empresa no encontrada");
 
   const config = await obtenerConfigInterna(tenant.id);
-  if (!config || !config.activo) throw new AppError(503, "El inicio de sesión SSO no está disponible para esta empresa");
+  if (!config || !config.activo)
+    throw new AppError(503, "El inicio de sesión SSO no está disponible para esta empresa");
 
-  const oidcConfig = await descubrirConfiguracion(config.issuerUrl, config.clientId, descifrar(config.clientSecretCifrado));
+  const oidcConfig = await descubrirConfiguracion(
+    config.issuerUrl,
+    config.clientId,
+    descifrar(config.clientSecretCifrado)
+  );
 
   const codeVerifier = client.randomPKCECodeVerifier();
   const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier);
   const nonce = client.randomNonce();
 
-  const state = await guardarFlujo({ contexto: "tenant", tenantId: tenant.id, codeVerifier, nonce });
+  const state = await guardarFlujo({
+    contexto: "tenant",
+    tenantId: tenant.id,
+    codeVerifier,
+    nonce,
+  });
 
   const url = construirUrlAutorizacion(oidcConfig, {
     redirectUri: baseUrlCallback(),
@@ -227,7 +253,10 @@ async function resolverUsuarioSso(
   });
 
   if (!fila) {
-    throw new AppError(401, "Esta cuenta no tiene acceso a esta empresa — pedile a un admin que te dé de alta primero");
+    throw new AppError(
+      401,
+      "Esta cuenta no tiene acceso a esta empresa — pedile a un admin que te dé de alta primero"
+    );
   }
 
   return {
@@ -258,15 +287,21 @@ export async function manejarCallbackSsoTenantService(
     throw new AppError(401, "El enlace de inicio de sesión expiró o ya se usó — intentá de nuevo");
   }
 
-  const tenant = await pool.query(`SELECT id, slug, dominio_personalizado AS "dominioPersonalizado" FROM tenants WHERE id = $1 AND activo = true`, [
-    flujo.tenantId,
-  ]);
+  const tenant = await pool.query(
+    `SELECT id, slug, dominio_personalizado AS "dominioPersonalizado" FROM tenants WHERE id = $1 AND activo = true`,
+    [flujo.tenantId]
+  );
   if (tenant.rows.length === 0) throw new AppError(404, "Empresa no encontrada");
 
   const config = await obtenerConfigInterna(flujo.tenantId);
-  if (!config || !config.activo) throw new AppError(503, "El inicio de sesión SSO no está disponible para esta empresa");
+  if (!config || !config.activo)
+    throw new AppError(503, "El inicio de sesión SSO no está disponible para esta empresa");
 
-  const oidcConfig = await descubrirConfiguracion(config.issuerUrl, config.clientId, descifrar(config.clientSecretCifrado));
+  const oidcConfig = await descubrirConfiguracion(
+    config.issuerUrl,
+    config.clientId,
+    descifrar(config.clientSecretCifrado)
+  );
 
   let claims: ClaimsOidc;
   try {
@@ -288,14 +323,22 @@ export async function manejarCallbackSsoTenantService(
 
   let usuario: UsuarioPayload;
   try {
-    usuario = await resolverUsuarioSso(flujo.tenantId, "oidc", config.dominioEmailPermitido, claims);
+    usuario = await resolverUsuarioSso(
+      flujo.tenantId,
+      "oidc",
+      config.dominioEmailPermitido,
+      claims
+    );
   } catch (err) {
     await registrarAuditoria({
       accion: "sso_login_tenant",
       tenantId: flujo.tenantId,
       contexto,
       resultado: "failure",
-      detalle: { motivo: err instanceof Error ? err.message : "error desconocido", subject: claims.sub },
+      detalle: {
+        motivo: err instanceof Error ? err.message : "error desconocido",
+        subject: claims.sub,
+      },
     });
     throw err;
   }

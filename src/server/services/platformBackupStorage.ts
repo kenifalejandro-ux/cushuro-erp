@@ -31,7 +31,12 @@ import { Readable } from "stream";
 import { env } from "../config/env";
 import { logger } from "../config/logger";
 import { AppError } from "../shared/middlewares/error.middleware";
-import { cifrarYComprimir, descifrarYDescomprimir, esBackupCifrado, cifradoDeBackupsDisponible } from "./backupCrypto";
+import {
+  cifrarYComprimir,
+  descifrarYDescomprimir,
+  esBackupCifrado,
+  cifradoDeBackupsDisponible,
+} from "./backupCrypto";
 import { subirObjeto, descargarObjeto, borrarObjeto, borrarObjetos } from "./platformBackupS3";
 
 export type DriverStorage = "local" | "s3";
@@ -51,7 +56,13 @@ export function driverDeEscritura(): DriverStorage {
  *  de BACKUPS_DIR en el driver local. Se valida en los DOS drivers para que
  *  la garantía no dependa de cuál esté activo. */
 function validarKey(key: string): void {
-  if (!key || key.includes("..") || key.startsWith("/") || key.includes("\\") || key.includes("\0")) {
+  if (
+    !key ||
+    key.includes("..") ||
+    key.startsWith("/") ||
+    key.includes("\\") ||
+    key.includes("\0")
+  ) {
     throw new AppError(500, `Key de backup inválida: ${key}`);
   }
 }
@@ -158,7 +169,10 @@ export async function borrarBackup(ubicacion: UbicacionBackup): Promise<void> {
     const codigo = (err as NodeJS.ErrnoException).code;
     const nombre = (err as Error).name;
     if (codigo === "ENOENT" || nombre === "NoSuchKey" || nombre === "NotFound") {
-      logger.warn({ ...ubicacion }, "El objeto de backup ya no existía al intentar borrarlo, se continúa");
+      logger.warn(
+        { ...ubicacion },
+        "El objeto de backup ya no existía al intentar borrarlo, se continúa"
+      );
       return;
     }
     throw err;
@@ -190,7 +204,10 @@ export async function borrarBackupsEnLote(
       await borrarBackup(ubicacion);
       borradas.push(ubicacion.key);
     } catch (err) {
-      logger.error({ err, key: ubicacion.key }, "No se pudo borrar un backup local durante la retención");
+      logger.error(
+        { err, key: ubicacion.key },
+        "No se pudo borrar un backup local durante la retención"
+      );
       fallidas.push(ubicacion.key);
     }
   }

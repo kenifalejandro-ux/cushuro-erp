@@ -32,8 +32,12 @@ describe("limpiarAuditoriaVieja", () => {
     const { filasBorradas } = await limpiarAuditoriaVieja({ retentionDays: 365 });
     expect(filasBorradas).toBeGreaterThanOrEqual(1);
 
-    expect((await pool.query(`SELECT id FROM platform_audit_log WHERE id = $1`, [vieja])).rows).toHaveLength(0);
-    expect((await pool.query(`SELECT id FROM platform_audit_log WHERE id = $1`, [nueva])).rows).toHaveLength(1);
+    expect(
+      (await pool.query(`SELECT id FROM platform_audit_log WHERE id = $1`, [vieja])).rows
+    ).toHaveLength(0);
+    expect(
+      (await pool.query(`SELECT id FROM platform_audit_log WHERE id = $1`, [nueva])).rows
+    ).toHaveLength(1);
 
     await pool.query(`DELETE FROM platform_audit_log WHERE id = $1`, [nueva]);
   });
@@ -44,7 +48,9 @@ describe("limpiarAuditoriaVieja", () => {
     const { filasBorradas } = await limpiarAuditoriaVieja({ retentionDays: 0 });
     expect(filasBorradas).toBe(0);
 
-    expect((await pool.query(`SELECT id FROM platform_audit_log WHERE id = $1`, [vieja])).rows).toHaveLength(1);
+    expect(
+      (await pool.query(`SELECT id FROM platform_audit_log WHERE id = $1`, [vieja])).rows
+    ).toHaveLength(1);
 
     await pool.query(`DELETE FROM platform_audit_log WHERE id = $1`, [vieja]);
   });
@@ -55,7 +61,9 @@ describe("limpiarAuditoriaVieja", () => {
     const { filasBorradas } = await limpiarAuditoriaVieja();
     expect(filasBorradas).toBe(0);
 
-    expect((await pool.query(`SELECT id FROM platform_audit_log WHERE id = $1`, [vieja])).rows).toHaveLength(1);
+    expect(
+      (await pool.query(`SELECT id FROM platform_audit_log WHERE id = $1`, [vieja])).rows
+    ).toHaveLength(1);
 
     await pool.query(`DELETE FROM platform_audit_log WHERE id = $1`, [vieja]);
   });

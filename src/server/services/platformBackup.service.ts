@@ -28,7 +28,12 @@ import { AppError } from "../shared/middlewares/error.middleware";
 import { MODULOS } from "../../modules/registry";
 import type { TablaBackupMeta } from "../../modules/types";
 import { registrarAuditoria, type ContextoAuditoria } from "./platformAudit.service";
-import { guardarBackup, leerBackup, driverDeEscritura, type DriverStorage } from "./platformBackupStorage";
+import {
+  guardarBackup,
+  leerBackup,
+  driverDeEscritura,
+  type DriverStorage,
+} from "./platformBackupStorage";
 import { construirKeyTenant } from "./platformBackupS3";
 import { verificarCuota, RECURSO_BACKUP_BYTES } from "./platformCuotas.service";
 
@@ -40,7 +45,10 @@ type MetaTabla = TablaBackupMeta;
 // checklists antes de iperc ya queda garantizado por ese orden (ver
 // registry.ts) — módulos independientes entre sí (repuestos, combustible,
 // documentos) pueden ir en cualquier posición relativa.
-const TABLAS_TENANT: MetaTabla[] = [{ nombre: "usuarios", pk: "uuid" }, ...MODULOS.flatMap((m) => m.tablas)];
+const TABLAS_TENANT: MetaTabla[] = [
+  { nombre: "usuarios", pk: "uuid" },
+  ...MODULOS.flatMap((m) => m.tablas),
+];
 
 // Orden de DELETE al vaciar un tenant: el inverso del orden de "raíces"
 // declarado por cada módulo (ver `raices` en ModuloDefinicion) — invertir
@@ -82,11 +90,16 @@ export interface TenantBackup {
  *
  *  Number() es seguro acá: pierde precisión recién por encima de 2^53
  *  bytes (9 PB), y un backup de un tenant no se acerca ni de lejos. */
-function normalizarFilaBackup<T extends { tamanoBytes: unknown }>(fila: T): T & { tamanoBytes: number } {
+function normalizarFilaBackup<T extends { tamanoBytes: unknown }>(
+  fila: T
+): T & { tamanoBytes: number } {
   return { ...fila, tamanoBytes: Number(fila.tamanoBytes) };
 }
 
-export async function exportarTenantService(tenantId: string, contexto: ContextoAuditoria): Promise<TenantBackup> {
+export async function exportarTenantService(
+  tenantId: string,
+  contexto: ContextoAuditoria
+): Promise<TenantBackup> {
   const tenant = await pool.query(`SELECT id, nombre, slug FROM tenants WHERE id = $1`, [tenantId]);
   if (tenant.rows.length === 0) {
     throw new AppError(404, "Tenant no encontrado");
@@ -106,14 +119,20 @@ export async function exportarTenantService(tenantId: string, contexto: Contexto
 
     // withTenant() por las tablas con RLS (todas, salvo la propia
     // tenants) — una sola transacción de solo lectura para todo el export.
-    const tablas: Record<string, Record<string, unknown>[]> = await withTenant(tenantId, async (client) => {
-      const resultado: Record<string, Record<string, unknown>[]> = {};
-      for (const { nombre } of TABLAS_TENANT) {
-        const filas = await client.query(`SELECT * FROM ${nombre} WHERE tenant_id = $1 ORDER BY id`, [tenantId]);
-        resultado[nombre] = filas.rows;
+    const tablas: Record<string, Record<string, unknown>[]> = await withTenant(
+      tenantId,
+      async (client) => {
+        const resultado: Record<string, Record<string, unknown>[]> = {};
+        for (const { nombre } of TABLAS_TENANT) {
+          const filas = await client.query(
+            `SELECT * FROM ${nombre} WHERE tenant_id = $1 ORDER BY id`,
+            [tenantId]
+          );
+          resultado[nombre] = filas.rows;
+        }
+        return resultado;
       }
-      return resultado;
-    });
+    );
 
     const backup: ContenidoBackup = {
       version: 1,
@@ -124,7 +143,9 @@ export async function exportarTenantService(tenantId: string, contexto: Contexto
       tablas,
     };
 
-    const resumenTablas = Object.fromEntries(Object.entries(tablas).map(([nombre, filas]) => [nombre, filas.length]));
+    const resumenTablas = Object.fromEntries(
+      Object.entries(tablas).map(([nombre, filas]) => [nombre, filas.length])
+    );
     const contenidoSerializado = JSON.stringify(backup);
     const key = construirKeyTenant(tenantId);
 
@@ -161,12 +182,18 @@ export async function exportarTenantService(tenantId: string, contexto: Contexto
   } catch (err) {
     // Nivel ERROR, no warn: quedarse sin backup de un tenant es un
     // incidente operativo, tiene que despertar a alguien.
-    logger.error({ err, tenantId, storage: driverDeEscritura() }, "Falló la creación del backup de un tenant");
+    logger.error(
+      { err, tenantId, storage: driverDeEscritura() },
+      "Falló la creación del backup de un tenant"
+    );
 
     await registrarAuditoria({
       accion: "crear_backup_tenant",
       tenantId,
-      detalle: { storage: driverDeEscritura(), error: err instanceof Error ? err.message : String(err) },
+      detalle: {
+        storage: driverDeEscritura(),
+        error: err instanceof Error ? err.message : String(err),
+      },
       contexto,
       resultado: "failure",
     });
@@ -349,9 +376,10 @@ export async function restaurarBackupService(
       const resultado = await restaurarTablas(client, backup, targetTenantId, remapearIds);
 
       if (resultado.usuarios > 0) {
-        await client.query(`UPDATE usuarios SET token_version = token_version + 1000 WHERE tenant_id = $1`, [
-          targetTenantId,
-        ]);
+        await client.query(
+          `UPDATE usuarios SET token_version = token_version + 1000 WHERE tenant_id = $1`,
+          [targetTenantId]
+        );
       }
 
       return resultado;

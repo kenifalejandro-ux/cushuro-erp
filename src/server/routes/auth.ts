@@ -6,7 +6,12 @@ import { validate } from "../middleware/validate";
 import rateLimiter from "../middleware/rateLimiter";
 import { verifyRecaptcha } from "../middleware/verifyRecaptcha";
 import { resolveTenantSubdomain } from "../middleware/resolveTenantSubdomain";
-import { loginSchema, googleLoginSchema, forgotPasswordSchema, resetPasswordSchema } from "../schemas/auth.schema";
+import {
+  loginSchema,
+  googleLoginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+} from "../schemas/auth.schema";
 import {
   loginService,
   googleLoginService,
@@ -109,7 +114,11 @@ authRouter.post(
 
 authRouter.get("/sso-disponible", rateLimiter, resolveTenantSubdomain, async (req, res, next) => {
   try {
-    const tenantSlug = ((req.body as { tenantSlug?: string })?.tenantSlug || (req.query.tenantSlug as string) || "").trim();
+    const tenantSlug = (
+      (req.body as { tenantSlug?: string })?.tenantSlug ||
+      (req.query.tenantSlug as string) ||
+      ""
+    ).trim();
     if (!tenantSlug) return res.status(200).json({ ok: true, disponible: false });
     const disponible = await ssoDisponibleParaTenantService(tenantSlug);
     res.status(200).json({ ok: true, disponible });
@@ -120,7 +129,11 @@ authRouter.get("/sso-disponible", rateLimiter, resolveTenantSubdomain, async (re
 
 authRouter.get("/sso/iniciar", rateLimiter, resolveTenantSubdomain, async (req, res, next) => {
   try {
-    const tenantSlug = ((req.body as { tenantSlug?: string })?.tenantSlug || (req.query.tenantSlug as string) || "").trim();
+    const tenantSlug = (
+      (req.body as { tenantSlug?: string })?.tenantSlug ||
+      (req.query.tenantSlug as string) ||
+      ""
+    ).trim();
     if (!tenantSlug) {
       return res.status(400).json({ ok: false, message: "Falta identificar la empresa" });
     }
@@ -154,32 +167,30 @@ authRouter.get("/sso/callback", rateLimiter, async (req, res) => {
   }
 });
 
-authRouter.post(
-  "/refresh",
-  rateLimiter,
-  async (req, res, next) => {
-    try {
-      const refreshTokenCookie = (req as typeof req & { cookies?: Record<string, string> }).cookies?.[
-        REFRESH_COOKIE_NAME
-      ];
+authRouter.post("/refresh", rateLimiter, async (req, res, next) => {
+  try {
+    const refreshTokenCookie = (req as typeof req & { cookies?: Record<string, string> }).cookies?.[
+      REFRESH_COOKIE_NAME
+    ];
 
-      if (!refreshTokenCookie) {
-        return res.status(401).json({ ok: false, message: "Sesión inválida, inicia sesión nuevamente" });
-      }
-
-      const result = await refrescarTokenService(refreshTokenCookie);
-      setCookieSesion(res, result.token);
-      setCookieRefresh(res, result.refreshToken);
-      res.status(200).json({ ok: true, usuario: aPublico(result.usuario) });
-    } catch (err) {
-      // Si el refresh falla (token inválido, reusado o expirado) las
-      // cookies ya no sirven — se limpian para que el frontend redirija
-      // a /login en vez de reintentar con las mismas cookies muertas.
-      limpiarCookiesSesion(res);
-      next(err);
+    if (!refreshTokenCookie) {
+      return res
+        .status(401)
+        .json({ ok: false, message: "Sesión inválida, inicia sesión nuevamente" });
     }
+
+    const result = await refrescarTokenService(refreshTokenCookie);
+    setCookieSesion(res, result.token);
+    setCookieRefresh(res, result.refreshToken);
+    res.status(200).json({ ok: true, usuario: aPublico(result.usuario) });
+  } catch (err) {
+    // Si el refresh falla (token inválido, reusado o expirado) las
+    // cookies ya no sirven — se limpian para que el frontend redirija
+    // a /login en vez de reintentar con las mismas cookies muertas.
+    limpiarCookiesSesion(res);
+    next(err);
   }
-);
+});
 
 authRouter.post(
   "/forgot-password",

@@ -73,21 +73,27 @@ async function diagnosticoPgStatStatements(): Promise<boolean> {
   const columnas = { tiempoTotal: "total_exec_time", tiempoPromedio: "mean_exec_time" };
   let filas;
   try {
-    filas = await pool.query(`
+    filas = await pool.query(
+      `
       SELECT query, calls, ${columnas.tiempoTotal} AS tiempo_total_ms, ${columnas.tiempoPromedio} AS tiempo_promedio_ms, rows
       FROM pg_stat_statements
       WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
       ORDER BY ${columnas.tiempoTotal} DESC
       LIMIT $1
-    `, [TOP_N]);
+    `,
+      [TOP_N]
+    );
   } catch {
-    filas = await pool.query(`
+    filas = await pool.query(
+      `
       SELECT query, calls, total_time AS tiempo_total_ms, mean_time AS tiempo_promedio_ms, rows
       FROM pg_stat_statements
       WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
       ORDER BY total_time DESC
       LIMIT $1
-    `, [TOP_N]);
+    `,
+      [TOP_N]
+    );
   }
 
   console.log(`\n─── Top ${TOP_N} queries por tiempo total acumulado (pg_stat_statements) ───`);
@@ -176,7 +182,10 @@ const QUERIES_REPRESENTATIVAS: QueryRepresentativa[] = [
   },
 ];
 
-async function diagnosticoExplainRepresentativo(tenantId: string, tenantSlug: string): Promise<void> {
+async function diagnosticoExplainRepresentativo(
+  tenantId: string,
+  tenantSlug: string
+): Promise<void> {
   console.log(`─── EXPLAIN ANALYZE de las queries representativas de cada módulo ───`);
   console.log(`Tenant usado: ${tenantSlug} (${tenantId})`);
   console.log(
@@ -195,9 +204,16 @@ async function diagnosticoExplainRepresentativo(tenantId: string, tenantSlug: st
       const tiempoMatch = plan.match(/Execution Time: ([\d.]+) ms/);
       const tiempo = tiempoMatch ? `${tiempoMatch[1]}ms` : "?";
 
-      console.log(`${tieneSeqScan ? "⚠ " : "✓ "}${q.nombre} — ${tiempo}${tieneSeqScan ? "  (Seq Scan detectado, revisar índices)" : ""}`);
+      console.log(
+        `${tieneSeqScan ? "⚠ " : "✓ "}${q.nombre} — ${tiempo}${tieneSeqScan ? "  (Seq Scan detectado, revisar índices)" : ""}`
+      );
       if (tieneSeqScan) {
-        console.log(plan.split("\n").map((l) => `    ${l}`).join("\n"));
+        console.log(
+          plan
+            .split("\n")
+            .map((l) => `    ${l}`)
+            .join("\n")
+        );
       }
     });
   }
@@ -211,7 +227,9 @@ async function main() {
   if (!tenant) {
     console.log("No hay ningún tenant en la base — nada contra qué correr EXPLAIN ANALYZE.");
     if (!usoPgStatStatements) {
-      console.log("Creá un tenant de prueba (POST /api/platform/tenants) y volvé a correr este script.");
+      console.log(
+        "Creá un tenant de prueba (POST /api/platform/tenants) y volvé a correr este script."
+      );
     }
   } else {
     await diagnosticoExplainRepresentativo(tenant.id, tenant.slug);

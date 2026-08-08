@@ -21,7 +21,9 @@ afterAll(async () => {
 });
 
 async function generarToken(tenantId: string): Promise<string> {
-  const res = await request(app).post(`/api/platform/tenants/${tenantId}/scim/token`).set("Authorization", BEARER);
+  const res = await request(app)
+    .post(`/api/platform/tenants/${tenantId}/scim/token`)
+    .set("Authorization", BEARER);
   expect(res.status).toBe(200);
   return res.body.token;
 }
@@ -34,7 +36,9 @@ describe("SCIM: autenticación por token de tenant", () => {
   });
 
   it("con un token inválido: 401", async () => {
-    const res = await request(app).get("/scim/v2/Users").set("Authorization", "Bearer token-que-no-existe");
+    const res = await request(app)
+      .get("/scim/v2/Users")
+      .set("Authorization", "Bearer token-que-no-existe");
     expect(res.status).toBe(401);
   });
 
@@ -45,9 +49,10 @@ describe("SCIM: autenticación por token de tenant", () => {
     const token = await generarToken(creado.tenant.id);
     expect(token.length).toBeGreaterThan(20);
 
-    const fila = await pool.query(`SELECT token_hash FROM tenant_scim_config WHERE tenant_id = $1`, [
-      creado.tenant.id,
-    ]);
+    const fila = await pool.query(
+      `SELECT token_hash FROM tenant_scim_config WHERE tenant_id = $1`,
+      [creado.tenant.id]
+    );
     expect(fila.rows[0].token_hash).not.toBe(token);
   });
 
@@ -56,18 +61,28 @@ describe("SCIM: autenticación por token de tenant", () => {
     tenantIdsCreados.push(creado.tenant.id);
     const token = await generarToken(creado.tenant.id);
 
-    const antesDeRevocar = await request(app).get("/scim/v2/Users").set("Authorization", `Bearer ${token}`);
+    const antesDeRevocar = await request(app)
+      .get("/scim/v2/Users")
+      .set("Authorization", `Bearer ${token}`);
     expect(antesDeRevocar.status).toBe(200);
 
-    await request(app).delete(`/api/platform/tenants/${creado.tenant.id}/scim/token`).set("Authorization", BEARER);
+    await request(app)
+      .delete(`/api/platform/tenants/${creado.tenant.id}/scim/token`)
+      .set("Authorization", BEARER);
 
-    const despuesDeRevocar = await request(app).get("/scim/v2/Users").set("Authorization", `Bearer ${token}`);
+    const despuesDeRevocar = await request(app)
+      .get("/scim/v2/Users")
+      .set("Authorization", `Bearer ${token}`);
     expect(despuesDeRevocar.status).toBe(401);
 
     const tokenNuevo = await generarToken(creado.tenant.id);
-    const conTokenViejo = await request(app).get("/scim/v2/Users").set("Authorization", `Bearer ${token}`);
+    const conTokenViejo = await request(app)
+      .get("/scim/v2/Users")
+      .set("Authorization", `Bearer ${token}`);
     expect(conTokenViejo.status).toBe(401);
-    const conTokenNuevo = await request(app).get("/scim/v2/Users").set("Authorization", `Bearer ${tokenNuevo}`);
+    const conTokenNuevo = await request(app)
+      .get("/scim/v2/Users")
+      .set("Authorization", `Bearer ${tokenNuevo}`);
     expect(conTokenNuevo.status).toBe(200);
   });
 });
@@ -88,12 +103,16 @@ describe("SCIM: provisioning de usuarios", () => {
     expect(post.body.active).toBe(true);
     const userId = post.body.id;
 
-    const getPorId = await request(app).get(`/scim/v2/Users/${userId}`).set("Authorization", `Bearer ${token}`);
+    const getPorId = await request(app)
+      .get(`/scim/v2/Users/${userId}`)
+      .set("Authorization", `Bearer ${token}`);
     expect(getPorId.status).toBe(200);
     expect(getPorId.body.name.formatted).toBe("Nombre Apellido");
 
     const filtro = `filter=${encodeURIComponent(`userName eq "${email}"`)}`;
-    const getFiltrado = await request(app).get(`/scim/v2/Users?${filtro}`).set("Authorization", `Bearer ${token}`);
+    const getFiltrado = await request(app)
+      .get(`/scim/v2/Users?${filtro}`)
+      .set("Authorization", `Bearer ${token}`);
     expect(getFiltrado.status).toBe(200);
     expect(getFiltrado.body.totalResults).toBe(1);
     expect(getFiltrado.body.Resources[0].id).toBe(userId);
@@ -161,7 +180,9 @@ describe("SCIM: provisioning de usuarios", () => {
       .send({ userName: `${idUnico("scim-delete")}@empresa-cliente.test` });
     const userId = post.body.id;
 
-    const del = await request(app).delete(`/scim/v2/Users/${userId}`).set("Authorization", `Bearer ${token}`);
+    const del = await request(app)
+      .delete(`/scim/v2/Users/${userId}`)
+      .set("Authorization", `Bearer ${token}`);
     expect(del.status).toBe(204);
 
     const fila = await withTenant(creado.tenant.id, (client) =>

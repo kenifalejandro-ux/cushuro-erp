@@ -71,17 +71,24 @@ export async function platformAdminMiddleware(req: Request, res: Response, next:
   }
 
   const authHeader = req.headers.authorization;
-  const tokenHeader = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : undefined;
+  const tokenHeader = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice("Bearer ".length)
+    : undefined;
 
   if (tokenHeader) {
     if (tokensCoinciden(tokenHeader, env.platformAdminToken)) {
-      adjuntarActor(req, { actorType: "emergency_shared_secret", actorLabel: "secreto-compartido" });
+      adjuntarActor(req, {
+        actorType: "emergency_shared_secret",
+        actorLabel: "secreto-compartido",
+      });
       return next();
     }
     return rechazar(req, res, { via: "bearer" });
   }
 
-  const cookieValue = (req as Request & { cookies?: Record<string, string> }).cookies?.[PLATFORM_SESSION_COOKIE];
+  const cookieValue = (req as Request & { cookies?: Record<string, string> }).cookies?.[
+    PLATFORM_SESSION_COOKIE
+  ];
   if (!cookieValue) {
     return rechazar(req, res, { via: "sin_credencial" });
   }

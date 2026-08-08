@@ -38,11 +38,16 @@ export async function obtenerConfigScimService(tenantId: string): Promise<Config
  *  valor en texto plano UNA SOLA VEZ; el caller (la ruta) es responsable
  *  de mostrárselo al admin ahí mismo y no volver a guardarlo en ningún
  *  lado del backend. */
-export async function generarTokenScimService(tenantId: string, contexto: ContextoAuditoria): Promise<string> {
+export async function generarTokenScimService(
+  tenantId: string,
+  contexto: ContextoAuditoria
+): Promise<string> {
   const tenant = await pool.query(`SELECT id FROM tenants WHERE id = $1`, [tenantId]);
   if (tenant.rows.length === 0) throw new AppError(404, "Tenant no encontrado");
 
-  const yaExistia = await pool.query(`SELECT 1 FROM tenant_scim_config WHERE tenant_id = $1`, [tenantId]);
+  const yaExistia = await pool.query(`SELECT 1 FROM tenant_scim_config WHERE tenant_id = $1`, [
+    tenantId,
+  ]);
   const tokenPlano = randomBytes(32).toString("base64url");
 
   await pool.query(
@@ -61,8 +66,14 @@ export async function generarTokenScimService(tenantId: string, contexto: Contex
   return tokenPlano;
 }
 
-export async function revocarTokenScimService(tenantId: string, contexto: ContextoAuditoria): Promise<void> {
-  const result = await pool.query(`UPDATE tenant_scim_config SET activo = false WHERE tenant_id = $1`, [tenantId]);
+export async function revocarTokenScimService(
+  tenantId: string,
+  contexto: ContextoAuditoria
+): Promise<void> {
+  const result = await pool.query(
+    `UPDATE tenant_scim_config SET activo = false WHERE tenant_id = $1`,
+    [tenantId]
+  );
   if (result.rowCount === 0) throw new AppError(404, "Este tenant no tiene SCIM configurado");
 
   await registrarAuditoria({ accion: "revocar_token_scim", tenantId, contexto });
@@ -72,7 +83,9 @@ export async function revocarTokenScimService(tenantId: string, contexto: Contex
  *  tenant — no hay Host/subdominio de por medio (quien llama es el IdP
  *  del tenant, no un browser), así que el bearer token ES la única forma
  *  de saber de qué tenant se trata. */
-export async function resolverTenantPorTokenScimService(tokenPlano: string): Promise<string | null> {
+export async function resolverTenantPorTokenScimService(
+  tokenPlano: string
+): Promise<string | null> {
   const result = await pool.query(
     `SELECT tenant_id AS "tenantId" FROM tenant_scim_config WHERE token_hash = $1 AND activo = true`,
     [hashToken(tokenPlano)]

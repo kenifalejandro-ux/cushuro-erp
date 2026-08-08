@@ -85,7 +85,9 @@ describe("resolución del límite efectivo", () => {
 
   it("rechaza fijar una cuota sobre un recurso que no existe", async () => {
     const tenant = await tenantLimpio();
-    await expect(fijarCuotaTenant(tenant.id, "recurso_inventado", 10)).rejects.toThrow(/desconocido/i);
+    await expect(fijarCuotaTenant(tenant.id, "recurso_inventado", 10)).rejects.toThrow(
+      /desconocido/i
+    );
   });
 
   it("dashboard no tiene cuota: no crea registros propios", async () => {
@@ -104,7 +106,9 @@ describe("bloqueo al exceder la cuota de un módulo", () => {
     const agente = await agenteDe(tenant, usuario.email);
 
     for (const n of [1, 2]) {
-      const ok = await agente.post("/api/erp/equipos").send({ placa_codigo: idUnico(`EQ-${n}`), tipo: "Camioneta" });
+      const ok = await agente
+        .post("/api/erp/equipos")
+        .send({ placa_codigo: idUnico(`EQ-${n}`), tipo: "Camioneta" });
       expect(ok.status).toBe(201);
     }
 
@@ -124,10 +128,15 @@ describe("bloqueo al exceder la cuota de un módulo", () => {
     await fijarCuotaTenant(tenant.id, "equipos", 1);
     const agente = await agenteDe(tenant, usuario.email);
 
-    const creado = await agente.post("/api/erp/equipos").send({ placa_codigo: idUnico("EQ"), tipo: "Camioneta" });
+    const creado = await agente
+      .post("/api/erp/equipos")
+      .send({ placa_codigo: idUnico("EQ"), tipo: "Camioneta" });
     expect(creado.status).toBe(201);
     // Ya está en el límite: la siguiente creación rebota.
-    expect((await agente.post("/api/erp/equipos").send({ placa_codigo: idUnico("EQ"), tipo: "X" })).status).toBe(403);
+    expect(
+      (await agente.post("/api/erp/equipos").send({ placa_codigo: idUnico("EQ"), tipo: "X" }))
+        .status
+    ).toBe(403);
 
     // Leer sigue funcionando.
     const listado = await agente.get("/api/erp/equipos");
@@ -138,7 +147,9 @@ describe("bloqueo al exceder la cuota de un módulo", () => {
     expect(borrado.status).toBe(200);
 
     // Y liberado el cupo, se puede volver a crear.
-    const despues = await agente.post("/api/erp/equipos").send({ placa_codigo: idUnico("EQ"), tipo: "Camioneta" });
+    const despues = await agente
+      .post("/api/erp/equipos")
+      .send({ placa_codigo: idUnico("EQ"), tipo: "Camioneta" });
     expect(despues.status).toBe(201);
   });
 
@@ -192,8 +203,14 @@ describe("bloqueo al exceder la cuota de un módulo", () => {
     const agenteA = await agenteDe(a.tenant, a.usuario.email);
     const agenteB = await agenteDe(b.tenant, b.usuario.email);
 
-    expect((await agenteA.post("/api/erp/equipos").send({ placa_codigo: idUnico("A"), tipo: "X" })).status).toBe(403);
-    expect((await agenteB.post("/api/erp/equipos").send({ placa_codigo: idUnico("B"), tipo: "X" })).status).toBe(201);
+    expect(
+      (await agenteA.post("/api/erp/equipos").send({ placa_codigo: idUnico("A"), tipo: "X" }))
+        .status
+    ).toBe(403);
+    expect(
+      (await agenteB.post("/api/erp/equipos").send({ placa_codigo: idUnico("B"), tipo: "X" }))
+        .status
+    ).toBe(201);
   });
 
   it("un módulo ilimitado no bloquea nada", async () => {
@@ -202,7 +219,9 @@ describe("bloqueo al exceder la cuota de un módulo", () => {
     const agente = await agenteDe(tenant, usuario.email);
 
     for (let i = 0; i < 3; i++) {
-      const res = await agente.post("/api/erp/equipos").send({ placa_codigo: idUnico("EQ"), tipo: "Camioneta" });
+      const res = await agente
+        .post("/api/erp/equipos")
+        .send({ placa_codigo: idUnico("EQ"), tipo: "Camioneta" });
       expect(res.status).toBe(201);
     }
   });
@@ -273,7 +292,9 @@ describe("endpoints del panel", () => {
     const agente = await agenteDe(tenant, usuario.email);
     await agente.post("/api/erp/equipos").send({ placa_codigo: idUnico("EQ"), tipo: "Camioneta" });
 
-    const res = await request(app).get(`/api/platform/tenants/${tenant.id}/cuotas`).set("Authorization", BEARER);
+    const res = await request(app)
+      .get(`/api/platform/tenants/${tenant.id}/cuotas`)
+      .set("Authorization", BEARER);
 
     expect(res.status).toBe(200);
     const equipos = res.body.cuotas.find((c: any) => c.recurso === "equipos");
@@ -296,9 +317,10 @@ describe("endpoints del panel", () => {
     expect(res.status).toBe(200);
     expect(res.body.cuotas.find((c: any) => c.recurso === "equipos").limite).toBe(7);
 
-    const guardado = await pool.query(`SELECT motivo FROM tenant_cuotas WHERE tenant_id = $1 AND recurso = 'equipos'`, [
-      tenant.id,
-    ]);
+    const guardado = await pool.query(
+      `SELECT motivo FROM tenant_cuotas WHERE tenant_id = $1 AND recurso = 'equipos'`,
+      [tenant.id]
+    );
     expect(guardado.rows[0].motivo).toBe("plan piloto");
   });
 
@@ -320,14 +342,20 @@ describe("integración con la salud del tenant", () => {
 
     // 3 de 4 = 75%: todavía sin alerta de cuota.
     for (let i = 0; i < 3; i++) {
-      await agente.post("/api/erp/equipos").send({ placa_codigo: idUnico("EQ"), tipo: "Camioneta" });
+      await agente
+        .post("/api/erp/equipos")
+        .send({ placa_codigo: idUnico("EQ"), tipo: "Camioneta" });
     }
-    let salud = await request(app).get(`/api/platform/tenants/${tenant.id}/salud`).set("Authorization", BEARER);
+    let salud = await request(app)
+      .get(`/api/platform/tenants/${tenant.id}/salud`)
+      .set("Authorization", BEARER);
     expect(salud.body.salud.alertas).not.toContain("cuota_cerca_del_limite");
 
     // 4 de 4 = 100%: excedido (el próximo se bloquea).
     await agente.post("/api/erp/equipos").send({ placa_codigo: idUnico("EQ"), tipo: "Camioneta" });
-    salud = await request(app).get(`/api/platform/tenants/${tenant.id}/salud`).set("Authorization", BEARER);
+    salud = await request(app)
+      .get(`/api/platform/tenants/${tenant.id}/salud`)
+      .set("Authorization", BEARER);
     expect(salud.body.salud.alertas).toContain("cuota_excedida");
     expect(salud.body.salud.cuotas.find((c: any) => c.recurso === "equipos").porcentaje).toBe(100);
   });
@@ -354,16 +382,30 @@ describe("cuota de backups por tamaño", () => {
 
   it("borrar los backups viejos (retención) libera la cuota", async () => {
     const { tenant } = await nuevoTenant();
-    const backup = await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
+    const backup = await request(app)
+      .post(`/api/platform/tenants/${tenant.id}/backups`)
+      .set("Authorization", BEARER);
     await fijarCuotaTenant(tenant.id, "backup_bytes", backup.body.backup.tamanoBytes);
 
-    expect((await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER)).status).toBe(403);
+    expect(
+      (
+        await request(app)
+          .post(`/api/platform/tenants/${tenant.id}/backups`)
+          .set("Authorization", BEARER)
+      ).status
+    ).toBe(403);
 
     // Simula lo que hace el worker de retención al podar.
     await pool.query(`DELETE FROM tenant_backups WHERE tenant_id = $1`, [tenant.id]);
     expect(await usoActual(tenant.id, "backup_bytes")).toBe(0);
 
-    expect((await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER)).status).toBe(201);
+    expect(
+      (
+        await request(app)
+          .post(`/api/platform/tenants/${tenant.id}/backups`)
+          .set("Authorization", BEARER)
+      ).status
+    ).toBe(201);
   });
 });
 

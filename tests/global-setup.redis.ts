@@ -27,7 +27,9 @@ let servidor: RedisMemoryServer | undefined;
 
 export async function setup() {
   if (process.env.REDIS_HOST || process.env.REDIS_URL) {
-    console.log("[tests] REDIS_HOST/REDIS_URL ya configurado por fuera, no se levanta uno efímero.");
+    console.log(
+      "[tests] REDIS_HOST/REDIS_URL ya configurado por fuera, no se levanta uno efímero."
+    );
     return;
   }
 
@@ -48,7 +50,9 @@ export async function setup() {
     process.env.REDIS_HOST = await instancia.getHost();
     process.env.REDIS_PORT = String(await instancia.getPort());
     servidor = instancia;
-    console.log(`[tests] Redis efímero (redis-memory-server) en ${process.env.REDIS_HOST}:${process.env.REDIS_PORT}`);
+    console.log(
+      `[tests] Redis efímero (redis-memory-server) en ${process.env.REDIS_HOST}:${process.env.REDIS_PORT}`
+    );
   } catch (err) {
     console.warn("[tests] No se pudo levantar redis-memory-server, se sigue sin Redis:", err);
   }

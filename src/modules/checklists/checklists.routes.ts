@@ -22,7 +22,12 @@ router.delete("/plantillas/:id", requireRole("admin"), ChecklistsController.elim
 // Checklists llenados
 router.get("/", ChecklistsController.getAll);
 router.get("/:id", ChecklistsController.getById);
-router.post("/", requireRole("admin", "operador"), validate(crearChecklistSchema), ChecklistsController.crear);
+router.post(
+  "/",
+  requireRole("admin", "operador"),
+  validate(crearChecklistSchema),
+  ChecklistsController.crear
+);
 router.delete("/:id", requireRole("admin"), ChecklistsController.eliminar);
 
 export default router;

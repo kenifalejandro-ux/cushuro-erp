@@ -28,7 +28,10 @@ import { app, crearTenantDePrueba, borrarTenantDePrueba, idUnico } from "./helpe
 import { env } from "../src/server/config/env";
 import { closeDatabase } from "../src/server/config/database";
 import { fijarCuotaTenant } from "../src/server/services/platformCuotas.service";
-import { RECURSO_RATE_LIMIT, resolverRateLimitTenant } from "../src/server/services/platformRateLimitCuota";
+import {
+  RECURSO_RATE_LIMIT,
+  resolverRateLimitTenant,
+} from "../src/server/services/platformRateLimitCuota";
 
 const password = "ClaveDePrueba123";
 const BEARER = `Bearer ${env.platformAdminToken}`;
@@ -40,7 +43,9 @@ async function nuevoTenantConAgente() {
   const { tenant, usuario } = await crearTenantDePrueba(password);
   tenantsCreados.push(tenant.id);
   const agente = request.agent(app);
-  await agente.post("/api/auth/login").send({ tenantSlug: tenant.slug, email: usuario.email, password });
+  await agente
+    .post("/api/auth/login")
+    .send({ tenantSlug: tenant.slug, email: usuario.email, password });
   return { agente, tenant, usuario };
 }
 
@@ -132,7 +137,9 @@ describe("nivel 1: fusible por usuario", () => {
     env.erpRateLimitUsuarioMax = 1;
 
     expect((await agente.get("/api/erp/equipos")).status).toBe(200);
-    const creacion = await agente.post("/api/erp/equipos").send({ placa_codigo: idUnico("EQ"), tipo: "Camioneta" });
+    const creacion = await agente
+      .post("/api/erp/equipos")
+      .send({ placa_codigo: idUnico("EQ"), tipo: "Camioneta" });
     expect(creacion.status).toBe(429);
   });
 });
@@ -306,7 +313,9 @@ describe("sugerencia para el panel", () => {
     const { tenant } = await nuevoTenantConAgente();
     env.erpRateLimitTenantDefault = 3000;
 
-    const res = await request(app).get(`/api/platform/tenants/${tenant.id}/cuotas`).set("Authorization", BEARER);
+    const res = await request(app)
+      .get(`/api/platform/tenants/${tenant.id}/cuotas`)
+      .set("Authorization", BEARER);
 
     expect(res.status).toBe(200);
     expect(res.body.rateLimit.recurso).toBe(RECURSO_RATE_LIMIT);
@@ -324,7 +333,9 @@ describe("sugerencia para el panel", () => {
     const { tenant } = await nuevoTenantConAgente();
     env.erpRateLimitTenantDefault = 3000;
 
-    const res = await request(app).get(`/api/platform/tenants/${tenant.id}/cuotas`).set("Authorization", BEARER);
+    const res = await request(app)
+      .get(`/api/platform/tenants/${tenant.id}/cuotas`)
+      .set("Authorization", BEARER);
     expect(res.body.rateLimit.limiteSugeridoRpm).toBeGreaterThanOrEqual(3000);
   });
 
@@ -332,7 +343,9 @@ describe("sugerencia para el panel", () => {
     const { tenant } = await nuevoTenantConAgente();
     await fijarTecho(tenant.id, 7777);
 
-    const res = await request(app).get(`/api/platform/tenants/${tenant.id}/cuotas`).set("Authorization", BEARER);
+    const res = await request(app)
+      .get(`/api/platform/tenants/${tenant.id}/cuotas`)
+      .set("Authorization", BEARER);
     expect(res.body.rateLimit.limiteRpm).toBe(7777);
   });
 
@@ -340,7 +353,9 @@ describe("sugerencia para el panel", () => {
     // Un ritmo (req/min) y un acumulado no pertenecen a la misma tabla: la
     // columna "uso" no significa nada para el primero.
     const { tenant } = await nuevoTenantConAgente();
-    const res = await request(app).get(`/api/platform/tenants/${tenant.id}/cuotas`).set("Authorization", BEARER);
+    const res = await request(app)
+      .get(`/api/platform/tenants/${tenant.id}/cuotas`)
+      .set("Authorization", BEARER);
 
     expect(res.body.cuotas.some((c: any) => c.recurso === RECURSO_RATE_LIMIT)).toBe(false);
   });

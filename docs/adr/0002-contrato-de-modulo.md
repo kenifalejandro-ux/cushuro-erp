@@ -12,7 +12,7 @@ Hasta hoy, "qué módulos tiene el ERP" no era una lista — eran **cinco listas
 
 Este ADR define un Contrato de Módulo y lo hace cumplir con código, no solo con documentación:
 
-- **Un registry por lado** (`src/modules/registry.ts` en el backend, `client/src/modules/registry.tsx` en el cliente) es ahora la única fuente de verdad de la que se *derivan* rutas, validación, backup/restore y el menú — en vez de mantenerse a mano en cada lugar.
+- **Un registry por lado** (`src/modules/registry.ts` en el backend, `client/src/modules/registry.tsx` en el cliente) es ahora la única fuente de verdad de la que se _derivan_ rutas, validación, backup/restore y el menú — en vez de mantenerse a mano en cada lugar.
 - **Dos tests de CI nuevos** (`tests/module-registry.test.ts`, `tests/rls-coverage.test.ts`) convierten el drift de "alguien agregó un módulo a medias" en un fallo de test, no en un bug que se descubre meses después.
 - Equipos, Checklists e IPERC ya tienen pantalla en el cliente (mínima, no el flujo completo — ver "Fuera de alcance").
 - Todo módulo de negocio ahora audita sus acciones de escritura en `platform_audit_log` (antes solo el panel de plataforma auditaba algo).
@@ -36,7 +36,7 @@ Nada fallaba si alguno de los 5 quedaba desactualizado. Resultado real: Equipos,
 Otros dos gaps encontrados durante el diagnóstico:
 
 - **Backup/restore**: `TABLAS_TENANT` en `platformBackup.service.ts` era un array mantenido a mano. Un módulo nuevo cuyas tablas no se agregaran ahí quedaba fuera del backup **en silencio** — sin error, solo sin exportar esas filas.
-- **Auditoría**: `registrarAuditoria()` solo se usaba en `platform.service.ts`. Ningún módulo de negocio (ni los 4 viejos ni los 3 nuevos) auditaba create/update/delete — el panel de plataforma podía ver *sus propias* acciones, pero nada de lo que pasaba dentro de un tenant.
+- **Auditoría**: `registrarAuditoria()` solo se usaba en `platform.service.ts`. Ningún módulo de negocio (ni los 4 viejos ni los 3 nuevos) auditaba create/update/delete — el panel de plataforma podía ver _sus propias_ acciones, pero nada de lo que pasaba dentro de un tenant.
 
 ---
 
@@ -118,15 +118,17 @@ Otros dos gaps encontrados durante el diagnóstico:
 ## Decisiones forzadas por código vs. dejadas como convención
 
 **Forzado por código (falla un test o el tipo no compila si se rompe):**
+
 - Que `MODULOS_ERP` (código) y el enum `modulo_erp` (BD) coincidan exactamente — `tests/module-registry.test.ts`.
 - Que toda tabla con `tenant_id` tenga RLS completo, salvo allowlist explícita — `tests/rls-coverage.test.ts`.
 - Que `raices` de un módulo sea subconjunto de `tablas` — mismo test de arriba.
 - Que las rutas de un módulo respeten `requireModulo` — estructural, viven dentro del loop de `routes/index.ts`, no hay forma de montarlas sin pasar por ahí.
 
 **Dejado como convención (nada lo hace cumplir automáticamente):**
+
 - Que el `id` del registry del cliente coincida con el del backend — un typo ahí produce un módulo que el backend permite pero el Sidebar nunca muestra (el mismo bug que originó este ADR, pero ahora acotado a un solo archivo de una sola línea por módulo, en vez de repartido en 3).
 - Que un controller llame `registrarAuditoria` en cada mutación — no hay lint ni test que lo exija. Se decidió no automatizarlo (ej. con un middleware genérico) porque `detalle` necesita criterio humano por acción (qué ids son relevantes, qué NO incluir).
-- El orden de `tablas`/`raices` dentro de un módulo respeta las FK reales — si un desarrollador declara un orden incorrecto, el error aparece recién al *restaurar* un backup (INSERT falla por FK), no antes. Aceptado porque backup/restore ya corre dentro de una transacción (`withTenant`) — un orden incorrecto falla ruidoso, nunca deja datos a medias.
+- El orden de `tablas`/`raices` dentro de un módulo respeta las FK reales — si un desarrollador declara un orden incorrecto, el error aparece recién al _restaurar_ un backup (INSERT falla por FK), no antes. Aceptado porque backup/restore ya corre dentro de una transacción (`withTenant`) — un orden incorrecto falla ruidoso, nunca deja datos a medias.
 
 ## Fuera de alcance de esta primera versión
 

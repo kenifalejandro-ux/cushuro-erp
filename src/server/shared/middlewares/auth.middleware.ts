@@ -17,7 +17,9 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     // Sesión de navegador: cookie httpOnly (no accesible por JS, a salvo de robo por XSS).
     // Header Bearer: vía alterna para clientes no-navegador (scripts, integraciones API).
     const authHeader = req.headers.authorization;
-    const tokenCookie = (req as Request & { cookies?: Record<string, string> }).cookies?.[env.authCookieName];
+    const tokenCookie = (req as Request & { cookies?: Record<string, string> }).cookies?.[
+      env.authCookieName
+    ];
     const tokenHeader = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
     const token = tokenCookie || tokenHeader;
 
@@ -54,7 +56,9 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     }
 
     if (payload.tokenVersion !== versionActual) {
-      return res.status(401).json({ ok: false, message: "Sesión inválida, inicia sesión nuevamente" });
+      return res
+        .status(401)
+        .json({ ok: false, message: "Sesión inválida, inicia sesión nuevamente" });
     }
 
     const redis = getRedis();

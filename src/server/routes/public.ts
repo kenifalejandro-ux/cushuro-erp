@@ -1,6 +1,5 @@
 /**src/server/routes/public.ts */
 
-
 import { Router } from "express";
 import { env } from "../config/env";
 import { getRedis } from "../config/redis";
@@ -37,8 +36,8 @@ export function createPublicRouter() {
     res.json({
       status: "healthy",
       service: "mincoreerp",
-      version: "1.0.0",           // puedes cambiarlo después
-      uptime: process.uptime()
+      version: "1.0.0", // puedes cambiarlo después
+      uptime: process.uptime(),
     });
   });
 

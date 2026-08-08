@@ -65,7 +65,12 @@ async function verificarUnBackup(
     const contenido: ContenidoConTablas = JSON.parse(crudo);
 
     if (!contenido.tablas || typeof contenido.tablas !== "object") {
-      return { backupId, ok: false, discrepancias: [], error: "El backup no tiene la forma esperada (falta 'tablas')" };
+      return {
+        backupId,
+        ok: false,
+        discrepancias: [],
+        error: "El backup no tiene la forma esperada (falta 'tablas')",
+      };
     }
 
     const discrepancias = Object.entries(manifiesto)
@@ -80,7 +85,12 @@ async function verificarUnBackup(
     // Cubre lectura del storage, descifrado y JSON.parse — cualquiera de
     // los tres significa lo mismo para este chequeo: el backup no sirve
     // hoy, sin importar por qué.
-    return { backupId, ok: false, discrepancias: [], error: err instanceof Error ? err.message : String(err) };
+    return {
+      backupId,
+      ok: false,
+      discrepancias: [],
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -108,7 +118,9 @@ export async function correrRestoreDrill(): Promise<ResumenDrill> {
   );
 
   const tenants = await Promise.all(
-    tenantRows.rows.map((fila) => verificarUnBackup(fila.id, { storage: fila.storage, key: fila.storage_key }, fila.tablas))
+    tenantRows.rows.map((fila) =>
+      verificarUnBackup(fila.id, { storage: fila.storage, key: fila.storage_key }, fila.tablas)
+    )
   );
 
   const plataformaRows = await pool.query<FilaBackupParaDrill>(
@@ -128,7 +140,10 @@ export async function correrRestoreDrill(): Promise<ResumenDrill> {
     // Se listan uno por uno: esto es justo lo que alguien necesita ver de
     // entrada si entra a mirar logs después de un incidente, no algo que
     // deba ir a buscar aparte.
-    logger.error({ fallidos }, "Restore drill: uno o más backups recientes no pasaron la verificación");
+    logger.error(
+      { fallidos },
+      "Restore drill: uno o más backups recientes no pasaron la verificación"
+    );
   } else if (tenants.length > 0 || plataforma) {
     logger.info(
       { verificados: tenants.length + (plataforma ? 1 : 0) },

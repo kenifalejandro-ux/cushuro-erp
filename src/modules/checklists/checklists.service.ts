@@ -2,7 +2,10 @@
 
 import type { PoolClient } from "pg";
 import type { Paginacion, CursorPaginacion } from "../../server/shared/utils/pagination";
-import type { CrearPlantillaInput, CrearChecklistInput } from "../../server/schemas/checklists.schema";
+import type {
+  CrearPlantillaInput,
+  CrearChecklistInput,
+} from "../../server/schemas/checklists.schema";
 import { ChecklistsRepository } from "./checklists.repository";
 
 export const ChecklistsService = {

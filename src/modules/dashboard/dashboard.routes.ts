@@ -17,6 +17,6 @@ router.get("/repuestos-categoria", DashboardController.repuestosPorCategoria);
 router.get("/valor-categoria", DashboardController.valorPorCategoria);
 router.get("/documentos", DashboardController.estadoDocumentos);
 // 🔥 AGREGAMOS ESTE: Para el gráfico de stock comparativo
-router.get("/stock-nivel", DashboardController.nivelstock); 
+router.get("/stock-nivel", DashboardController.nivelstock);
 
 export default router;

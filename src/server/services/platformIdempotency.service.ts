@@ -30,9 +30,7 @@ function claveReserva(idempotencyKey: string): string {
 }
 
 export type EstadoIdempotencia =
-  | { estado: "nueva" }
-  | { estado: "en_progreso" }
-  | { estado: "resuelta"; respuesta: unknown };
+  { estado: "nueva" } | { estado: "en_progreso" } | { estado: "resuelta"; respuesta: unknown };
 
 /** 1) Postgres primero (platform_outbox): si ya hay una respuesta
  *  guardada, se devuelve tal cual, sin importar el estado de Redis. 2)
@@ -62,7 +60,10 @@ export async function consultarIdempotencia(idempotencyKey: string): Promise<Est
     // tendría (chequeado arriba). Tratarla como "en_progreso" es correcto.
     return { estado: "en_progreso" };
   } catch (err) {
-    logger.warn({ err }, "No se pudo consultar Idempotency-Key en Redis, se ignora el gate de concurrencia");
+    logger.warn(
+      { err },
+      "No se pudo consultar Idempotency-Key en Redis, se ignora el gate de concurrencia"
+    );
     return { estado: "nueva" };
   }
 }

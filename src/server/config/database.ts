@@ -6,8 +6,8 @@ import { logger } from "./logger";
 
 // Sin TLS en localhost (no aporta nada); certificado validado en cualquier
 // host remoto — Railway y cualquier otro proveedor SaaS entregan un cert válido.
-const hostRemoto = Boolean(process.env.DATABASE_URL) ||
-  !["localhost", "127.0.0.1", "::1"].includes(env.dbHost);
+const hostRemoto =
+  Boolean(process.env.DATABASE_URL) || !["localhost", "127.0.0.1", "::1"].includes(env.dbHost);
 
 // Railway provee DATABASE_URL; en local usamos las variables individuales
 const poolConfig = process.env.DATABASE_URL
@@ -31,7 +31,6 @@ export const pool = new Pool({
   connectionTimeoutMillis: 5000,
 });
 
-
 // ====================== EVENTOS DEL POOL ======================
 pool.on("connect", () => {
   logger.debug("Nueva conexión establecida con PostgreSQL");
@@ -51,12 +50,11 @@ export async function testDatabaseConnection(): Promise<boolean> {
   try {
     client = await pool.connect();
     const result = await client.query("SELECT NOW() as current_time");
-    
+
     logger.info({
       message: "✅ Conexión a PostgreSQL exitosa",
       timestamp: result.rows[0].current_time,
-      database: env.dbName || "zincel_rp"
-
+      database: env.dbName || "zincel_rp",
     });
 
     return true;
@@ -64,7 +62,7 @@ export async function testDatabaseConnection(): Promise<boolean> {
     logger.error({
       err: error,
       message: "❌ Error al conectar con PostgreSQL",
-      detail: error.message
+      detail: error.message,
     });
     return false;
   } finally {

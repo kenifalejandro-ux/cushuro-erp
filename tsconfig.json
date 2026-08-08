@@ -19,9 +19,5 @@
     "scripts/**/*.ts",
     "app.ts"
   ],
-  "exclude": [
-    "node_modules",
-    "client/node_modules",
-    "client/src"
-  ]
+  "exclude": ["node_modules", "client/node_modules", "client/src"]
 }

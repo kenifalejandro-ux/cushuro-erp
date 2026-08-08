@@ -39,7 +39,9 @@ export async function scimAuthMiddleware(req: Request, res: Response, next: Next
 export function getScimTenantId(req: Request): string {
   const tenantId = (req as Request & { scimTenantId?: string }).scimTenantId;
   if (!tenantId) {
-    throw new Error("scimTenantId no presente en el request: falta scimAuthMiddleware en esta ruta");
+    throw new Error(
+      "scimTenantId no presente en el request: falta scimAuthMiddleware en esta ruta"
+    );
   }
   return tenantId;
 }

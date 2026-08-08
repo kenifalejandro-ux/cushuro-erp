@@ -55,7 +55,10 @@ export interface ParametrosAutorizacion {
   codeChallenge: string;
 }
 
-export function construirUrlAutorizacion(config: client.Configuration, params: ParametrosAutorizacion): URL {
+export function construirUrlAutorizacion(
+  config: client.Configuration,
+  params: ParametrosAutorizacion
+): URL {
   return client.buildAuthorizationUrl(config, {
     redirect_uri: params.redirectUri,
     scope: "openid email profile",

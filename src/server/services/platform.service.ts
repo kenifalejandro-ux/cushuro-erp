@@ -27,11 +27,7 @@ import {
   type UsuarioPayload,
 } from "./auth.service";
 import { MODULOS_ERP } from "../schemas/platform.schema";
-import {
-  verificarCuota,
-  CuotaExcedidaError,
-  RECURSO_USUARIOS,
-} from "./platformCuotas.service";
+import { verificarCuota, CuotaExcedidaError, RECURSO_USUARIOS } from "./platformCuotas.service";
 import type { CrearTenantInput, CrearUsuarioEnTenantInput } from "../schemas/platform.schema";
 import { registrarAuditoria, type ContextoAuditoria } from "./platformAudit.service";
 import { escribirEventoOutbox } from "./platformOutbox.service";
@@ -132,7 +128,12 @@ export async function crearTenantConAdminService(
       accion: "crear_tenant",
       tenantId: tenant.id,
       usuarioId: usuario.id,
-      detalle: { tenantNombre: tenant.nombre, tenantSlug: tenant.slug, adminEmail: input.adminEmail, planId: planId ?? null },
+      detalle: {
+        tenantNombre: tenant.nombre,
+        tenantSlug: tenant.slug,
+        adminEmail: input.adminEmail,
+        planId: planId ?? null,
+      },
       contexto,
     });
 
@@ -189,7 +190,11 @@ export async function cambiarEstadoTenantService(
   await registrarAuditoria({
     accion: "cambiar_estado_tenant",
     tenantId,
-    detalle: { before: { activo: anterior.rows[0].activo }, after: { activo }, motivo: motivo ?? null },
+    detalle: {
+      before: { activo: anterior.rows[0].activo },
+      after: { activo },
+      motivo: motivo ?? null,
+    },
     contexto,
   });
 
@@ -342,7 +347,12 @@ export async function crearUsuarioEnTenantService(
       await registrarAuditoria({
         accion: "cuota.bloqueo",
         tenantId,
-        detalle: { recurso: err.recurso, limite: err.limite, uso: err.uso, operacion: "crear_usuario" },
+        detalle: {
+          recurso: err.recurso,
+          limite: err.limite,
+          uso: err.uso,
+          operacion: "crear_usuario",
+        },
         contexto,
         resultado: "failure",
       });
@@ -386,10 +396,10 @@ export async function cambiarEstadoUsuarioService(
   contexto: ContextoAuditoria
 ): Promise<UsuarioListado> {
   const { fila, before } = await withTenant(tenantId, async (client) => {
-    const anterior = await client.query(`SELECT activo FROM usuarios WHERE id = $1 AND tenant_id = $2`, [
-      usuarioId,
-      tenantId,
-    ]);
+    const anterior = await client.query(
+      `SELECT activo FROM usuarios WHERE id = $1 AND tenant_id = $2`,
+      [usuarioId, tenantId]
+    );
     if (anterior.rows.length === 0) {
       throw new AppError(404, "Usuario no encontrado");
     }
@@ -428,7 +438,10 @@ export interface ModuloAsignado {
  *  la intersección de ambos (ver obtenerModulosPermitidos en
  *  auth.service.ts). Separar los dos permite preasignarle módulos a un
  *  usuario antes de que el tenant los tenga habilitados. */
-export async function obtenerModulosUsuarioService(tenantId: string, usuarioId: string): Promise<ModuloAsignado[]> {
+export async function obtenerModulosUsuarioService(
+  tenantId: string,
+  usuarioId: string
+): Promise<ModuloAsignado[]> {
   if (!(await usuarioPerteneceATenant(tenantId, usuarioId))) {
     throw new AppError(404, "Usuario no encontrado");
   }

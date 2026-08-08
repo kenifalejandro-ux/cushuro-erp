@@ -34,13 +34,14 @@ MinCore arrancó como un ERP para una sola empresa (minería/mantenimiento, con 
 
 **Decisión**: cada tabla de negocio tiene `FORCE ROW LEVEL SECURITY` con una policy `tenant_id = current_setting('app.tenant_id')::uuid`. Toda lectura/escritura pasa por `withTenant(tenantId, ...)`, que fija ese GUC dentro de una transacción antes de tocar la tabla. `usuarios` se sumó a este esquema en `0010` (venía fuera desde `0001` porque el login todavía no sabía a qué tenant pertenecía un usuario antes de resolverlo).
 
-**Alternativas consideradas**: confiar solo en `WHERE tenant_id = ?` en cada query (rechazado — un solo `WHERE` olvidado en cualquier endpoint filtra datos entre clientes, y no hay forma de detectarlo en code review de forma confiable). RLS lo convierte en un error de *base de datos*, no un bug silencioso.
+**Alternativas consideradas**: confiar solo en `WHERE tenant_id = ?` en cada query (rechazado — un solo `WHERE` olvidado en cualquier endpoint filtra datos entre clientes, y no hay forma de detectarlo en code review de forma confiable). RLS lo convierte en un error de _base de datos_, no un bug silencioso.
 
 **Consecuencia aceptada**: cualquier código nuevo que toque una tabla con RLS y use `pool` en vez de `withTenant()` falla en runtime con `invalid input syntax for type uuid: ""` — un error reproducible y detectado por la suite de tests, pero que se sigue cometiendo por descuido (pasó varias veces durante este trabajo, en código de aplicación y en tests). Es el costo aceptado de que la protección sea real.
 
 ### 2. Autenticación de plataforma: modo dual, nunca solo uno
 
 **Decisión**: el panel de plataforma acepta dos formas de identificarse, resueltas al mismo `actor` interno:
+
 - **Secreto compartido** (`PLATFORM_ADMIN_TOKEN`) — modo de emergencia, siempre disponible, sin sesión revocable individualmente si Redis no está arriba.
 - **Cuentas individuales** (`platform_admins`, `0016`) — email + contraseña (bcrypt), roles `admin`/`super_admin`, sesión en Redis (`sid.<uuid>`) revocable por sesión puntual o por cuenta completa.
 
@@ -88,15 +89,15 @@ MinCore arrancó como un ERP para una sola empresa (minería/mantenimiento, con 
 
 **Decisión**: dos dominios de identidad separados, cada uno con su propio modelo — nunca se cruzan `platform_admins` con `usuarios` de un tenant.
 
-| | Platform Admin | Tenant |
-|---|---|---|
-| Proveedores | Uno global (env `PLATFORM_SSO_*`) | Uno por tenant (`tenant_sso_config`, cifrado) |
-| Migración | `0025` | `0026`, `0027` |
-| Secreto | Env var (operado por el equipo) | Cifrado en BD (AES-256-GCM, `APP_ENCRYPTION_KEY`) |
+|             | Platform Admin                    | Tenant                                            |
+| ----------- | --------------------------------- | ------------------------------------------------- |
+| Proveedores | Uno global (env `PLATFORM_SSO_*`) | Uno por tenant (`tenant_sso_config`, cifrado)     |
+| Migración   | `0025`                            | `0026`, `0027`                                    |
+| Secreto     | Env var (operado por el equipo)   | Cifrado en BD (AES-256-GCM, `APP_ENCRYPTION_KEY`) |
 
-**Sin auto-provisioning en ningún caso** — mismo criterio que el login con Google, precedente ya existente: el SSO solo *verifica identidad*, nunca decide *si alguien puede entrar*. La cuenta tiene que existir de antes. El primer login exitoso *linkea* por email (si el usuario no tiene `sso_subject` de ese proveedor todavía); de ahí en más entra por `sub`, más robusto que el email ante un cambio en el IdP.
+**Sin auto-provisioning en ningún caso** — mismo criterio que el login con Google, precedente ya existente: el SSO solo _verifica identidad_, nunca decide _si alguien puede entrar_. La cuenta tiene que existir de antes. El primer login exitoso _linkea_ por email (si el usuario no tiene `sso_subject` de ese proveedor todavía); de ahí en más entra por `sub`, más robusto que el email ante un cambio en el IdP.
 
-**SCIM** (`0028`, router `/scim/v2/*`) es un problema *distinto* — provisioning, no autenticación: un token de bearer por tenant (hash sha256, mismo criterio que `refresh_tokens`), que reusa los services ya existentes de alta/baja de usuario (`crearUsuarioEnTenantService`, `cambiarEstadoUsuarioService`) con `actor_type='scim'` en la auditoría (`0029`).
+**SCIM** (`0028`, router `/scim/v2/*`) es un problema _distinto_ — provisioning, no autenticación: un token de bearer por tenant (hash sha256, mismo criterio que `refresh_tokens`), que reusa los services ya existentes de alta/baja de usuario (`crearUsuarioEnTenantService`, `cambiarEstadoUsuarioService`) con `actor_type='scim'` en la auditoría (`0029`).
 
 **Seguridad, protocolo real**: `openid-client` (Authorization Code + PKCE), `state`/`nonce` en Redis con TTL de 5 min y uso único (anti-replay).
 
@@ -104,21 +105,21 @@ MinCore arrancó como un ERP para una sola empresa (minería/mantenimiento, con 
 
 ## Tabla de migraciones (referencia)
 
-| # | Qué agrega |
-|---|---|
-| 0001–0007 | Fundación: tenants/usuarios, tablas de negocio, token_version, refresh tokens, RLS inicial, checklists/IPERC |
-| 0008 | Módulos por tenant/usuario (panel de plataforma) |
-| 0009 | Dominio propio (sin verificación todavía) |
-| 0010 | RLS en `usuarios` |
-| 0011 | Recuperación de contraseña |
-| 0012–0015, 0017, 0019 | Auditoría de plataforma (evolución completa) |
-| 0016 | Cuentas individuales de Platform Admin |
-| 0018, 0024 | Outbox transaccional (+ backoff/lease) |
-| 0020 | Verificación de dominio (DNS TXT) |
-| 0021 | Módulos granulares + rollout |
-| 0022 | Métricas horarias (observabilidad) |
-| 0023 | Backups de tenant |
-| 0025–0029 | SSO (Platform Admin + tenant) y SCIM |
+| #                     | Qué agrega                                                                                                   |
+| --------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 0001–0007             | Fundación: tenants/usuarios, tablas de negocio, token_version, refresh tokens, RLS inicial, checklists/IPERC |
+| 0008                  | Módulos por tenant/usuario (panel de plataforma)                                                             |
+| 0009                  | Dominio propio (sin verificación todavía)                                                                    |
+| 0010                  | RLS en `usuarios`                                                                                            |
+| 0011                  | Recuperación de contraseña                                                                                   |
+| 0012–0015, 0017, 0019 | Auditoría de plataforma (evolución completa)                                                                 |
+| 0016                  | Cuentas individuales de Platform Admin                                                                       |
+| 0018, 0024            | Outbox transaccional (+ backoff/lease)                                                                       |
+| 0020                  | Verificación de dominio (DNS TXT)                                                                            |
+| 0021                  | Módulos granulares + rollout                                                                                 |
+| 0022                  | Métricas horarias (observabilidad)                                                                           |
+| 0023                  | Backups de tenant                                                                                            |
+| 0025–0029             | SSO (Platform Admin + tenant) y SCIM                                                                         |
 
 ## Estado de entrega
 

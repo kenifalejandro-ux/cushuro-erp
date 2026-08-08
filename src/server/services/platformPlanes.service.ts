@@ -40,7 +40,9 @@ function aLimite(valor: string | null): number | null {
   return valor === null ? null : Number(valor);
 }
 
-async function limitesDePlanes(planIds: string[]): Promise<Map<string, Record<string, number | null>>> {
+async function limitesDePlanes(
+  planIds: string[]
+): Promise<Map<string, Record<string, number | null>>> {
   const porPlan = new Map<string, Record<string, number | null>>();
   if (planIds.length === 0) return porPlan;
 
@@ -140,7 +142,8 @@ export async function asignarPlanATenantService(
 
   // Import diferido: platformCuotas importa este módulo para resolver el
   // nivel 2, así que un import estático de vuelta cerraría el ciclo.
-  const { resumenCuotasTenant, invalidarCacheLimitesTenant } = await import("./platformCuotas.service");
+  const { resumenCuotasTenant, invalidarCacheLimitesTenant } =
+    await import("./platformCuotas.service");
 
   // Sin esto, resolverLimite() seguiría devolviendo el límite del plan
   // VIEJO hasta que venza el TTL del caché (ver platformCuotas.service.ts)
@@ -149,7 +152,9 @@ export async function asignarPlanATenantService(
   await invalidarCacheLimitesTenant(tenantId);
 
   // Se calcula DESPUÉS de invalidar, para que refleje los límites nuevos.
-  const recursosExcedidos = (await resumenCuotasTenant(tenantId)).filter((c) => c.excedido).map((c) => c.recurso);
+  const recursosExcedidos = (await resumenCuotasTenant(tenantId))
+    .filter((c) => c.excedido)
+    .map((c) => c.recurso);
 
   const nuevo = await obtenerPlanDeTenantService(tenantId);
 

@@ -132,7 +132,9 @@ describe("métricas por tenant: latencia y errores 4xx", () => {
   it("una request exitosa suma latencia_total_ms en la hora actual del tenant", async () => {
     const { tenant, usuario } = await nuevoTenant();
     const agent = request.agent(app);
-    await agent.post("/api/auth/login").send({ tenantSlug: tenant.slug, email: usuario.email, password });
+    await agent
+      .post("/api/auth/login")
+      .send({ tenantSlug: tenant.slug, email: usuario.email, password });
 
     await agent.get("/api/erp/repuestos");
     await esperarUnPoco();
@@ -150,13 +152,20 @@ describe("métricas por tenant: latencia y errores 4xx", () => {
       .put(`/api/platform/tenants/${tenant.id}/modulos`)
       .set("Authorization", BEARER)
       .send({
-        configuraciones: ["repuestos", "combustible", "documentos", "dashboard", "equipos", "checklists"].map(
-          (modulo) => ({ modulo, estado: "habilitado" })
-        ),
+        configuraciones: [
+          "repuestos",
+          "combustible",
+          "documentos",
+          "dashboard",
+          "equipos",
+          "checklists",
+        ].map((modulo) => ({ modulo, estado: "habilitado" })),
       }); // iperc queda deshabilitado
 
     const agent = request.agent(app);
-    await agent.post("/api/auth/login").send({ tenantSlug: tenant.slug, email: usuario.email, password });
+    await agent
+      .post("/api/auth/login")
+      .send({ tenantSlug: tenant.slug, email: usuario.email, password });
 
     const bloqueado = await agent.get("/api/erp/iperc");
     expect(bloqueado.status).toBe(403);
