@@ -3,12 +3,12 @@
 import type { PoolClient } from "pg";
 
 export const DashboardRepository = {
-
   // ============================================================
   // 📊 KPI GENERAL (CARDS)
   // ============================================================
   async getKPIs(client: PoolClient, tenantId: string) {
-    const result = await client.query(`
+    const result = await client.query(
+      `
       SELECT
 
         --   // 📊 KPI 🧩 REPUESTOS OPERATIVOS
@@ -51,7 +51,9 @@ export const DashboardRepository = {
          WHERE tenant_id = $1 AND fecha_vencimiento
          BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '15 days') AS docs_por_vencer
 
-    `, [tenantId]);
+    `,
+      [tenantId]
+    );
 
     return result.rows[0];
   },
@@ -60,7 +62,8 @@ export const DashboardRepository = {
   // 📊 CHART 1 - REPUESTOS POR CATEGORÍA (Bar Chart)
   // ============================================================
   async repuestosPorCategoria(client: PoolClient, tenantId: string) {
-    const result = await client.query(`
+    const result = await client.query(
+      `
 SELECT
 categoria,
 COUNT(*) AS total
@@ -68,7 +71,9 @@ FROM repuestos
 WHERE tenant_id = $1
 GROUP BY categoria
 ORDER BY total DESC;
-    `, [tenantId]);
+    `,
+      [tenantId]
+    );
 
     return result.rows;
   },
@@ -77,7 +82,8 @@ ORDER BY total DESC;
   // 📊 CHART 2 - VALOR INVENTARIO POR CATEGORÍA
   // ============================================================
   async valorPorCategoria(client: PoolClient, tenantId: string) {
-    const result = await client.query(`
+    const result = await client.query(
+      `
       SELECT
         categoria,
         ROUND(SUM(stock * precio),2) AS valor_total
@@ -85,7 +91,9 @@ ORDER BY total DESC;
       WHERE tenant_id = $1
       GROUP BY categoria
       ORDER BY valor_total DESC
-    `, [tenantId]);
+    `,
+      [tenantId]
+    );
 
     return result.rows;
   },
@@ -95,7 +103,8 @@ ORDER BY total DESC;
   async estadoDocumentos(client: PoolClient, tenantId: string) {
     // Usamos una subconsulta para definir el alias "estado" primero
     // y luego agrupamos por ese alias en la consulta exterior.
-    const result = await client.query(`
+    const result = await client.query(
+      `
       SELECT
         estado,
                 COUNT(*)::INT AS total  -- 🔥 Forzamos a que sea un entero
@@ -112,7 +121,9 @@ ORDER BY total DESC;
       ) AS subconsulta
       GROUP BY estado
       ORDER BY total DESC
-    `, [tenantId]);
+    `,
+      [tenantId]
+    );
 
     return result.rows;
   },
@@ -120,7 +131,8 @@ ORDER BY total DESC;
   // 📊  Chart 4 — Nivel de stock vs mínimo (Comparativo)
   // ============================================================
   async nivelstock(client: PoolClient, tenantId: string) {
-    const result = await client.query(`
+    const result = await client.query(
+      `
       SELECT
 nombre,
 stock,
@@ -129,8 +141,9 @@ FROM repuestos
 WHERE tenant_id = $1
 ORDER BY stock ASC
 LIMIT 10
-`, [tenantId]);
+`,
+      [tenantId]
+    );
     return result.rows;
-  }
-
+  },
 };

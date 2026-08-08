@@ -17,7 +17,9 @@ vi.mock("../src/server/config/env", async (importOriginal) => {
 // default acá) como "verificado" (mockResolvedValueOnce puntual en el test
 // que lo necesita) sin depender de DNS real.
 vi.mock("dns/promises", () => ({
-  resolveTxt: vi.fn().mockRejectedValue(Object.assign(new Error("no encontrado"), { code: "ENOTFOUND" })),
+  resolveTxt: vi
+    .fn()
+    .mockRejectedValue(Object.assign(new Error("no encontrado"), { code: "ENOTFOUND" })),
 }));
 
 // Importar DESPUÉS del mock: helpers → createApp() → resolveTenantSubdomain

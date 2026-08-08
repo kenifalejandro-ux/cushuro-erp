@@ -34,7 +34,9 @@ describe("registrarMetricaRequest / tenantMetricsMiddleware", () => {
   it("una request exitosa a una ruta del ERP incrementa requests_total del tenant en la hora actual", async () => {
     const { tenant, usuario } = await nuevoTenant();
     const agent = request.agent(app);
-    await agent.post("/api/auth/login").send({ tenantSlug: tenant.slug, email: usuario.email, password });
+    await agent
+      .post("/api/auth/login")
+      .send({ tenantSlug: tenant.slug, email: usuario.email, password });
 
     const antes = await pool.query(
       `SELECT COALESCE(sum(requests_total), 0) AS total FROM tenant_metricas_horarias WHERE tenant_id = $1`,
@@ -57,13 +59,20 @@ describe("registrarMetricaRequest / tenantMetricsMiddleware", () => {
       .put(`/api/platform/tenants/${tenant.id}/modulos`)
       .set("Authorization", BEARER)
       .send({
-        configuraciones: ["repuestos", "combustible", "documentos", "dashboard", "equipos", "checklists"].map(
-          (modulo) => ({ modulo, estado: "habilitado" })
-        ),
+        configuraciones: [
+          "repuestos",
+          "combustible",
+          "documentos",
+          "dashboard",
+          "equipos",
+          "checklists",
+        ].map((modulo) => ({ modulo, estado: "habilitado" })),
       }); // iperc queda deshabilitado (no está en la lista)
 
     const agent = request.agent(app);
-    await agent.post("/api/auth/login").send({ tenantSlug: tenant.slug, email: usuario.email, password });
+    await agent
+      .post("/api/auth/login")
+      .send({ tenantSlug: tenant.slug, email: usuario.email, password });
 
     const antes = await pool.query(
       `SELECT COALESCE(sum(requests_total), 0) AS total FROM tenant_metricas_horarias WHERE tenant_id = $1`,
@@ -86,11 +95,15 @@ describe("GET /tenants/:id/salud", () => {
   it("devuelve usuarios activos/total, y refleja tráfico reciente", async () => {
     const { tenant, usuario } = await nuevoTenant();
     const agent = request.agent(app);
-    await agent.post("/api/auth/login").send({ tenantSlug: tenant.slug, email: usuario.email, password });
+    await agent
+      .post("/api/auth/login")
+      .send({ tenantSlug: tenant.slug, email: usuario.email, password });
     await agent.get("/api/erp/repuestos");
     await esperarUnPoco();
 
-    const res = await request(app).get(`/api/platform/tenants/${tenant.id}/salud`).set("Authorization", BEARER);
+    const res = await request(app)
+      .get(`/api/platform/tenants/${tenant.id}/salud`)
+      .set("Authorization", BEARER);
 
     expect(res.status).toBe(200);
     expect(res.body.salud.usuariosActivos).toBe(1);
@@ -117,7 +130,9 @@ describe("GET /tenants/:id/salud", () => {
       [tenant.id]
     );
 
-    const res = await request(app).get(`/api/platform/tenants/${tenant.id}/salud`).set("Authorization", BEARER);
+    const res = await request(app)
+      .get(`/api/platform/tenants/${tenant.id}/salud`)
+      .set("Authorization", BEARER);
     expect(res.status).toBe(200);
     expect(res.body.salud.tasaError).toBeCloseTo(0.1);
     expect(res.body.salud.alertas).toContain("alta_tasa_error_5xx");
@@ -131,7 +146,9 @@ describe("GET /tenants/:id/salud", () => {
       [tenant.id]
     );
 
-    const res = await request(app).get(`/api/platform/tenants/${tenant.id}/salud`).set("Authorization", BEARER);
+    const res = await request(app)
+      .get(`/api/platform/tenants/${tenant.id}/salud`)
+      .set("Authorization", BEARER);
     expect(res.status).toBe(200);
     expect(res.body.salud.alertas).toContain("creacion_anomala_de_recursos");
   });

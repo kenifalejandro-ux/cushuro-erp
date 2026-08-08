@@ -78,39 +78,56 @@ describe("SSO de Platform Admin (proveedor único global)", () => {
     expect(res.body.disponible).toBe(true);
   });
 
-  it.skipIf(!conRedis)("resuelve a un admin YA EXISTENTE, linkea por email, y crea una sesión real", async () => {
-    const admin = await crearAdminDePrueba();
+  it.skipIf(!conRedis)(
+    "resuelve a un admin YA EXISTENTE, linkea por email, y crea una sesión real",
+    async () => {
+      const admin = await crearAdminDePrueba();
 
-    const iniciar = await request(app).get("/api/platform/sso/iniciar");
-    expect(iniciar.status).toBe(302);
-    const state = extraerState(iniciar.headers.location);
+      const iniciar = await request(app).get("/api/platform/sso/iniciar");
+      expect(iniciar.status).toBe(302);
+      const state = extraerState(iniciar.headers.location);
 
-    vi.mocked(authorizationCodeGrant).mockResolvedValueOnce(claims("sub-admin-1", admin.email) as any);
+      vi.mocked(authorizationCodeGrant).mockResolvedValueOnce(
+        claims("sub-admin-1", admin.email) as any
+      );
 
-    const callback = await request(app).get(`/api/platform/sso/callback?code=abc&state=${state}`);
-    expect(callback.status).toBe(302);
-    expect(callback.headers.location).not.toContain("ssoError");
-    const cookieValor = extraerCookie(callback.headers["set-cookie"], "platform_session");
-    expect(cookieValor).toBeDefined();
+      const callback = await request(app).get(`/api/platform/sso/callback?code=abc&state=${state}`);
+      expect(callback.status).toBe(302);
+      expect(callback.headers.location).not.toContain("ssoError");
+      const cookieValor = extraerCookie(callback.headers["set-cookie"], "platform_session");
+      expect(cookieValor).toBeDefined();
 
-    // La sesión recién creada debe autenticar como ese admin.
-    const whoami = await request(app).get("/api/platform/whoami").set("Cookie", `platform_session=${cookieValor}`);
-    expect(whoami.body.actorType).toBe("platform_admin");
-    expect(whoami.body.actorLabel).toBe(admin.email);
+      // La sesión recién creada debe autenticar como ese admin.
+      const whoami = await request(app)
+        .get("/api/platform/whoami")
+        .set("Cookie", `platform_session=${cookieValor}`);
+      expect(whoami.body.actorType).toBe("platform_admin");
+      expect(whoami.body.actorLabel).toBe(admin.email);
 
-    const fila = await pool.query(`SELECT sso_subject, sso_provider FROM platform_admins WHERE id = $1`, [admin.id]);
-    expect(fila.rows[0].sso_subject).toBe("sub-admin-1");
-  });
+      const fila = await pool.query(
+        `SELECT sso_subject, sso_provider FROM platform_admins WHERE id = $1`,
+        [admin.id]
+      );
+      expect(fila.rows[0].sso_subject).toBe("sub-admin-1");
+    }
+  );
 
-  it.skipIf(!conRedis)("un email que no corresponde a ningún admin falla sin crear nada", async () => {
-    const iniciar = await request(app).get("/api/platform/sso/iniciar");
-    const state = extraerState(iniciar.headers.location);
-    vi.mocked(authorizationCodeGrant).mockResolvedValueOnce(claims("sub-fantasma", "nadie@fantasma.test") as any);
+  it.skipIf(!conRedis)(
+    "un email que no corresponde a ningún admin falla sin crear nada",
+    async () => {
+      const iniciar = await request(app).get("/api/platform/sso/iniciar");
+      const state = extraerState(iniciar.headers.location);
+      vi.mocked(authorizationCodeGrant).mockResolvedValueOnce(
+        claims("sub-fantasma", "nadie@fantasma.test") as any
+      );
 
-    const callback = await request(app).get(`/api/platform/sso/callback?code=abc&state=${state}`);
-    expect(callback.headers.location).toContain("ssoError");
+      const callback = await request(app).get(`/api/platform/sso/callback?code=abc&state=${state}`);
+      expect(callback.headers.location).toContain("ssoError");
 
-    const fila = await pool.query(`SELECT id FROM platform_admins WHERE email = $1`, ["nadie@fantasma.test"]);
-    expect(fila.rows).toHaveLength(0);
-  });
+      const fila = await pool.query(`SELECT id FROM platform_admins WHERE email = $1`, [
+        "nadie@fantasma.test",
+      ]);
+      expect(fila.rows).toHaveLength(0);
+    }
+  );
 });

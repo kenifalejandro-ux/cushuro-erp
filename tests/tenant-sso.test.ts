@@ -23,9 +23,8 @@ vi.mock("openid-client", () => ({
   randomNonce: vi.fn().mockReturnValue("mock-nonce"),
 }));
 
-const { app, crearTenantDePrueba, borrarTenantDePrueba, idUnico, redisDisponible, extraerCookie } = await import(
-  "./helpers"
-);
+const { app, crearTenantDePrueba, borrarTenantDePrueba, idUnico, redisDisponible, extraerCookie } =
+  await import("./helpers");
 const { env } = await import("../src/server/config/env");
 const { pool, withTenant, closeDatabase } = await import("../src/server/config/database");
 const { authorizationCodeGrant } = await import("openid-client");
@@ -71,12 +70,15 @@ describe.skipIf(!conRedis)("SSO de tenant: config y flujo completo (requiere Red
     expect(put.body.sso).not.toHaveProperty("clientSecret");
     expect(JSON.stringify(put.body.sso)).not.toContain("secreto-super-privado");
 
-    const filaCruda = await pool.query(`SELECT client_secret_cifrado FROM tenant_sso_config WHERE tenant_id = $1`, [
-      creado.tenant.id,
-    ]);
+    const filaCruda = await pool.query(
+      `SELECT client_secret_cifrado FROM tenant_sso_config WHERE tenant_id = $1`,
+      [creado.tenant.id]
+    );
     expect(filaCruda.rows[0].client_secret_cifrado).not.toBe("secreto-super-privado");
 
-    const get = await request(app).get(`/api/platform/tenants/${creado.tenant.id}/sso`).set("Authorization", BEARER);
+    const get = await request(app)
+      .get(`/api/platform/tenants/${creado.tenant.id}/sso`)
+      .set("Authorization", BEARER);
     expect(get.status).toBe(200);
     expect(get.body.sso.activo).toBe(true);
   });
@@ -85,12 +87,16 @@ describe.skipIf(!conRedis)("SSO de tenant: config y flujo completo (requiere Red
     const creado = await crearTenantDePrueba();
     tenantIdsCreados.push(creado.tenant.id);
 
-    const antes = await request(app).get(`/api/auth/sso-disponible?tenantSlug=${creado.tenant.slug}`);
+    const antes = await request(app).get(
+      `/api/auth/sso-disponible?tenantSlug=${creado.tenant.slug}`
+    );
     expect(antes.body.disponible).toBe(false);
 
     await configurarSso(creado.tenant.id);
 
-    const despues = await request(app).get(`/api/auth/sso-disponible?tenantSlug=${creado.tenant.slug}`);
+    const despues = await request(app).get(
+      `/api/auth/sso-disponible?tenantSlug=${creado.tenant.slug}`
+    );
     expect(despues.body.disponible).toBe(true);
   });
 
@@ -99,11 +105,15 @@ describe.skipIf(!conRedis)("SSO de tenant: config y flujo completo (requiere Red
     tenantIdsCreados.push(creado.tenant.id);
     await configurarSso(creado.tenant.id);
 
-    const iniciar = await request(app).get(`/api/auth/sso/iniciar?tenantSlug=${creado.tenant.slug}`);
+    const iniciar = await request(app).get(
+      `/api/auth/sso/iniciar?tenantSlug=${creado.tenant.slug}`
+    );
     expect(iniciar.status).toBe(302);
     const state = extraerState(iniciar.headers.location);
 
-    vi.mocked(authorizationCodeGrant).mockResolvedValueOnce(claims("sub-original", creado.usuario.email) as any);
+    vi.mocked(authorizationCodeGrant).mockResolvedValueOnce(
+      claims("sub-original", creado.usuario.email) as any
+    );
 
     const callback = await request(app).get(`/api/auth/sso/callback?code=abc&state=${state}`);
     expect(callback.status).toBe(302);
@@ -111,7 +121,9 @@ describe.skipIf(!conRedis)("SSO de tenant: config y flujo completo (requiere Red
     expect(extraerCookie(callback.headers["set-cookie"], env.authCookieName)).toBeDefined();
 
     const fila = await withTenant(creado.tenant.id, (client) =>
-      client.query(`SELECT sso_subject, sso_provider FROM usuarios WHERE id = $1`, [creado.usuario.id])
+      client.query(`SELECT sso_subject, sso_provider FROM usuarios WHERE id = $1`, [
+        creado.usuario.id,
+      ])
     );
     expect(fila.rows[0].sso_subject).toBe("sub-original");
     expect(fila.rows[0].sso_provider).toBe("oidc");
@@ -122,10 +134,14 @@ describe.skipIf(!conRedis)("SSO de tenant: config y flujo completo (requiere Red
     tenantIdsCreados.push(creado.tenant.id);
     await configurarSso(creado.tenant.id);
 
-    const iniciar = await request(app).get(`/api/auth/sso/iniciar?tenantSlug=${creado.tenant.slug}`);
+    const iniciar = await request(app).get(
+      `/api/auth/sso/iniciar?tenantSlug=${creado.tenant.slug}`
+    );
     const state = extraerState(iniciar.headers.location);
 
-    vi.mocked(authorizationCodeGrant).mockResolvedValue(claims("sub-replay", creado.usuario.email) as any);
+    vi.mocked(authorizationCodeGrant).mockResolvedValue(
+      claims("sub-replay", creado.usuario.email) as any
+    );
 
     const primera = await request(app).get(`/api/auth/sso/callback?code=abc&state=${state}`);
     expect(primera.status).toBe(302);
@@ -140,15 +156,21 @@ describe.skipIf(!conRedis)("SSO de tenant: config y flujo completo (requiere Red
     tenantIdsCreados.push(creado.tenant.id);
     await configurarSso(creado.tenant.id);
 
-    const iniciar = await request(app).get(`/api/auth/sso/iniciar?tenantSlug=${creado.tenant.slug}`);
+    const iniciar = await request(app).get(
+      `/api/auth/sso/iniciar?tenantSlug=${creado.tenant.slug}`
+    );
     const state = extraerState(iniciar.headers.location);
-    vi.mocked(authorizationCodeGrant).mockResolvedValueOnce(claims("sub-fantasma", "nadie@otraempresa.test") as any);
+    vi.mocked(authorizationCodeGrant).mockResolvedValueOnce(
+      claims("sub-fantasma", "nadie@otraempresa.test") as any
+    );
 
     const callback = await request(app).get(`/api/auth/sso/callback?code=abc&state=${state}`);
     expect(callback.headers.location).toContain("ssoError");
 
     const usuarios = await withTenant(creado.tenant.id, (client) =>
-      client.query(`SELECT count(*)::int AS total FROM usuarios WHERE tenant_id = $1`, [creado.tenant.id])
+      client.query(`SELECT count(*)::int AS total FROM usuarios WHERE tenant_id = $1`, [
+        creado.tenant.id,
+      ])
     );
     expect(usuarios.rows[0].total).toBe(1); // solo el admin creado por crearTenantDePrueba, nadie más
   });
@@ -158,9 +180,13 @@ describe.skipIf(!conRedis)("SSO de tenant: config y flujo completo (requiere Red
     tenantIdsCreados.push(creado.tenant.id);
     await configurarSso(creado.tenant.id, { dominioEmailPermitido: "dominio-autorizado.test" });
 
-    const iniciar = await request(app).get(`/api/auth/sso/iniciar?tenantSlug=${creado.tenant.slug}`);
+    const iniciar = await request(app).get(
+      `/api/auth/sso/iniciar?tenantSlug=${creado.tenant.slug}`
+    );
     const state = extraerState(iniciar.headers.location);
-    vi.mocked(authorizationCodeGrant).mockResolvedValueOnce(claims("sub-dominio", creado.usuario.email) as any);
+    vi.mocked(authorizationCodeGrant).mockResolvedValueOnce(
+      claims("sub-dominio", creado.usuario.email) as any
+    );
 
     const callback = await request(app).get(`/api/auth/sso/callback?code=abc&state=${state}`);
     expect(callback.headers.location).toContain("ssoError");
@@ -171,9 +197,13 @@ describe.skipIf(!conRedis)("SSO de tenant: config y flujo completo (requiere Red
     tenantIdsCreados.push(creado.tenant.id);
     await configurarSso(creado.tenant.id);
 
-    const iniciar = await request(app).get(`/api/auth/sso/iniciar?tenantSlug=${creado.tenant.slug}`);
+    const iniciar = await request(app).get(
+      `/api/auth/sso/iniciar?tenantSlug=${creado.tenant.slug}`
+    );
     const state = extraerState(iniciar.headers.location);
-    vi.mocked(authorizationCodeGrant).mockResolvedValueOnce(claims("sub-sin-verificar", creado.usuario.email, false) as any);
+    vi.mocked(authorizationCodeGrant).mockResolvedValueOnce(
+      claims("sub-sin-verificar", creado.usuario.email, false) as any
+    );
 
     const callback = await request(app).get(`/api/auth/sso/callback?code=abc&state=${state}`);
     expect(callback.headers.location).toContain("ssoError");
@@ -184,7 +214,9 @@ describe.skipIf(!conRedis)("SSO de tenant: config y flujo completo (requiere Red
     tenantIdsCreados.push(creado.tenant.id);
     await configurarSso(creado.tenant.id, { activo: false });
 
-    const iniciar = await request(app).get(`/api/auth/sso/iniciar?tenantSlug=${creado.tenant.slug}`);
+    const iniciar = await request(app).get(
+      `/api/auth/sso/iniciar?tenantSlug=${creado.tenant.slug}`
+    );
     expect(iniciar.status).toBe(503);
   });
 });

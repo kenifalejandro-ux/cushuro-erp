@@ -18,7 +18,13 @@ export const IpercService = {
     return IpercRepository.crear(client, tenantId, usuarioId, data);
   },
 
-  cambiarEstado(client: PoolClient, tenantId: string, id: number, estado: "aprobado" | "rechazado", aprobadoPor: string) {
+  cambiarEstado(
+    client: PoolClient,
+    tenantId: string,
+    id: number,
+    estado: "aprobado" | "rechazado",
+    aprobadoPor: string
+  ) {
     return IpercRepository.cambiarEstado(client, tenantId, id, estado, aprobadoPor);
   },
 
@@ -35,11 +41,22 @@ export const IpercService = {
     return IpercRepository.findLineaBaseConItems(client, tenantId, id);
   },
 
-  crearLineaBase(client: PoolClient, tenantId: string, creadoPor: string, data: CrearLineaBaseInput) {
+  crearLineaBase(
+    client: PoolClient,
+    tenantId: string,
+    creadoPor: string,
+    data: CrearLineaBaseInput
+  ) {
     return IpercRepository.crearLineaBase(client, tenantId, creadoPor, data);
   },
 
-  cambiarEstadoLineaBase(client: PoolClient, tenantId: string, id: number, estado: "aprobado" | "rechazado", aprobadoPor: string) {
+  cambiarEstadoLineaBase(
+    client: PoolClient,
+    tenantId: string,
+    id: number,
+    estado: "aprobado" | "rechazado",
+    aprobadoPor: string
+  ) {
     return IpercRepository.cambiarEstadoLineaBase(client, tenantId, id, estado, aprobadoPor);
   },
 

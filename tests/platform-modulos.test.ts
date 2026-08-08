@@ -21,7 +21,9 @@ describe("panel de plataforma: módulos por tenant y por usuario", () => {
     tenantId = creado.tenant.id;
     tenantSlug = creado.tenant.slug;
 
-    const res = await request(app).get(`/api/platform/tenants/${tenantId}/modulos`).set("Authorization", BEARER);
+    const res = await request(app)
+      .get(`/api/platform/tenants/${tenantId}/modulos`)
+      .set("Authorization", BEARER);
     expect(res.status).toBe(200);
     expect(res.body.modulos).toHaveLength(7);
     expect(res.body.modulos.every((m: { estado: string }) => m.estado === "habilitado")).toBe(true);
@@ -29,10 +31,12 @@ describe("panel de plataforma: módulos por tenant y por usuario", () => {
 
   it("desactivar un módulo del tenant lo saca de modulosPermitidos en el próximo login, y bloquea la ruta con 403", async () => {
     const configuraciones = [
-      ...["repuestos", "combustible", "documentos", "dashboard", "equipos", "checklists"].map((modulo) => ({
-        modulo,
-        estado: "habilitado",
-      })),
+      ...["repuestos", "combustible", "documentos", "dashboard", "equipos", "checklists"].map(
+        (modulo) => ({
+          modulo,
+          estado: "habilitado",
+        })
+      ),
       { modulo: "iperc", estado: "deshabilitado" },
     ];
 
@@ -44,11 +48,15 @@ describe("panel de plataforma: módulos por tenant y por usuario", () => {
     const iperc = desactivar.body.modulos.find((m: { modulo: string }) => m.modulo === "iperc");
     expect(iperc.estado).toBe("deshabilitado");
 
-    const usuarios = await request(app).get(`/api/platform/tenants/${tenantId}/usuarios`).set("Authorization", BEARER);
+    const usuarios = await request(app)
+      .get(`/api/platform/tenants/${tenantId}/usuarios`)
+      .set("Authorization", BEARER);
     const admin = usuarios.body.usuarios[0];
 
     const agent = request.agent(app);
-    const login = await agent.post("/api/auth/login").send({ tenantSlug, email: admin.email, password });
+    const login = await agent
+      .post("/api/auth/login")
+      .send({ tenantSlug, email: admin.email, password });
     expect(login.status).toBe(200);
     expect(login.body.usuario.modulosPermitidos).not.toContain("iperc");
     expect(login.body.usuario.modulosPermitidos).toContain("repuestos");
@@ -64,9 +72,15 @@ describe("panel de plataforma: módulos por tenant y por usuario", () => {
       .put(`/api/platform/tenants/${tenantId}/modulos`)
       .set("Authorization", BEARER)
       .send({
-        configuraciones: ["repuestos", "combustible", "documentos", "dashboard", "equipos", "checklists", "iperc"].map(
-          (modulo) => ({ modulo, estado: "habilitado" })
-        ),
+        configuraciones: [
+          "repuestos",
+          "combustible",
+          "documentos",
+          "dashboard",
+          "equipos",
+          "checklists",
+          "iperc",
+        ].map((modulo) => ({ modulo, estado: "habilitado" })),
       });
     expect(reactivar.status).toBe(200);
   });
@@ -87,11 +101,17 @@ describe("panel de plataforma: módulos por tenant y por usuario", () => {
       .set("Authorization", BEARER)
       .send({ modulos: ["repuestos"] });
     expect(restringir.status).toBe(200);
-    expect(restringir.body.modulos.find((m: { modulo: string }) => m.modulo === "repuestos").asignado).toBe(true);
-    expect(restringir.body.modulos.find((m: { modulo: string }) => m.modulo === "combustible").asignado).toBe(false);
+    expect(
+      restringir.body.modulos.find((m: { modulo: string }) => m.modulo === "repuestos").asignado
+    ).toBe(true);
+    expect(
+      restringir.body.modulos.find((m: { modulo: string }) => m.modulo === "combustible").asignado
+    ).toBe(false);
 
     const agent = request.agent(app);
-    const login = await agent.post("/api/auth/login").send({ tenantSlug, email: emailOperador, password });
+    const login = await agent
+      .post("/api/auth/login")
+      .send({ tenantSlug, email: emailOperador, password });
     expect(login.status).toBe(200);
     expect(login.body.usuario.modulosPermitidos).toEqual(["repuestos"]);
 
@@ -110,7 +130,9 @@ describe("panel de plataforma: módulos por tenant y por usuario", () => {
     const usuarioId = crear.body.usuario.id;
 
     const agent = request.agent(app);
-    const login = await agent.post("/api/auth/login").send({ tenantSlug, email: emailUsuario, password });
+    const login = await agent
+      .post("/api/auth/login")
+      .send({ tenantSlug, email: emailUsuario, password });
     expect(login.status).toBe(200);
     expect((await agent.get("/api/auth/me")).status).toBe(200);
 

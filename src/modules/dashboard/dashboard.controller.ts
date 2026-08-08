@@ -6,11 +6,12 @@ import { getTenantId } from "../../server/shared/utils/request";
 import { DashboardService } from "./dashboard.service";
 
 export const DashboardController = {
-
- async getFullDashboard(req: Request, res: Response) {
+  async getFullDashboard(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const data = await withTenant(tenantId, (client) => DashboardService.getFullDashboardData(client, tenantId));
+      const data = await withTenant(tenantId, (client) =>
+        DashboardService.getFullDashboardData(client, tenantId)
+      );
       res.json(data);
     } catch (error) {
       console.error("Error en getFullDashboard:", error);
@@ -23,7 +24,9 @@ export const DashboardController = {
   async getKPIs(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const data = await withTenant(tenantId, (client) => DashboardService.getKPIs(client, tenantId));
+      const data = await withTenant(tenantId, (client) =>
+        DashboardService.getKPIs(client, tenantId)
+      );
       res.json(data);
     } catch (error) {
       res.status(500).json({ error: "Error KPIs dashboard" });
@@ -36,7 +39,9 @@ export const DashboardController = {
   async repuestosPorCategoria(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const data = await withTenant(tenantId, (client) => DashboardService.repuestosPorCategoria(client, tenantId));
+      const data = await withTenant(tenantId, (client) =>
+        DashboardService.repuestosPorCategoria(client, tenantId)
+      );
       res.json(data);
     } catch (error) {
       res.status(500).json({ error: "Error chart repuestos" });
@@ -49,7 +54,9 @@ export const DashboardController = {
   async valorPorCategoria(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const data = await withTenant(tenantId, (client) => DashboardService.valorPorCategoria(client, tenantId));
+      const data = await withTenant(tenantId, (client) =>
+        DashboardService.valorPorCategoria(client, tenantId)
+      );
       res.json(data);
     } catch (error) {
       res.status(500).json({ error: "Error chart valor" });
@@ -62,24 +69,27 @@ export const DashboardController = {
   async estadoDocumentos(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const data = await withTenant(tenantId, (client) => DashboardService.estadoDocumentos(client, tenantId));
+      const data = await withTenant(tenantId, (client) =>
+        DashboardService.estadoDocumentos(client, tenantId)
+      );
       res.json(data);
     } catch (error) {
       res.status(500).json({ error: "Error chart documentos" });
     }
   },
 
-    // ============================================================
+  // ============================================================
   // 📊 CHART 4 - NIVEL DE STOCK VS MINIMO
   // ============================================================
   async nivelstock(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const data = await withTenant(tenantId, (client) => DashboardService.nivelstock(client, tenantId));
+      const data = await withTenant(tenantId, (client) =>
+        DashboardService.nivelstock(client, tenantId)
+      );
       res.json(data);
     } catch (error) {
       res.status(500).json({ error: "Error chart nivelstock" });
     }
-  }
-
+  },
 };

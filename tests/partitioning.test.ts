@@ -60,9 +60,10 @@ describe("particiones_asegurar_futuras(): idempotente y crea margen nuevo", () =
     dentroDe9Meses.setMonth(dentroDe9Meses.getMonth() + 9);
     const nombreEsperado = `checklists_${dentroDe9Meses.toISOString().slice(0, 7).replace("-", "_")}`;
 
-    const tabla = await pool.query(`SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = $1`, [
-      nombreEsperado,
-    ]);
+    const tabla = await pool.query(
+      `SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = $1`,
+      [nombreEsperado]
+    );
     expect(tabla.rows).toHaveLength(1);
     expect(tabla.rows[0].relrowsecurity).toBe(true);
     expect(tabla.rows[0].relforcerowsecurity).toBe(true);
@@ -90,7 +91,9 @@ describe("ruteo de particiones, pruning y RLS con datos reales", () => {
     tenantSlug = creado.tenant.slug;
     await agent.post("/api/auth/login").send({ tenantSlug, email: creado.usuario.email, password });
 
-    const equipo = await agent.post("/api/erp/equipos").send({ placa_codigo: "PART-001", tipo: "Camioneta" });
+    const equipo = await agent
+      .post("/api/erp/equipos")
+      .send({ placa_codigo: "PART-001", tipo: "Camioneta" });
     equipoId = equipo.body.id;
     const plantilla = await agent
       .post("/api/erp/checklists/plantillas")
@@ -99,7 +102,11 @@ describe("ruteo de particiones, pruning y RLS con datos reales", () => {
 
     const checklist = await agent
       .post("/api/erp/checklists")
-      .send({ equipo_id: equipoId, plantilla_id: plantillaId, items: [{ descripcion: "Frenos", estado: "bien" }] });
+      .send({
+        equipo_id: equipoId,
+        plantilla_id: plantillaId,
+        items: [{ descripcion: "Frenos", estado: "bien" }],
+      });
     checklistId = checklist.body.id;
   });
 
@@ -110,7 +117,9 @@ describe("ruteo de particiones, pruning y RLS con datos reales", () => {
   it("el checklist creado por la API cae en la partición del mes actual, no en la default", async () => {
     const mesActual = new Date().toISOString().slice(0, 7).replace("-", "_");
     const fila = await withTenant(tenantId, (client) =>
-      client.query(`SELECT tableoid::regclass::text AS particion FROM checklists WHERE id = $1`, [checklistId])
+      client.query(`SELECT tableoid::regclass::text AS particion FROM checklists WHERE id = $1`, [
+        checklistId,
+      ])
     );
     expect(fila.rows[0].particion).toBe(`checklists_${mesActual}`);
   });
@@ -153,7 +162,10 @@ describe("ruteo de particiones, pruning y RLS con datos reales", () => {
     try {
       await client.query("BEGIN");
       await client.query("SELECT set_config('app.tenant_id', $1, true)", [otroTenant]);
-      const fila = await client.query(`SELECT count(*) FROM checklists_${mesActual} WHERE id = $1`, [checklistId]);
+      const fila = await client.query(
+        `SELECT count(*) FROM checklists_${mesActual} WHERE id = $1`,
+        [checklistId]
+      );
       expect(Number(fila.rows[0].count)).toBe(0);
       await client.query("ROLLBACK");
     } finally {
@@ -162,7 +174,9 @@ describe("ruteo de particiones, pruning y RLS con datos reales", () => {
   });
 
   it("borrar el checklist cascadea al item vía la FK compuesta (checklist_id, checklist_creado_en)", async () => {
-    await withTenant(tenantId, (client) => client.query(`DELETE FROM checklists WHERE id = $1`, [checklistId]));
+    await withTenant(tenantId, (client) =>
+      client.query(`DELETE FROM checklists WHERE id = $1`, [checklistId])
+    );
     const huerfanos = await withTenant(tenantId, (client) =>
       client.query(`SELECT count(*) FROM checklist_items WHERE checklist_id = $1`, [checklistId])
     );

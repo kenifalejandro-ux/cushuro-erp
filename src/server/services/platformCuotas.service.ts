@@ -69,8 +69,16 @@ export interface DefinicionRecurso {
  *  propio) quedan afuera solos. */
 export function recursosConCuota(): DefinicionRecurso[] {
   return [
-    { recurso: RECURSO_USUARIOS, unidad: "cantidad", limitePorDefecto: LIMITE_USUARIOS_POR_DEFECTO },
-    { recurso: RECURSO_BACKUP_BYTES, unidad: "bytes", limitePorDefecto: LIMITE_BACKUP_BYTES_POR_DEFECTO },
+    {
+      recurso: RECURSO_USUARIOS,
+      unidad: "cantidad",
+      limitePorDefecto: LIMITE_USUARIOS_POR_DEFECTO,
+    },
+    {
+      recurso: RECURSO_BACKUP_BYTES,
+      unidad: "bytes",
+      limitePorDefecto: LIMITE_BACKUP_BYTES_POR_DEFECTO,
+    },
     ...MODULOS.filter((m) => m.cuota).map((m) => ({
       recurso: m.id,
       unidad: "cantidad" as const,
@@ -135,7 +143,10 @@ async function resolverLimiteDesdeBase(tenantId: string, recurso: string): Promi
   // BIGINT vuelve como string desde node-pg (mismo caso que tamano_bytes en
   // platformBackup.service.ts), por eso el Number() explícito.
   if (r.hay_override) {
-    return { limite: r.limite_override === null ? null : Number(r.limite_override), origen: "override" };
+    return {
+      limite: r.limite_override === null ? null : Number(r.limite_override),
+      origen: "override",
+    };
   }
   if (r.hay_plan) {
     return { limite: r.limite_plan === null ? null : Number(r.limite_plan), origen: "plan" };
@@ -192,7 +203,10 @@ export async function resolverLimite(tenantId: string, recurso: string): Promise
     } catch (err) {
       // Un fallo de Redis no puede bloquear la creación de recursos: se
       // sigue por memoria, igual que hace resolverRateLimitTenant().
-      logger.warn({ err, tenantId, recurso }, "Redis falló al resolver el límite de cuota, se usa caché en memoria");
+      logger.warn(
+        { err, tenantId, recurso },
+        "Redis falló al resolver el límite de cuota, se usa caché en memoria"
+      );
     }
   }
 
@@ -215,7 +229,10 @@ export async function invalidarCacheLimite(tenantId: string, recurso: string): P
   try {
     await redis.del(clave);
   } catch (err) {
-    logger.warn({ err, tenantId, recurso }, "No se pudo invalidar el caché de cuota; caducará por TTL");
+    logger.warn(
+      { err, tenantId, recurso },
+      "No se pudo invalidar el caché de cuota; caducará por TTL"
+    );
   }
 }
 
@@ -242,7 +259,11 @@ export async function limiteEfectivo(tenantId: string, recurso: string): Promise
  *  que permite contar y después insertar sin soltar la transacción — no
  *  elimina la carrera descrita arriba, pero evita medir contra un estado
  *  distinto del que se va a escribir. */
-export async function usoActual(tenantId: string, recurso: string, client?: PoolClient): Promise<number> {
+export async function usoActual(
+  tenantId: string,
+  recurso: string,
+  client?: PoolClient
+): Promise<number> {
   if (recurso === RECURSO_BACKUP_BYTES) {
     // tenant_backups no tiene RLS (es tabla de plataforma), así que va por
     // pool directo aunque nos pasen un client de tenant.
@@ -378,7 +399,10 @@ export async function fijarCuotaTenant(
   }
 
   if (limite === undefined) {
-    await pool.query(`DELETE FROM tenant_cuotas WHERE tenant_id = $1 AND recurso = $2`, [tenantId, recurso]);
+    await pool.query(`DELETE FROM tenant_cuotas WHERE tenant_id = $1 AND recurso = $2`, [
+      tenantId,
+      recurso,
+    ]);
     if (esRateLimit) await invalidarCacheRateLimit(tenantId);
     else await invalidarCacheLimite(tenantId, recurso);
     return;

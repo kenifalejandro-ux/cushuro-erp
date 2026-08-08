@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 const sanitizeSingleLine = (value: string) =>
-  value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+  value
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
 const sanitizeMultiline = (value: string) =>
   value
@@ -18,9 +21,7 @@ export const formularioSchema = z
     Empresa: z
       .string()
       .transform(sanitizeSingleLine)
-      .pipe(
-        z.string().min(2, "La empresa es obligatoria").max(160, "La empresa es muy larga")
-      ),
+      .pipe(z.string().min(2, "La empresa es obligatoria").max(160, "La empresa es muy larga")),
     Correo: z
       .string()
       .transform((value) => sanitizeSingleLine(value).toLowerCase())
@@ -45,12 +46,12 @@ export const formularioSchema = z
       .string()
       .transform(sanitizeSingleLine)
       .pipe(
-        z
-          .string()
-          .min(10, "Token de reCAPTCHA faltante")
-          .max(4096, "Token de reCAPTCHA inválido")
+        z.string().min(10, "Token de reCAPTCHA faltante").max(4096, "Token de reCAPTCHA inválido")
       ),
-    website: z.string().optional().transform((value) => sanitizeSingleLine(value ?? "")),
+    website: z
+      .string()
+      .optional()
+      .transform((value) => sanitizeSingleLine(value ?? "")),
   })
   .superRefine((data, ctx) => {
     const selectedItem = (data.Producto || data.Servicio || "").trim();

@@ -14,7 +14,7 @@ Con muchos tenants en el mismo proceso, un log suelto (`"Error al procesar el pa
 `src/server/shared/requestContext.ts` guarda el `req` de la petición en curso en un `AsyncLocalStorage`. Se llena una sola vez, en `requestContext.middleware.ts`, montado en `app.ts` justo después de `pino-http` (necesita que `req.id` ya exista) y antes de cualquier otro middleware:
 
 ```ts
-app.use(requestLogger);        // pino-http: asigna req.id, setea x-request-id en la respuesta
+app.use(requestLogger); // pino-http: asigna req.id, setea x-request-id en la respuesta
 app.use(requestContextMiddleware); // envuelve el resto de la cadena en el ALS
 ```
 
@@ -59,11 +59,11 @@ Ambas capas conviven: la recursiva es la defensa general, los paths fijos cubren
 
 `tenant_metricas_horarias` (agregado por `tenant_id` + hora, no un log de requests — ver `migrations/0022_tenant_metricas_horarias.sql`) ahora también guarda:
 
-| Columna | Qué es |
-|---|---|
-| `latencia_total_ms` | Suma (no promedio) de la latencia de cada request de esa hora |
-| `requests_error_4xx` | Requests con status 400-499 |
-| `requests_error_5xx` | Requests con status ≥500 (ya existía) |
+| Columna              | Qué es                                                        |
+| -------------------- | ------------------------------------------------------------- |
+| `latencia_total_ms`  | Suma (no promedio) de la latencia de cada request de esa hora |
+| `requests_error_4xx` | Requests con status 400-499                                   |
+| `requests_error_5xx` | Requests con status ≥500 (ya existía)                         |
 
 `latencia_total_ms` es una suma a propósito: promediar promedios por hora pondera mal si una hora tuvo 5 requests y otra 5000. El promedio real se calcula al leer, en `platformTenantHealth.service.ts`:
 

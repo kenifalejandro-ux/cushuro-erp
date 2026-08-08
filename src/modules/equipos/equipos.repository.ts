@@ -4,16 +4,18 @@ import type { PoolClient } from "pg";
 import type { Paginacion } from "../../server/shared/utils/pagination";
 
 export const EquiposRepository = {
-
   async findAll(client: PoolClient, tenantId: string, { pageSize, offset }: Paginacion) {
-    const result = await client.query(`
+    const result = await client.query(
+      `
       SELECT id, placa_codigo, tipo, marca, modelo, activo, creado_en,
         COUNT(*) OVER() AS total_count
       FROM equipos
       WHERE tenant_id = $1
       ORDER BY id DESC
       LIMIT $2 OFFSET $3
-    `, [tenantId, pageSize, offset]);
+    `,
+      [tenantId, pageSize, offset]
+    );
 
     return result.rows;
   },
@@ -49,10 +51,10 @@ export const EquiposRepository = {
   },
 
   async delete(client: PoolClient, tenantId: string, id: number) {
-    const result = await client.query(
-      `DELETE FROM equipos WHERE id = $1 AND tenant_id = $2`,
-      [id, tenantId]
-    );
+    const result = await client.query(`DELETE FROM equipos WHERE id = $1 AND tenant_id = $2`, [
+      id,
+      tenantId,
+    ]);
     return (result.rowCount ?? 0) > 0;
   },
 };

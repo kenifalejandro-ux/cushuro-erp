@@ -11,10 +11,18 @@ import { transporter } from "../config/mailer";
 import { getRedis } from "../config/redis";
 import { logger } from "../config/logger";
 import { AppError } from "../shared/middlewares/error.middleware";
-import type { LoginInput, GoogleLoginInput, ForgotPasswordInput, ResetPasswordInput } from "../schemas/auth.schema";
+import type {
+  LoginInput,
+  GoogleLoginInput,
+  ForgotPasswordInput,
+  ResetPasswordInput,
+} from "../schemas/auth.schema";
 import { requerirJwtSecret } from "../shared/utils/jwt-secret";
 import { escapeHtml } from "../shared/utils/html";
-import { setCachedTokenVersion, invalidateCachedTokenVersion } from "../shared/utils/token-version-cache";
+import {
+  setCachedTokenVersion,
+  invalidateCachedTokenVersion,
+} from "../shared/utils/token-version-cache";
 
 const JWT_SECRET = requerirJwtSecret();
 // Un solo OAuth2Client reutilizado entre requests (igual que `pool` para
@@ -51,7 +59,12 @@ export interface UsuarioPayload {
  *  entre logins del mismo usuario, que es peor que no tener rollout
  *  gradual. No hace falta que sea criptográficamente fuerte, solo estable
  *  y razonablemente bien distribuido — md5 alcanza. */
-export function enBucketDeRollout(tenantId: string, modulo: string, usuarioId: string, porcentaje: number): boolean {
+export function enBucketDeRollout(
+  tenantId: string,
+  modulo: string,
+  usuarioId: string,
+  porcentaje: number
+): boolean {
   const hash = createHash("md5").update(`${tenantId}:${modulo}:${usuarioId}`).digest();
   const bucket = hash.readUInt32BE(0) % 100;
   return bucket < porcentaje;
@@ -161,12 +174,18 @@ export async function emitirSesionCompleta(
 /** Resuelve el tenant por slug — paso previo obligatorio a cualquier
  *  consulta de `usuarios`, que ahora exige `app.tenant_id` seteado (RLS).
  *  `tenants` no tiene RLS, así que esto es un pool.query() normal. */
-async function resolverTenantActivoPorSlug(tenantSlug: string): Promise<{ id: string } | undefined> {
-  const result = await pool.query(`SELECT id FROM tenants WHERE slug = $1 AND activo = true`, [tenantSlug]);
+async function resolverTenantActivoPorSlug(
+  tenantSlug: string
+): Promise<{ id: string } | undefined> {
+  const result = await pool.query(`SELECT id FROM tenants WHERE slug = $1 AND activo = true`, [
+    tenantSlug,
+  ]);
   return result.rows[0];
 }
 
-export async function loginService(input: LoginInput): Promise<{ token: string; usuario: UsuarioPayload; refreshToken: string }> {
+export async function loginService(
+  input: LoginInput
+): Promise<{ token: string; usuario: UsuarioPayload; refreshToken: string }> {
   // Con `usuarios` bajo RLS, resolver el tenant es un paso separado y previo
   // a poder consultar `usuarios` — antes era un solo JOIN, ahora son dos
   // pasos secuenciales (ver explicación completa en la respuesta que
@@ -313,7 +332,10 @@ export async function refrescarTokenService(
   }
 
   if (filaToken.revocado_en) {
-    logger.warn({ usuarioId: filaToken.usuario_id }, "Reuso de refresh token detectado, revocando todas las sesiones");
+    logger.warn(
+      { usuarioId: filaToken.usuario_id },
+      "Reuso de refresh token detectado, revocando todas las sesiones"
+    );
     await revocarSesionesService(filaToken.usuario_id, filaToken.tenant_id);
     throw new AppError(401, "Sesión inválida, inicia sesión nuevamente");
   }
@@ -376,10 +398,10 @@ export async function refrescarTokenService(
 export async function revocarSesionesService(usuarioId: string, tenantId: string): Promise<void> {
   try {
     await withTenant(tenantId, (client) =>
-      client.query(`UPDATE usuarios SET token_version = token_version + 1 WHERE id = $1 AND tenant_id = $2`, [
-        usuarioId,
-        tenantId,
-      ])
+      client.query(
+        `UPDATE usuarios SET token_version = token_version + 1 WHERE id = $1 AND tenant_id = $2`,
+        [usuarioId, tenantId]
+      )
     );
     // refresh_tokens no tiene RLS — se actualiza directo.
     await pool.query(
@@ -455,9 +477,10 @@ export async function crearUsuarioService(
   // después restringirlo módulo por módulo (ver actualizarModulosUsuarioService
   // en platform.service.ts).
   const modulosHabilitados = (
-    await db.query(`SELECT modulo FROM tenant_modulos WHERE tenant_id = $1 AND estado != 'deshabilitado'`, [
-      input.tenantId,
-    ])
+    await db.query(
+      `SELECT modulo FROM tenant_modulos WHERE tenant_id = $1 AND estado != 'deshabilitado'`,
+      [input.tenantId]
+    )
   ).rows.map((r) => r.modulo as string);
 
   if (modulosHabilitados.length > 0) {
@@ -494,7 +517,9 @@ export interface TenantParaRecuperacion {
  *  la reusa para resolver tenant por slug (arrancar el flujo OIDC) y para
  *  construir la URL de vuelta tras el callback (ver construirUrlTenant) —
  *  mismo shape que ya hacía falta ahí (id + slug + dominioPersonalizado). */
-export async function resolverTenantParaRecuperacion(tenantSlug: string): Promise<TenantParaRecuperacion | undefined> {
+export async function resolverTenantParaRecuperacion(
+  tenantSlug: string
+): Promise<TenantParaRecuperacion | undefined> {
   const result = await pool.query(
     `SELECT id, slug, dominio_personalizado AS "dominioPersonalizado" FROM tenants WHERE slug = $1 AND activo = true`,
     [tenantSlug]
@@ -565,7 +590,9 @@ async function enviarCorreoRecuperacion(params: {
  *  trabajo real (buscar usuario, generar token, enviar correo) ocurre
  *  igual dentro de un try/catch que nunca relanza: un fallo de BD o de
  *  SMTP no debe delatar nada distinto de "no existe" al que llama. */
-export async function solicitarRecuperacionService(input: ForgotPasswordInput): Promise<{ message: string }> {
+export async function solicitarRecuperacionService(
+  input: ForgotPasswordInput
+): Promise<{ message: string }> {
   try {
     const tenant = await resolverTenantParaRecuperacion(input.tenantSlug);
 
@@ -587,7 +614,12 @@ export async function solicitarRecuperacionService(input: ForgotPasswordInput): 
           [fila.id, tenant.id, hashRefreshToken(tokenPlano), expiraEn]
         );
 
-        await enviarCorreoRecuperacion({ nombre: fila.nombre, email: fila.email, tenant, tokenPlano });
+        await enviarCorreoRecuperacion({
+          nombre: fila.nombre,
+          email: fila.email,
+          tenant,
+          tokenPlano,
+        });
       }
     }
   } catch (err) {

@@ -33,9 +33,7 @@ function sendRateLimitResponse(req: Request, res: Response, retryAfterSeconds: n
     });
   }
 
-  return res
-    .status(429)
-    .send("Demasiados intentos. Espera un momento antes de volver a enviar.");
+  return res.status(429).send("Demasiados intentos. Espera un momento antes de volver a enviar.");
 }
 
 export default async function rateLimiter(req: Request, res: Response, next: NextFunction) {
@@ -55,9 +53,7 @@ export default async function rateLimiter(req: Request, res: Response, next: Nex
       if (attempts > env.rateLimitMaxRequests) {
         const ttl = await redis.pttl(key);
         const retryAfterSeconds =
-          ttl > 0
-            ? Math.max(1, Math.ceil(ttl / 1000))
-            : Math.ceil(env.rateLimitWindowMs / 1000);
+          ttl > 0 ? Math.max(1, Math.ceil(ttl / 1000)) : Math.ceil(env.rateLimitWindowMs / 1000);
 
         if (req.log) {
           req.log.warn(

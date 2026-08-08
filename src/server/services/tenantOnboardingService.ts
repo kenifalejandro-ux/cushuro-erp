@@ -42,7 +42,11 @@
  *     módulo pide.
  */
 import { AppError } from "../shared/middlewares/error.middleware";
-import { crearTenantConAdminService, type TenantCreado, type ContextoAuditoria } from "./platform.service";
+import {
+  crearTenantConAdminService,
+  type TenantCreado,
+  type ContextoAuditoria,
+} from "./platform.service";
 import { obtenerPlanService } from "./platformPlanes.service";
 import type { OnboardTenantInput } from "../schemas/platform.schema";
 import type { UsuarioPayload } from "./auth.service";

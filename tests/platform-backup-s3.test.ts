@@ -22,7 +22,10 @@ import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 // Bucket en memoria compartido con el mock de abajo. `vi.mock` se hoistea
 // por encima de los imports, así que esto tiene que ser una función que se
 // evalúa recién al usarse, no una const capturada.
-const bucketFalso = new Map<string, { cuerpo: Buffer; metadata: Record<string, string>; sse?: string }>();
+const bucketFalso = new Map<
+  string,
+  { cuerpo: Buffer; metadata: Record<string, string>; sse?: string }
+>();
 
 vi.mock("@aws-sdk/client-s3", async () => {
   class ComandoBase {
@@ -44,7 +47,10 @@ vi.mock("@aws-sdk/client-s3", async () => {
   // Multipart en memoria: { uploadId → { key, partes ordenadas } }. Existe
   // para que el camino de multipart real de lib-storage tenga contra qué
   // correr cuando el contenido supera el partSize.
-  const multipartsEnCurso = new Map<string, { key: string; partes: Map<number, Buffer>; input: any }>();
+  const multipartsEnCurso = new Map<
+    string,
+    { key: string; partes: Map<number, Buffer>; input: any }
+  >();
 
   class S3Client {
     public config: any;
@@ -56,7 +62,12 @@ vi.mock("@aws-sdk/client-s3", async () => {
       // is not set" DESPUÉS de haber subido el objeto correctamente.
       this.config = {
         ...config,
-        endpoint: async () => ({ hostname: "s3.fake.local", port: undefined, protocol: "https:", path: "/" }),
+        endpoint: async () => ({
+          hostname: "s3.fake.local",
+          port: undefined,
+          protocol: "https:",
+          path: "/",
+        }),
       };
     }
 
@@ -97,7 +108,9 @@ vi.mock("@aws-sdk/client-s3", async () => {
           const enCurso = multipartsEnCurso.get(input.UploadId);
           if (!enCurso) throw new Error("UploadId desconocido");
           // Reensamblado en orden de PartNumber, igual que hace S3.
-          const ordenadas = [...enCurso.partes.entries()].sort((a, b) => a[0] - b[0]).map(([, buf]) => buf);
+          const ordenadas = [...enCurso.partes.entries()]
+            .sort((a, b) => a[0] - b[0])
+            .map(([, buf]) => buf);
           bucketFalso.set(enCurso.key, {
             cuerpo: Buffer.concat(ordenadas),
             metadata: enCurso.input.Metadata ?? {},
@@ -139,7 +152,11 @@ vi.mock("@aws-sdk/client-s3", async () => {
         case "ListObjectsV2Command": {
           const Contents = [...bucketFalso.entries()]
             .filter(([key]) => key.startsWith(input.Prefix ?? ""))
-            .map(([key, valor]) => ({ Key: key, Size: valor.cuerpo.length, LastModified: new Date() }));
+            .map(([key, valor]) => ({
+              Key: key,
+              Size: valor.cuerpo.length,
+              LastModified: new Date(),
+            }));
           return { Contents, IsTruncated: false };
         }
 
@@ -167,13 +184,20 @@ vi.mock("@aws-sdk/client-s3", async () => {
   };
 });
 
-const { construirKeyTenant, construirKeyPlataforma, prefijoTenant, timestampParaKey, resetearClienteS3, listarObjetos } =
-  await import("../src/server/services/platformBackupS3");
-const { guardarBackup, leerBackup, borrarBackupsEnLote } = await import(
-  "../src/server/services/platformBackupStorage"
-);
-const { esBackupCifrado, descifrarYDescomprimir } = await import("../src/server/services/backupCrypto");
-const { clasificarBackupsAPodar } = await import("../src/server/services/platformBackupRetention.worker");
+const {
+  construirKeyTenant,
+  construirKeyPlataforma,
+  prefijoTenant,
+  timestampParaKey,
+  resetearClienteS3,
+  listarObjetos,
+} = await import("../src/server/services/platformBackupS3");
+const { guardarBackup, leerBackup, borrarBackupsEnLote } =
+  await import("../src/server/services/platformBackupStorage");
+const { esBackupCifrado, descifrarYDescomprimir } =
+  await import("../src/server/services/backupCrypto");
+const { clasificarBackupsAPodar } =
+  await import("../src/server/services/platformBackupRetention.worker");
 const { env } = await import("../src/server/config/env");
 const { closeDatabase } = await import("../src/server/config/database");
 
@@ -208,14 +232,18 @@ describe("convención de keys", () => {
     const key = construirKeyTenant(TENANT_ID, fecha);
 
     expect(key).toMatch(
-      new RegExp(`^backups/tenants/${TENANT_ID}/2026/03/backup_${TENANT_ID}_20260309T014530\\.123Z-[0-9a-f]{6}\\.json\\.gz\\.enc$`)
+      new RegExp(
+        `^backups/tenants/${TENANT_ID}/2026/03/backup_${TENANT_ID}_20260309T014530\\.123Z-[0-9a-f]{6}\\.json\\.gz\\.enc$`
+      )
     );
   });
 
   it("la key de plataforma va en un prefijo separado del de los tenants", () => {
     const key = construirKeyPlataforma(new Date("2026-12-31T23:59:59.000Z"));
 
-    expect(key).toMatch(/^backups\/platform\/2026\/12\/platform_20261231T235959\.000Z-[0-9a-f]{6}\.json\.gz\.enc$/);
+    expect(key).toMatch(
+      /^backups\/platform\/2026\/12\/platform_20261231T235959\.000Z-[0-9a-f]{6}\.json\.gz\.enc$/
+    );
     expect(key.startsWith("backups/tenants/")).toBe(false);
   });
 
@@ -229,7 +257,9 @@ describe("convención de keys", () => {
   });
 
   it("el timestamp no lleva ':' (rompe descargas a disco y URLs firmadas)", () => {
-    expect(timestampParaKey(new Date("2026-03-09T01:45:30.000Z"))).toMatch(/^20260309T014530\.000Z-[0-9a-f]{6}$/);
+    expect(timestampParaKey(new Date("2026-03-09T01:45:30.000Z"))).toMatch(
+      /^20260309T014530\.000Z-[0-9a-f]{6}$/
+    );
   });
 
   it("dos backups en el mismo instante no comparten key (el sufijo random los desambigua)", () => {
@@ -252,7 +282,9 @@ describe("subida a S3: cifrado y compresión reales", () => {
   const contenido = JSON.stringify({
     version: 1,
     tenantId: TENANT_ID,
-    tablas: { usuarios: [{ id: "u1", email: "admin@ejemplo.com", password_hash: "$2b$10$secretohash" }] },
+    tablas: {
+      usuarios: [{ id: "u1", email: "admin@ejemplo.com", password_hash: "$2b$10$secretohash" }],
+    },
   });
 
   it("lo que queda en el bucket está cifrado: no contiene el texto plano", async () => {
@@ -274,7 +306,13 @@ describe("subida a S3: cifrado y compresión reales", () => {
     // Contenido repetitivo, como un backup real con muchas filas parecidas.
     const grande = JSON.stringify({
       version: 1,
-      tablas: { equipos: Array.from({ length: 2000 }, (_, i) => ({ id: i, tipo: "Camioneta", activo: true })) },
+      tablas: {
+        equipos: Array.from({ length: 2000 }, (_, i) => ({
+          id: i,
+          tipo: "Camioneta",
+          activo: true,
+        })),
+      },
     });
     const key = construirKeyTenant(TENANT_ID);
     const { bytes } = await guardarBackup(key, grande);
@@ -294,7 +332,10 @@ describe("subida a S3: cifrado y compresión reales", () => {
     const key = construirKeyTenant(TENANT_ID);
     await guardarBackup(key, contenido, { tenant_id: TENANT_ID, tenant_slug: "acme" });
 
-    expect(bucketFalso.get(key)!.metadata).toMatchObject({ tenant_id: TENANT_ID, tenant_slug: "acme" });
+    expect(bucketFalso.get(key)!.metadata).toMatchObject({
+      tenant_id: TENANT_ID,
+      tenant_slug: "acme",
+    });
   });
 
   it("roundtrip: lo que se baja y descifra es idéntico a lo que se subió", async () => {
@@ -314,7 +355,9 @@ describe("subida a S3: cifrado y compresión reales", () => {
     const objeto = bucketFalso.get(key)!;
     objeto.cuerpo[objeto.cuerpo.length - 20] ^= 0xff; // toca el ciphertext, no el tag
 
-    await expect(leerBackup({ storage: "s3", key })).rejects.toThrow(/alterado|BACKUP_ENCRYPTION_KEY/);
+    await expect(leerBackup({ storage: "s3", key })).rejects.toThrow(
+      /alterado|BACKUP_ENCRYPTION_KEY/
+    );
   });
 
   it("exige BACKUP_ENCRYPTION_KEY para subir a S3: nunca manda texto plano a un tercero", async () => {
@@ -364,7 +407,9 @@ describe("borrado y listado", () => {
     for (const key of keys) await guardarBackup(key, "{}");
     expect(bucketFalso.size).toBe(2);
 
-    const { borradas, fallidas } = await borrarBackupsEnLote(keys.map((key) => ({ storage: "s3" as const, key })));
+    const { borradas, fallidas } = await borrarBackupsEnLote(
+      keys.map((key) => ({ storage: "s3" as const, key }))
+    );
 
     expect(borradas.sort()).toEqual(keys.sort());
     expect(fallidas).toEqual([]);
@@ -388,7 +433,13 @@ describe("política de retención GFS", () => {
   const ahora = new Date("2026-08-15T12:00:00Z");
 
   function backup(id: string, iso: string, tenantId: string | null = TENANT_ID) {
-    return { id, storage: "s3" as const, storage_key: `k/${id}`, creado_en: new Date(iso), tenant_id: tenantId };
+    return {
+      id,
+      storage: "s3" as const,
+      storage_key: `k/${id}`,
+      creado_en: new Date(iso),
+      tenant_id: tenantId,
+    };
   }
 
   it("conserva TODOS los backups dentro de la ventana diaria", () => {
@@ -399,7 +450,11 @@ describe("política de retención GFS", () => {
       backup("hace-29-dias", "2026-07-17T01:00:00Z"),
     ];
 
-    const { borrar } = clasificarBackupsAPodar(backups, { diarioDias: 30, mensualMeses: 12, ahora });
+    const { borrar } = clasificarBackupsAPodar(backups, {
+      diarioDias: 30,
+      mensualMeses: 12,
+      ahora,
+    });
 
     expect(borrar).toEqual([]);
   });
@@ -413,7 +468,11 @@ describe("política de retención GFS", () => {
       backup("junio-20", "2026-06-20T03:00:00Z"),
     ];
 
-    const { conservar, borrar } = clasificarBackupsAPodar(backups, { diarioDias: 30, mensualMeses: 12, ahora });
+    const { conservar, borrar } = clasificarBackupsAPodar(backups, {
+      diarioDias: 30,
+      mensualMeses: 12,
+      ahora,
+    });
 
     expect(conservar.map((b) => b.id).sort()).toEqual(["junio-02", "mayo-01"]);
     expect(borrar.map((b) => b.id).sort()).toEqual(["junio-20", "mayo-14", "mayo-28"]);
@@ -426,7 +485,11 @@ describe("política de retención GFS", () => {
       backup("hace-6-meses", "2026-02-01T03:00:00Z"),
     ];
 
-    const { conservar, borrar } = clasificarBackupsAPodar(backups, { diarioDias: 30, mensualMeses: 12, ahora });
+    const { conservar, borrar } = clasificarBackupsAPodar(backups, {
+      diarioDias: 30,
+      mensualMeses: 12,
+      ahora,
+    });
 
     expect(conservar.map((b) => b.id)).toEqual(["hace-6-meses"]);
     expect(borrar.map((b) => b.id).sort()).toEqual(["hace-13-meses", "hace-14-meses"]);
@@ -440,7 +503,11 @@ describe("política de retención GFS", () => {
       backup("b-mayo-19", "2026-05-19T03:00:00Z", otroTenant),
     ];
 
-    const { conservar, borrar } = clasificarBackupsAPodar(backups, { diarioDias: 30, mensualMeses: 12, ahora });
+    const { conservar, borrar } = clasificarBackupsAPodar(backups, {
+      diarioDias: 30,
+      mensualMeses: 12,
+      ahora,
+    });
 
     // Cada tenant conserva su propio primero de mayo.
     expect(conservar.map((b) => b.id).sort()).toEqual(["a-mayo-01", "b-mayo-03"]);
@@ -454,7 +521,11 @@ describe("política de retención GFS", () => {
       backup("plataforma-mayo-15", "2026-05-15T03:00:00Z", null),
     ];
 
-    const { conservar, borrar } = clasificarBackupsAPodar(backups, { diarioDias: 30, mensualMeses: 12, ahora });
+    const { conservar, borrar } = clasificarBackupsAPodar(backups, {
+      diarioDias: 30,
+      mensualMeses: 12,
+      ahora,
+    });
 
     expect(conservar.map((b) => b.id).sort()).toEqual(["plataforma-mayo-01", "tenant-mayo"]);
     expect(borrar.map((b) => b.id)).toEqual(["plataforma-mayo-15"]);

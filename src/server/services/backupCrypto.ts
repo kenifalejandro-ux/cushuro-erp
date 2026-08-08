@@ -51,7 +51,10 @@ function claveDeBackup(): Buffer {
   }
   const clave = Buffer.from(env.backupEncryptionKey, "base64");
   if (clave.length !== 32) {
-    throw new AppError(500, "BACKUP_ENCRYPTION_KEY inválida: debe decodificar a 32 bytes en base64");
+    throw new AppError(
+      500,
+      "BACKUP_ENCRYPTION_KEY inválida: debe decodificar a 32 bytes en base64"
+    );
   }
   return clave;
 }

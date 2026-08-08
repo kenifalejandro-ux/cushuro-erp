@@ -34,7 +34,10 @@ export async function redisDisponible(): Promise<boolean> {
 /** Saca el valor crudo de una cookie de un array de headers Set-Cookie —
  *  para simular en un test que alguien reusa un refresh token viejo desde
  *  otro cliente, sin depender de la jar interna de supertest. */
-export function extraerCookie(setCookieHeader: string | string[] | undefined, nombre: string): string | undefined {
+export function extraerCookie(
+  setCookieHeader: string | string[] | undefined,
+  nombre: string
+): string | undefined {
   if (!setCookieHeader) return undefined;
   const headers = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader];
   for (const header of headers) {
@@ -49,7 +52,9 @@ export interface TenantDePrueba {
   usuario: { id: string; tenantId: string; email: string };
 }
 
-export async function crearTenantDePrueba(adminPassword = "ClaveDePrueba123"): Promise<TenantDePrueba> {
+export async function crearTenantDePrueba(
+  adminPassword = "ClaveDePrueba123"
+): Promise<TenantDePrueba> {
   const slug = idUnico("test-tenant");
   const res = await request(app)
     .post("/api/platform/tenants")

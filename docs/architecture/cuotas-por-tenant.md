@@ -9,11 +9,11 @@
 
 Limita el **volumen** que un tenant puede acumular:
 
-| Recurso | Se mide | Default |
-|---|---|---|
-| `usuarios` | Usuarios **activos** del tenant | 100 |
-| `backup_bytes` | Suma de `tamano_bytes` de sus backups existentes | 5 GiB |
-| Uno por módulo | Filas en la tabla que el módulo declare | Ver el registry |
+| Recurso        | Se mide                                          | Default         |
+| -------------- | ------------------------------------------------ | --------------- |
+| `usuarios`     | Usuarios **activos** del tenant                  | 100             |
+| `backup_bytes` | Suma de `tamano_bytes` de sus backups existentes | 5 GiB           |
+| Uno por módulo | Filas en la tabla que el módulo declare          | Ver el registry |
 
 **No** limita frecuencia de requests: eso es rate limiting, un sistema aparte (ver más abajo). Y **no cobra nada**: los planes segmentan y aplican límites, pero no hay billing. Levantar un límite es una decisión que se toma en el panel, no pagando.
 
@@ -39,11 +39,11 @@ Un módulo sin `cuota` no tiene límite — correcto para `dashboard`, que no cr
 
 El límite efectivo de un tenant se resuelve en **tres niveles**, en este orden:
 
-| # | Nivel | Para qué sirve |
-|---|---|---|
-| 1 | `tenant_cuotas` | Excepción negociada con **ese** cliente |
-| 2 | Plan del tenant (`tenants.plan_id`) | Segmento comercial: MYPE, Pequeña, Mediana, Corporativo |
-| 3 | `src/modules/registry.ts` | Default de última instancia |
+| #   | Nivel                               | Para qué sirve                                          |
+| --- | ----------------------------------- | ------------------------------------------------------- |
+| 1   | `tenant_cuotas`                     | Excepción negociada con **ese** cliente                 |
+| 2   | Plan del tenant (`tenants.plan_id`) | Segmento comercial: MYPE, Pequeña, Mediana, Corporativo |
+| 3   | `src/modules/registry.ts`           | Default de última instancia                             |
 
 Sin el nivel 2, dar de alta una PYME era cargar ~8 overrides a mano, sin que quedara registrado **qué categoría** es ese cliente — y cambiar los límites de un segmento obligaba a actualizar cliente por cliente.
 
@@ -51,12 +51,12 @@ El campo `origen` de cada cuota (en `GET /tenants/:id/cuotas` y en la salud del 
 
 ### Planes iniciales
 
-| código | usuarios | equipos | checklists / iperc | combustible | repuestos | documentos | backups |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| `mype` | 10 | 20 | 40.000 | 20.000 | 10.000 | 5.000 | 1 GiB |
-| `pequena` | 50 | 100 | 200.000 | 100.000 | 50.000 | 20.000 | 5 GiB |
-| `mediana` | 200 | 500 | 1.000.000 | 500.000 | 200.000 | 50.000 | 20 GiB |
-| `corporativo` | ∞ | ∞ | ∞ | ∞ | ∞ | ∞ | 100 GiB |
+| código        | usuarios | equipos | checklists / iperc | combustible | repuestos | documentos | backups |
+| ------------- | -------: | ------: | -----------------: | ----------: | --------: | ---------: | ------: |
+| `mype`        |       10 |      20 |             40.000 |      20.000 |    10.000 |      5.000 |   1 GiB |
+| `pequena`     |       50 |     100 |            200.000 |     100.000 |    50.000 |     20.000 |   5 GiB |
+| `mediana`     |      200 |     500 |          1.000.000 |     500.000 |   200.000 |     50.000 |  20 GiB |
+| `corporativo` |        ∞ |       ∞ |                  ∞ |           ∞ |         ∞ |          ∞ | 100 GiB |
 
 Los números salen de que **casi todo escala con la cantidad de equipos**: un checklist de pre-uso es ~1 por equipo por turno, así que 20 equipos × 2 turnos × 365 días ≈ 14.600/año. Por eso `equipos` define cada segmento y el resto se deriva con holgura de varios años. Son un punto de partida ajustable desde el panel sin tocar código.
 
@@ -81,10 +81,10 @@ Con columnas, agregar el módulo 8 exigiría una migración para sumar la column
 
 Aplican igual en `tenant_cuotas` (nivel 1) y en `plan_limites` (nivel 2). Para un tenant/plan y recurso dados:
 
-| Estado en la tabla | Significado |
-|---|---|
-| Sin fila | Se aplica el default del código |
-| Fila con `limite = N` | Ese tenant tiene exactamente N |
+| Estado en la tabla       | Significado                                                    |
+| ------------------------ | -------------------------------------------------------------- |
+| Sin fila                 | Se aplica el default del código                                |
+| Fila con `limite = N`    | Ese tenant tiene exactamente N                                 |
 | Fila con `limite = NULL` | Ese tenant es **ilimitado**, aunque el código tenga un default |
 
 Los tres son distintos y hacen falta los tres: sin el tercero, "a este cliente no le apliqués el límite" habría que expresarlo con un número gigante que después nadie sabría si era un límite real o un "sin límite" disfrazado.
@@ -133,11 +133,11 @@ Un `POST` que crea un padre con hijos (un checklist con sus ítems) cuenta como 
 
 ## Dónde se aplica
 
-| Recurso | Punto de enforcement |
-|---|---|
-| Módulos | `requireCuota(moduloId)` en `routes/index.ts`, junto a `requireModulo` |
-| `usuarios` | `crearUsuarioEnTenantService` |
-| `backup_bytes` | `exportarTenantService`, antes de leer nada |
+| Recurso        | Punto de enforcement                                                   |
+| -------------- | ---------------------------------------------------------------------- |
+| Módulos        | `requireCuota(moduloId)` en `routes/index.ts`, junto a `requireModulo` |
+| `usuarios`     | `crearUsuarioEnTenantService`                                          |
+| `backup_bytes` | `exportarTenantService`, antes de leer nada                            |
 
 Dos detalles que importan:
 
@@ -175,14 +175,14 @@ Cada bloqueo se audita en `platform_audit_log` con `accion = 'cuota.bloqueo'` y 
 
 ## Endpoints
 
-| Método | Ruta | Permiso |
-|---|---|---|
-| `GET` | `/api/platform/planes` | platform admin (`?soloActivos=true` para el selector) |
-| `GET` | `/api/platform/planes/:idOCodigo` | platform admin (acepta código o UUID) |
-| `GET` | `/api/platform/tenants/:id/plan` | platform admin |
-| `PUT` | `/api/platform/tenants/:id/plan` | **super_admin** |
-| `GET` | `/api/platform/tenants/:id/cuotas` | platform admin |
-| `PUT` | `/api/platform/tenants/:id/cuotas` | **super_admin** |
+| Método | Ruta                               | Permiso                                               |
+| ------ | ---------------------------------- | ----------------------------------------------------- |
+| `GET`  | `/api/platform/planes`             | platform admin (`?soloActivos=true` para el selector) |
+| `GET`  | `/api/platform/planes/:idOCodigo`  | platform admin (acepta código o UUID)                 |
+| `GET`  | `/api/platform/tenants/:id/plan`   | platform admin                                        |
+| `PUT`  | `/api/platform/tenants/:id/plan`   | **super_admin**                                       |
+| `GET`  | `/api/platform/tenants/:id/cuotas` | platform admin                                        |
+| `PUT`  | `/api/platform/tenants/:id/cuotas` | **super_admin**                                       |
 
 El `GET` devuelve uso **y** límite juntos: un límite solo se interpreta contra el consumo real, y pedirlos por separado invitaría a mostrar uno sin el otro.
 
@@ -194,13 +194,13 @@ El `PUT` exige super_admin por el mismo criterio que el toggle global de módulo
 
 Se confunden seguido, así que conviene tenerlo explícito:
 
-| | Cuotas | Rate limiting |
-|---|---|---|
-| Limita | **Volumen** acumulado | **Frecuencia** de requests |
-| Clave | Tenant | Usuario y tenant (`/api/erp/*`) o ruta + IP (auth y panel) |
-| Respuesta | `403 cuota_excedida` | `429 rate_limit_usuario` / `rate_limit_tenant` |
-| Se resuelve | Pidiendo más cupo / subiendo de plan | Esperando |
-| Se configura | Panel, plan, o registry | Variables de entorno |
+|              | Cuotas                               | Rate limiting                                              |
+| ------------ | ------------------------------------ | ---------------------------------------------------------- |
+| Limita       | **Volumen** acumulado                | **Frecuencia** de requests                                 |
+| Clave        | Tenant                               | Usuario y tenant (`/api/erp/*`) o ruta + IP (auth y panel) |
+| Respuesta    | `403 cuota_excedida`                 | `429 rate_limit_usuario` / `rate_limit_tenant`             |
+| Se resuelve  | Pidiendo más cupo / subiendo de plan | Esperando                                                  |
+| Se configura | Panel, plan, o registry              | Variables de entorno                                       |
 
 Un cliente puede chocar con los dos por motivos totalmente distintos, por eso el `error` del cuerpo los distingue sin que haya que parsear texto.
 
@@ -208,10 +208,10 @@ Un cliente puede chocar con los dos por motivos totalmente distintos, por eso el
 
 Hasta este esquema, **las rutas de negocio no tenían ningún rate limit**: el limitador genérico solo cubría auth y el panel. Las cuotas frenaban cuántos registros podía acumular un tenant, pero nada le impedía miles de `GET` por segundo.
 
-| Nivel | Clave | Default | Para qué |
-|---|---|---:|---|
-| 1 — fusible personal | `erp:u:{usuarioId}` | 120/min | Cortar un script en loop o una cuenta comprometida |
-| 2 — techo de empresa | `erp:t:{tenantId}` | 3.000/min (configurable **por cliente**) | Que un tenant desbocado no degrade el servicio de los demás |
+| Nivel                | Clave               |                                  Default | Para qué                                                    |
+| -------------------- | ------------------- | ---------------------------------------: | ----------------------------------------------------------- |
+| 1 — fusible personal | `erp:u:{usuarioId}` |                                  120/min | Cortar un script en loop o una cuenta comprometida          |
+| 2 — techo de empresa | `erp:t:{tenantId}`  | 3.000/min (configurable **por cliente**) | Que un tenant desbocado no degrade el servicio de los demás |
 
 Cualquiera en `0` desactiva ese nivel.
 
@@ -233,10 +233,10 @@ Cuando alguien choca contra su fusible, el request **no** incrementa el contador
 
 #### Dos respuestas distintas
 
-| | `rate_limit_usuario` | `rate_limit_tenant` |
-|---|---|---|
-| Qué pasó | Esta persona va muy rápido | La empresa agotó su cupo |
-| Cómo se resuelve | Esperar | Revisar integraciones o pedir más capacidad |
+|                  | `rate_limit_usuario`       | `rate_limit_tenant`                         |
+| ---------------- | -------------------------- | ------------------------------------------- |
+| Qué pasó         | Esta persona va muy rápido | La empresa agotó su cupo                    |
+| Cómo se resuelve | Esperar                    | Revisar integraciones o pedir más capacidad |
 
 Con un solo mensaje, un cliente que necesita atención recibiría lo mismo que uno que solo tiene que esperar dos segundos.
 
@@ -244,10 +244,10 @@ Con un solo mensaje, un cliente que necesita atención recibiría lo mismo que u
 
 Se resuelve en **dos capas**:
 
-| # | Capa | |
-|---|---|---|
-| 1 | Override en `tenant_cuotas`, recurso `rate_limit_rpm` | El número de **ese** cliente |
-| 2 | `ERP_RATE_LIMIT_TENANT_DEFAULT` | Fallback global (3.000/min) |
+| #   | Capa                                                  |                              |
+| --- | ----------------------------------------------------- | ---------------------------- |
+| 1   | Override en `tenant_cuotas`, recurso `rate_limit_rpm` | El número de **ese** cliente |
+| 2   | `ERP_RATE_LIMIT_TENANT_DEFAULT`                       | Fallback global (3.000/min)  |
 
 `limite = NULL` en el override significa **sin techo** (el fusible personal sigue aplicando), no "usá el default" — misma semántica que el resto de las cuotas.
 

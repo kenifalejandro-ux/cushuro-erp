@@ -59,7 +59,10 @@ export async function drenarUnaVez(): Promise<void> {
   for (const evento of pendientes) {
     const handler = handlers[evento.tipo];
     if (!handler) {
-      logger.warn({ tipo: evento.tipo }, "Evento de outbox sin handler registrado, se deja pendiente");
+      logger.warn(
+        { tipo: evento.tipo },
+        "Evento de outbox sin handler registrado, se deja pendiente"
+      );
       continue;
     }
     try {
@@ -67,7 +70,10 @@ export async function drenarUnaVez(): Promise<void> {
       await marcarProcesado(evento.id);
     } catch (err) {
       const mensaje = err instanceof Error ? err.message : String(err);
-      logger.warn({ err, evento: evento.id, tipo: evento.tipo }, "Falló el handler de un evento de outbox");
+      logger.warn(
+        { err, evento: evento.id, tipo: evento.tipo },
+        "Falló el handler de un evento de outbox"
+      );
       await marcarFallo(evento.id, evento.intentos, mensaje);
     }
   }

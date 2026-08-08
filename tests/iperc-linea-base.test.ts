@@ -14,7 +14,9 @@ describe("IPERC: Línea Base + Continuo/Específico referenciando el catálogo",
   beforeAll(async () => {
     const creado = await crearTenantDePrueba(password);
     tenantId = creado.tenant.id;
-    await agentAdmin.post("/api/auth/login").send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
+    await agentAdmin
+      .post("/api/auth/login")
+      .send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
   });
 
   afterAll(async () => {
@@ -42,7 +44,9 @@ describe("IPERC: Línea Base + Continuo/Específico referenciando el catálogo",
     lineaBaseId = res.body.id;
     lineaBaseItemId = res.body.items[0].id;
 
-    const aprobar = await agentAdmin.patch(`/api/erp/iperc/lineas-base/${lineaBaseId}/estado`).send({ estado: "aprobado" });
+    const aprobar = await agentAdmin
+      .patch(`/api/erp/iperc/lineas-base/${lineaBaseId}/estado`)
+      .send({ estado: "aprobado" });
     expect(aprobar.status).toBe(200);
     expect(aprobar.body.estado).toBe("aprobado");
   });

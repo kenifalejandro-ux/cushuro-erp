@@ -23,15 +23,27 @@ describe("permisos por rol (requireRole en rutas de negocio)", () => {
     // usuarios tiene RLS: crearUsuarioService necesita el client de una
     // transacción withTenant(), no el pool por default.
     await withTenant(tenantId, (client) =>
-      crearUsuarioService({ tenantId, nombre: "Usuario Operador", email: emailOperador, password, rol: "operador" }, client)
+      crearUsuarioService(
+        { tenantId, nombre: "Usuario Operador", email: emailOperador, password, rol: "operador" },
+        client
+      )
     );
     await withTenant(tenantId, (client) =>
-      crearUsuarioService({ tenantId, nombre: "Usuario Lectura", email: emailLectura, password, rol: "lectura" }, client)
+      crearUsuarioService(
+        { tenantId, nombre: "Usuario Lectura", email: emailLectura, password, rol: "lectura" },
+        client
+      )
     );
 
-    await agentAdmin.post("/api/auth/login").send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
-    await agentOperador.post("/api/auth/login").send({ tenantSlug: creado.tenant.slug, email: emailOperador, password });
-    await agentLectura.post("/api/auth/login").send({ tenantSlug: creado.tenant.slug, email: emailLectura, password });
+    await agentAdmin
+      .post("/api/auth/login")
+      .send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
+    await agentOperador
+      .post("/api/auth/login")
+      .send({ tenantSlug: creado.tenant.slug, email: emailOperador, password });
+    await agentLectura
+      .post("/api/auth/login")
+      .send({ tenantSlug: creado.tenant.slug, email: emailLectura, password });
 
     const creadoRepuesto = await agentAdmin.post("/api/erp/repuestos").send({
       codigo: "ROL-001",

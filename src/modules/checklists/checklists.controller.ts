@@ -3,19 +3,28 @@
 import { Request, Response } from "express";
 import { withTenant } from "../../server/config/database";
 import { getTenantId } from "../../server/shared/utils/request";
-import { parsePaginacion, armarRespuestaPaginada, parseCursorPaginacion, armarRespuestaCursor } from "../../server/shared/utils/pagination";
+import {
+  parsePaginacion,
+  armarRespuestaPaginada,
+  parseCursorPaginacion,
+  armarRespuestaCursor,
+} from "../../server/shared/utils/pagination";
 import { contextoAuditoriaModulo } from "../../server/shared/utils/moduleAudit";
 import { registrarAuditoria } from "../../server/services/platformAudit.service";
-import type { CrearPlantillaInput, CrearChecklistInput } from "../../server/schemas/checklists.schema";
+import type {
+  CrearPlantillaInput,
+  CrearChecklistInput,
+} from "../../server/schemas/checklists.schema";
 import { ChecklistsService } from "./checklists.service";
 
 export const ChecklistsController = {
-
   async getPlantillas(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
       const paginacion = parsePaginacion(req.query);
-      const filas = await withTenant(tenantId, (client) => ChecklistsService.getPlantillas(client, tenantId, paginacion));
+      const filas = await withTenant(tenantId, (client) =>
+        ChecklistsService.getPlantillas(client, tenantId, paginacion)
+      );
       res.json(armarRespuestaPaginada(filas, paginacion));
     } catch {
       res.status(500).json({ message: "Error al obtener plantillas" });
@@ -42,7 +51,9 @@ export const ChecklistsController = {
     try {
       const tenantId = getTenantId(req);
       const data = req.validatedBody as CrearPlantillaInput;
-      const plantilla = await withTenant(tenantId, (client) => ChecklistsService.crearPlantilla(client, tenantId, data));
+      const plantilla = await withTenant(tenantId, (client) =>
+        ChecklistsService.crearPlantilla(client, tenantId, data)
+      );
       await registrarAuditoria({
         accion: "checklists.crear_plantilla",
         tenantId,
@@ -60,7 +71,9 @@ export const ChecklistsController = {
     try {
       const tenantId = getTenantId(req);
       const id = Number(req.params.id);
-      const eliminado = await withTenant(tenantId, (client) => ChecklistsService.eliminarPlantilla(client, tenantId, id));
+      const eliminado = await withTenant(tenantId, (client) =>
+        ChecklistsService.eliminarPlantilla(client, tenantId, id)
+      );
       if (!eliminado) {
         res.status(404).json({ message: "Plantilla no encontrada" });
         return;
@@ -82,7 +95,9 @@ export const ChecklistsController = {
     try {
       const tenantId = getTenantId(req);
       const paginacion = parseCursorPaginacion(req.query);
-      const filas = await withTenant(tenantId, (client) => ChecklistsService.getAll(client, tenantId, paginacion));
+      const filas = await withTenant(tenantId, (client) =>
+        ChecklistsService.getAll(client, tenantId, paginacion)
+      );
       res.json(armarRespuestaCursor(filas, paginacion.pageSize));
     } catch {
       res.status(500).json({ message: "Error al obtener checklists" });
@@ -129,7 +144,9 @@ export const ChecklistsController = {
     try {
       const tenantId = getTenantId(req);
       const id = Number(req.params.id);
-      const eliminado = await withTenant(tenantId, (client) => ChecklistsService.eliminar(client, tenantId, id));
+      const eliminado = await withTenant(tenantId, (client) =>
+        ChecklistsService.eliminar(client, tenantId, id)
+      );
       if (!eliminado) {
         res.status(404).json({ message: "Checklist no encontrado" });
         return;

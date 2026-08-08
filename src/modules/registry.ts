@@ -87,7 +87,11 @@ export const MODULOS: ModuloDefinicion[] = [
     router: checklistsRoutes,
     tablas: [
       { nombre: "checklist_plantillas", pk: "serial" },
-      { nombre: "checklist_plantilla_items", pk: "serial", fks: { plantilla_id: "checklist_plantillas" } },
+      {
+        nombre: "checklist_plantilla_items",
+        pk: "serial",
+        fks: { plantilla_id: "checklist_plantillas" },
+      },
       {
         nombre: "checklists",
         pk: "serial",
@@ -110,7 +114,11 @@ export const MODULOS: ModuloDefinicion[] = [
     version: "v1",
     router: ipercRoutes,
     tablas: [
-      { nombre: "iperc_lineas_base", pk: "serial", fks: { aprobado_por: "usuarios", creado_por: "usuarios" } },
+      {
+        nombre: "iperc_lineas_base",
+        pk: "serial",
+        fks: { aprobado_por: "usuarios", creado_por: "usuarios" },
+      },
       {
         nombre: "iperc_linea_base_items",
         pk: "serial",
@@ -120,7 +128,12 @@ export const MODULOS: ModuloDefinicion[] = [
       {
         nombre: "ipercs",
         pk: "serial",
-        fks: { equipo_id: "equipos", usuario_id: "usuarios", aprobado_por: "usuarios", linea_base_id: "iperc_lineas_base" },
+        fks: {
+          equipo_id: "equipos",
+          usuario_id: "usuarios",
+          aprobado_por: "usuarios",
+          linea_base_id: "iperc_lineas_base",
+        },
       },
       {
         nombre: "iperc_items",

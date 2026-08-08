@@ -5,7 +5,6 @@ import type { Paginacion } from "../../server/shared/utils/pagination";
 import { RepuestosRepository } from "./repuestos.repository";
 
 export const RepuestosService = {
-
   // 📥 traer todo (paginado)
   getAll(client: PoolClient, tenantId: string, paginacion: Paginacion) {
     return RepuestosRepository.findAll(client, tenantId, paginacion);
@@ -34,5 +33,5 @@ export const RepuestosService = {
   // 📊 KPIs
   getKPIs(client: PoolClient, tenantId: string) {
     return RepuestosRepository.getDashboardKPIs(client, tenantId);
-  }
+  },
 };

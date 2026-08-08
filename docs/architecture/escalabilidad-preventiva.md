@@ -30,15 +30,15 @@ resolverLimite(tenantId, recurso)
 
 - **TTL en Redis: 300s.** **TTL en memoria: 30s**, deliberadamente más corto — sin Redis, la invalidación explícita (ver abajo) no se propaga entre instancias, así que la única garantía de frescura es que el valor caduque pronto.
 - **Por qué Redis y no memoria como caché principal**: con más de una instancia, un caché en memoria resolvería cada una su propio valor sin que la invalidación cruce entre ellas — cambiás un límite en el panel y una instancia lo respeta, la otra no. En Redis se resuelve solo.
-- **Qué NO se cachea: `usoActual()`.** El *límite* configurado cambia poco (solo cuando un admin toca `tenant_cuotas` o reasigna un plan); el *uso* cambia con cada INSERT del propio tenant. Cachear el uso rompería la cuota — un tenant podría crear de más mientras el conteo cacheado queda viejo. El límite es la parte estable; el uso siempre se lee fresco.
+- **Qué NO se cachea: `usoActual()`.** El _límite_ configurado cambia poco (solo cuando un admin toca `tenant_cuotas` o reasigna un plan); el _uso_ cambia con cada INSERT del propio tenant. Cachear el uso rompería la cuota — un tenant podría crear de más mientras el conteo cacheado queda viejo. El límite es la parte estable; el uso siempre se lee fresco.
 
 ### Invalidación
 
 Dos puntos de escritura, dos invalidaciones:
 
-| Se cambia | Se invalida |
-|---|---|
-| Un override puntual (`fijarCuotaTenant`) | Solo ese `(tenant, recurso)` |
+| Se cambia                                          | Se invalida                                                                                      |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Un override puntual (`fijarCuotaTenant`)           | Solo ese `(tenant, recurso)`                                                                     |
 | El plan de un tenant (`asignarPlanATenantService`) | **Todo** el catálogo de ese tenant — cambia el nivel 2 de todos los recursos sin override propio |
 
 `invalidarCacheLimitesTenant()` recorre `recursosConCuota()` (finito, ya vive en proceso) e invalida cada `(tenant, recurso)` uno por uno — no hace falta un `SCAN` sobre Redis, que sí sería un problema en producción.
@@ -112,8 +112,9 @@ Cuatro workers periódicos corren con `setInterval` dentro de cada instancia del
 
 ```ts
 setInterval(() => {
-  runSiPrimero(LOCK_IDS.particionado, (client) => asegurarParticionesFuturas(client))
-    .catch((err) => logger.error({ err }, "..."));
+  runSiPrimero(LOCK_IDS.particionado, (client) => asegurarParticionesFuturas(client)).catch((err) =>
+    logger.error({ err }, "...")
+  );
 }, env.particionesCheckIntervalMs).unref();
 ```
 
@@ -135,7 +136,9 @@ Por eso `correrRetencionAuditoriaCoordinada()` pide el lock **una vez por lote**
 
 ```ts
 for (;;) {
-  const borradas = await runSiPrimero(LOCK_IDS.auditRetention, (client) => borrarUnLote(client, retentionDays));
+  const borradas = await runSiPrimero(LOCK_IDS.auditRetention, (client) =>
+    borrarUnLote(client, retentionDays)
+  );
   if (borradas === undefined) break; // el lock de este lote ya lo tiene otra instancia
   total += borradas;
   if (borradas < LOTE) break;

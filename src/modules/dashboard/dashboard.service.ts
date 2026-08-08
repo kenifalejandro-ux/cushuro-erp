@@ -44,5 +44,5 @@ export const DashboardService = {
 
   nivelstock(client: PoolClient, tenantId: string) {
     return DashboardRepository.nivelstock(client, tenantId);
-  }
+  },
 };

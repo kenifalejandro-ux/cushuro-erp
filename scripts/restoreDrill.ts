@@ -15,7 +15,10 @@
  * pasó la verificación, para poder engancharlo a un chequeo de CI/cron sin
  * tener que parsear los logs.
  */
-import { correrRestoreDrill, type ResultadoDrillBackup } from "../src/server/services/platformBackupDrill.worker";
+import {
+  correrRestoreDrill,
+  type ResultadoDrillBackup,
+} from "../src/server/services/platformBackupDrill.worker";
 import { closeDatabase } from "../src/server/config/database";
 
 function imprimirResultado(etiqueta: string, resultado: ResultadoDrillBackup): void {
@@ -24,7 +27,9 @@ function imprimirResultado(etiqueta: string, resultado: ResultadoDrillBackup): v
     return;
   }
   if (resultado.error) {
-    console.log(`  ✗ ${etiqueta} — backup ${resultado.backupId}: no se pudo leer (${resultado.error})`);
+    console.log(
+      `  ✗ ${etiqueta} — backup ${resultado.backupId}: no se pudo leer (${resultado.error})`
+    );
   } else {
     console.log(
       `  ✗ ${etiqueta} — backup ${resultado.backupId}: no coincide con su manifiesto (${resultado.discrepancias.join(", ")})`
@@ -33,7 +38,9 @@ function imprimirResultado(etiqueta: string, resultado: ResultadoDrillBackup): v
 }
 
 async function main(): Promise<void> {
-  console.log("Restore drill — validando el backup más reciente de cada tenant y el de plataforma...\n");
+  console.log(
+    "Restore drill — validando el backup más reciente de cada tenant y el de plataforma...\n"
+  );
 
   const resumen = await correrRestoreDrill();
 
@@ -52,7 +59,9 @@ async function main(): Promise<void> {
     console.log("  (todavía no hay ningún backup de plataforma)");
   }
 
-  const fallidos = [...resumen.tenants, ...(resumen.plataforma ? [resumen.plataforma] : [])].filter((r) => !r.ok);
+  const fallidos = [...resumen.tenants, ...(resumen.plataforma ? [resumen.plataforma] : [])].filter(
+    (r) => !r.ok
+  );
 
   console.log(
     `\n${resumen.tenants.length + (resumen.plataforma ? 1 : 0)} backups verificados, ${fallidos.length} fallaron.`

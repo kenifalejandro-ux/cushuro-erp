@@ -84,7 +84,8 @@ async function consumirCupo(
         const ttl = await redis.pttl(clave);
         return {
           excedido: true,
-          retryAfterSeconds: ttl > 0 ? Math.max(1, Math.ceil(ttl / 1000)) : Math.ceil(windowMs / 1000),
+          retryAfterSeconds:
+            ttl > 0 ? Math.max(1, Math.ceil(ttl / 1000)) : Math.ceil(windowMs / 1000),
         };
       }
       return { excedido: false, retryAfterSeconds: 0 };
@@ -92,7 +93,10 @@ async function consumirCupo(
       // Un fallo de Redis NO puede tumbar el ERP: se cae al contador en
       // memoria, que es peor (no se comparte entre instancias) pero sigue
       // siendo un límite real. Mismo criterio que rateLimiter.ts.
-      req.log?.error({ err: error, requestId: getRequestId(req) }, "Redis falló en el rate limit del ERP, se usa memoria");
+      req.log?.error(
+        { err: error, requestId: getRequestId(req) },
+        "Redis falló en el rate limit del ERP, se usa memoria"
+      );
     }
   }
 
@@ -106,7 +110,10 @@ async function consumirCupo(
 
   actual.count += 1;
   if (actual.count > maximo) {
-    return { excedido: true, retryAfterSeconds: Math.max(1, Math.ceil((actual.resetAt - ahora) / 1000)) };
+    return {
+      excedido: true,
+      retryAfterSeconds: Math.max(1, Math.ceil((actual.resetAt - ahora) / 1000)),
+    };
   }
   return { excedido: false, retryAfterSeconds: 0 };
 }

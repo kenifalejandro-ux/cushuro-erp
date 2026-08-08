@@ -244,7 +244,9 @@ export async function borrarObjeto(key: string): Promise<void> {
 /** Borrado en lote (hasta 1000 por request, el límite de la API). Devuelve
  *  las keys que S3 reportó como fallidas en vez de tirar: en una poda de
  *  retención, que una key falle no debe impedir borrar las demás. */
-export async function borrarObjetos(keys: string[]): Promise<{ borradas: string[]; fallidas: string[] }> {
+export async function borrarObjetos(
+  keys: string[]
+): Promise<{ borradas: string[]; fallidas: string[] }> {
   if (keys.length === 0) return { borradas: [], fallidas: [] };
 
   const borradas: string[] = [];
@@ -261,7 +263,10 @@ export async function borrarObjetos(keys: string[]): Promise<{ borradas: string[
     for (const ok of respuesta.Deleted ?? []) if (ok.Key) borradas.push(ok.Key);
     for (const error of respuesta.Errors ?? []) {
       if (error.Key) fallidas.push(error.Key);
-      logger.error({ key: error.Key, codigo: error.Code, mensaje: error.Message }, "S3 rechazó borrar un objeto de backup");
+      logger.error(
+        { key: error.Key, codigo: error.Code, mensaje: error.Message },
+        "S3 rechazó borrar un objeto de backup"
+      );
     }
   }
 

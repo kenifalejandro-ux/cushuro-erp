@@ -12,5 +12,6 @@ export default crearLimitadorPorIp({
   prefijoClave: "platform-tenant-creation",
   windowMs: env.platformTenantCreationWindowMs,
   maxRequests: env.platformTenantCreationMaxRequests,
-  mensaje: "Demasiadas empresas creadas en poco tiempo. Esperá un momento antes de volver a intentar.",
+  mensaje:
+    "Demasiadas empresas creadas en poco tiempo. Esperá un momento antes de volver a intentar.",
 });

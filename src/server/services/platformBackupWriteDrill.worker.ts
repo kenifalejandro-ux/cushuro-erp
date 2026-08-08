@@ -34,7 +34,11 @@ import { randomUUID } from "crypto";
 import { logger } from "../config/logger";
 import { env } from "../config/env";
 import { leerBackup, type DriverStorage } from "./platformBackupStorage";
-import { vaciarDatosDeTenant, restaurarTablas, type ContenidoBackup } from "./platformBackup.service";
+import {
+  vaciarDatosDeTenant,
+  restaurarTablas,
+  type ContenidoBackup,
+} from "./platformBackup.service";
 import { runSiPrimero, LOCK_IDS } from "../shared/utils/advisoryLock";
 import { capturarError } from "../config/sentry";
 
@@ -115,7 +119,9 @@ export async function correrRestoreDrillEscritura(opciones?: {
         const tablasRestauradas = await restaurarTablas(client, backup, tenantDrillId, true);
 
         const discrepancias = Object.entries(fila.tablas)
-          .filter(([tabla, cantidadEsperada]) => (tablasRestauradas[tabla] ?? -1) !== cantidadEsperada)
+          .filter(
+            ([tabla, cantidadEsperada]) => (tablasRestauradas[tabla] ?? -1) !== cantidadEsperada
+          )
           .map(([tabla]) => tabla);
 
         const ok = discrepancias.length === 0;

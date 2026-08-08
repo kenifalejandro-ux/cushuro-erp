@@ -54,7 +54,9 @@ describe("filtrarEventoSentry", () => {
 
 describe("capturarError", () => {
   it("sin SENTRY_DSN configurado, no llama a Sentry.captureException ni tira", () => {
-    expect(() => capturarError(new Error("falla forzada de prueba"), { worker: "test" })).not.toThrow();
+    expect(() =>
+      capturarError(new Error("falla forzada de prueba"), { worker: "test" })
+    ).not.toThrow();
     expect(Sentry.captureException).not.toHaveBeenCalled();
   });
 });

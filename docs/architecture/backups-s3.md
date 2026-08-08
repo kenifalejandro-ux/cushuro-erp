@@ -59,10 +59,10 @@ Las keys son idénticas en el driver local, así que `BACKUPS_DIR` es un espejo 
 
 ### Dos capas, no una
 
-| Capa | Qué protege | Configuración |
-|---|---|---|
-| **Cifrado de cliente** (AES-256-GCM, antes de salir del proceso) | Un bucket mal configurado como público, credenciales filtradas, y al proveedor de S3 mismo | `BACKUP_ENCRYPTION_KEY` |
-| **SSE del servidor** (SSE-S3 / SSE-KMS) | Acceso al almacenamiento físico; da controles de auditoría a nivel bucket | `S3_SERVER_SIDE_ENCRYPTION` |
+| Capa                                                             | Qué protege                                                                                | Configuración               |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------- |
+| **Cifrado de cliente** (AES-256-GCM, antes de salir del proceso) | Un bucket mal configurado como público, credenciales filtradas, y al proveedor de S3 mismo | `BACKUP_ENCRYPTION_KEY`     |
+| **SSE del servidor** (SSE-S3 / SSE-KMS)                          | Acceso al almacenamiento físico; da controles de auditoría a nivel bucket                  | `S3_SERVER_SIDE_ENCRYPTION` |
 
 > ### ⚠ SSE y proveedores S3-compatible
 >
@@ -72,7 +72,7 @@ Las keys son idénticas en el driver local, así que `BACKUPS_DIR` es un espejo 
 >
 > El default se dejó en `AES256` porque AWS S3 es el destino principal y ahí es lo correcto. El fallo es explícito y accionable: el error nombra la variable, cita lo que dijo el proveedor y dice qué hacer.
 
-**Con driver `s3` el cifrado de cliente es obligatorio y falla cerrado**: sin `BACKUP_ENCRYPTION_KEY` el export corta con 503 *antes de mandar un solo byte*. Subir a almacenamiento de un tercero un JSON con `password_hash`, `client_secret` de OIDC y tokens SCIM sin cifrar no es una opción, ni con SSE activo.
+**Con driver `s3` el cifrado de cliente es obligatorio y falla cerrado**: sin `BACKUP_ENCRYPTION_KEY` el export corta con 503 _antes de mandar un solo byte_. Subir a almacenamiento de un tercero un JSON con `password_hash`, `client_secret` de OIDC y tokens SCIM sin cifrar no es una opción, ni con SSE activo.
 
 **Con driver `local` es opcional**, solo por compatibilidad: los despliegues que ya venían haciendo backups a disco nunca configuraron esa clave, y volverlos irrestaurables de un deploy al otro sería peor que el riesgo que se mitiga. Se emite un `WARN` en **cada** backup sin cifrar (no una sola vez al arrancar, para que no se pierda en el ruido).
 
@@ -86,7 +86,7 @@ Las keys son idénticas en el driver local, así que `BACKUPS_DIR` es un espejo 
 
 La subida usa `@aws-sdk/lib-storage`, que parte en multipart automáticamente cuando el contenido supera los 5 MiB (4 partes en paralelo). El pipeline `JSON → gzip → cipher → S3` es incremental: no se materializa ninguna copia completa del contenido comprimido ni cifrado.
 
-**Pero el techo real de memoria no es ese.** El JSON se arma entero en RAM (`JSON.stringify` de todas las filas de todas las tablas del tenant) *antes* de que el streaming entre en juego. Lo que el streaming evita son las copias **adicionales** —comprimir y cifrar en pasos separados serían dos buffers completos más—, no el piso que impone construir el documento.
+**Pero el techo real de memoria no es ese.** El JSON se arma entero en RAM (`JSON.stringify` de todas las filas de todas las tablas del tenant) _antes_ de que el streaming entre en juego. Lo que el streaming evita son las copias **adicionales** —comprimir y cifrar en pasos separados serían dos buffers completos más—, no el piso que impone construir el documento.
 
 Bajar ese piso de verdad requiere exportar por cursor a NDJSON (una fila por línea, sin nunca tener el documento completo en memoria), lo cual cambia también el formato del backup y el restore. **Es un rediseño del export, no de esta capa, y queda fuera de alcance.** Para el volumen actual (piloto único) no hace falta; el punto en que empiece a importar se va a notar como picos de RSS durante el export de los tenants más grandes.
 
@@ -98,11 +98,11 @@ La descarga en el restore **sí buffea el objeto completo**, y no es una omisió
 
 ### La política (GFS)
 
-| Antigüedad | Qué se conserva |
-|---|---|
-| Últimos `BACKUP_RETENTION_DIARIO_DIAS` días | **Todos** |
+| Antigüedad                                         | Qué se conserva                 |
+| -------------------------------------------------- | ------------------------------- |
+| Últimos `BACKUP_RETENTION_DIARIO_DIAS` días        | **Todos**                       |
 | Entre eso y `BACKUP_RETENTION_MENSUAL_MESES` meses | **Solo el primero de cada mes** |
-| Más viejo | Nada |
+| Más viejo                                          | Nada                            |
 
 Valores sugeridos: `BACKUP_RETENTION_DIARIO_DIAS=30`, `BACKUP_RETENTION_MENSUAL_MESES=12`.
 
@@ -160,19 +160,19 @@ Complementá con **versionado del bucket + MFA delete** (o Object Lock en modo g
 
 Un backup de tenant no contiene el registro de **qué tenants existen**. Sin eso, ante la pérdida total de la base no habría ni siquiera a dónde restaurarlos.
 
-| Entra | Por qué |
-|---|---|
-| `tenants` | Sin esto no hay a dónde restaurar ningún backup de tenant |
-| `platform_admins` | Quién puede operar el panel (incluido su SSO) |
-| `tenant_modulos`, `usuario_modulos` | Qué contrató cada cliente — información comercial que no vive en ningún otro lado |
-| `tenant_sso_config`, `tenant_scim_config` | Reconstruirlas exige volver a coordinar con el IT de cada cliente |
+| Entra                                     | Por qué                                                                           |
+| ----------------------------------------- | --------------------------------------------------------------------------------- |
+| `tenants`                                 | Sin esto no hay a dónde restaurar ningún backup de tenant                         |
+| `platform_admins`                         | Quién puede operar el panel (incluido su SSO)                                     |
+| `tenant_modulos`, `usuario_modulos`       | Qué contrató cada cliente — información comercial que no vive en ningún otro lado |
+| `tenant_sso_config`, `tenant_scim_config` | Reconstruirlas exige volver a coordinar con el IT de cada cliente                 |
 
-| **No** entra | Por qué |
-|---|---|
-| Datos de negocio y `usuarios` | Ya viajan en el backup de cada tenant; duplicarlos acá copiaría todo el sistema en cada backup de plataforma |
-| `platform_audit_log` | Append-only, crece sin techo y tiene su propia retención. Archivarlo es un problema distinto |
-| `platform_outbox` | Cola transitoria: restaurar eventos viejos re-dispararía side effects ya procesados |
-| `refresh_tokens`, `reset_tokens` | Estado de sesión efímero; restaurarlo revive sesiones que deberían estar muertas |
+| **No** entra                     | Por qué                                                                                                      |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Datos de negocio y `usuarios`    | Ya viajan en el backup de cada tenant; duplicarlos acá copiaría todo el sistema en cada backup de plataforma |
+| `platform_audit_log`             | Append-only, crece sin techo y tiene su propia retención. Archivarlo es un problema distinto                 |
+| `platform_outbox`                | Cola transitoria: restaurar eventos viejos re-dispararía side effects ya procesados                          |
+| `refresh_tokens`, `reset_tokens` | Estado de sesión efímero; restaurarlo revive sesiones que deberían estar muertas                             |
 
 ### El restore de plataforma es ADITIVO
 
@@ -181,7 +181,7 @@ A diferencia del restore por tenant (que vacía antes de restaurar, como punto d
 Vaciar sería catastrófico: un `DELETE` sobre `tenants` cascadea hacia todo el sistema, y un restore de plataforma se ejecuta justamente durante un incidente.
 
 - **Sí resuelve**: reconstruir la plataforma sobre una base vacía (DR real), y recuperar filas borradas por error.
-- **No resuelve**: revertir una *modificación*. Si a un tenant le cambiaron el nombre o los módulos, restaurar no lo vuelve atrás — la fila ya existe y se respeta. Deshacer eso es un cambio manual y puntual.
+- **No resuelve**: revertir una _modificación_. Si a un tenant le cambiaron el nombre o los módulos, restaurar no lo vuelve atrás — la fila ya existe y se respeta. Deshacer eso es un cambio manual y puntual.
 
 `usuario_modulos` referencia `usuarios`, que **no** viaja en este backup: las filas cuyo usuario no existe hoy se saltean y se reportan en `filasSalteadasPorFk` en vez de hacer fallar todo el restore. El orden correcto en un DR completo es: **restaurar plataforma → restaurar cada tenant → volver a restaurar plataforma** (la segunda pasada recupera los `usuario_modulos` que la primera salteó).
 
@@ -191,19 +191,19 @@ Vaciar sería catastrófico: un `DELETE` sobre `tenants` cascadea hacia todo el 
 
 Los de tenant no cambiaron de contrato — solo agregan `storage` y `storageKey` a la respuesta:
 
-| Método | Ruta | Notas |
-|---|---|---|
-| `GET` | `/api/platform/tenants/:id/backups` | |
-| `POST` | `/api/platform/tenants/:id/backups` | |
+| Método | Ruta                                        | Notas                                            |
+| ------ | ------------------------------------------- | ------------------------------------------------ |
+| `GET`  | `/api/platform/tenants/:id/backups`         |                                                  |
+| `POST` | `/api/platform/tenants/:id/backups`         |                                                  |
 | `POST` | `/api/platform/backups/:backupId/restaurar` | super_admin + `confirmar: true`. **Destructivo** |
 
 Nuevos:
 
-| Método | Ruta | Notas |
-|---|---|---|
-| `GET` | `/api/platform/backups/plataforma` | |
-| `POST` | `/api/platform/backups/plataforma` | **super_admin**: materializa los hashes de contraseña de todos los admins y los secretos SSO de todos los clientes en un solo archivo |
-| `POST` | `/api/platform/backups/plataforma/:backupId/restaurar` | super_admin + `confirmar: true`. Aditivo |
+| Método | Ruta                                                   | Notas                                                                                                                                 |
+| ------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/api/platform/backups/plataforma`                     |                                                                                                                                       |
+| `POST` | `/api/platform/backups/plataforma`                     | **super_admin**: materializa los hashes de contraseña de todos los admins y los secretos SSO de todos los clientes en un solo archivo |
+| `POST` | `/api/platform/backups/plataforma/:backupId/restaurar` | super_admin + `confirmar: true`. Aditivo                                                                                              |
 
 ---
 
@@ -224,21 +224,21 @@ El restore corre dentro de la transacción de `withTenant()`, así que un fallo 
 
 Ver `.env.example` para la lista completa comentada.
 
-| Variable | Default | Obligatoria |
-|---|---|---|
-| `BACKUP_STORAGE_DRIVER` | `local` | No |
-| `BACKUP_ENCRYPTION_KEY` | — | **Sí con driver `s3`** |
-| `BACKUPS_DIR` | `./backups` | No (driver local) |
-| `S3_BUCKET_NAME` | — | Sí con driver `s3` |
-| `S3_REGION` | `us-east-1` | No |
-| `S3_ENDPOINT` | — | Sí para R2/MinIO/B2 |
-| `S3_FORCE_PATH_STYLE` | `false` | Suele ser `true` para R2/MinIO |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | — | No — si están vacías el SDK usa IAM role (preferible en AWS) |
-| `S3_SERVER_SIDE_ENCRYPTION` | `AES256` | No (vaciala si tu proveedor rechaza el header) |
-| `S3_SSE_KMS_KEY_ID` | — | Sí con `aws:kms` |
-| `BACKUP_RETENTION_DIARIO_DIAS` | `0` (apagado) | No |
-| `BACKUP_RETENTION_MENSUAL_MESES` | `0` (apagado) | No |
-| `BACKUP_RETENTION_CHECK_INTERVAL_MS` | `86400000` (24 h) | No |
+| Variable                                      | Default           | Obligatoria                                                  |
+| --------------------------------------------- | ----------------- | ------------------------------------------------------------ |
+| `BACKUP_STORAGE_DRIVER`                       | `local`           | No                                                           |
+| `BACKUP_ENCRYPTION_KEY`                       | —                 | **Sí con driver `s3`**                                       |
+| `BACKUPS_DIR`                                 | `./backups`       | No (driver local)                                            |
+| `S3_BUCKET_NAME`                              | —                 | Sí con driver `s3`                                           |
+| `S3_REGION`                                   | `us-east-1`       | No                                                           |
+| `S3_ENDPOINT`                                 | —                 | Sí para R2/MinIO/B2                                          |
+| `S3_FORCE_PATH_STYLE`                         | `false`           | Suele ser `true` para R2/MinIO                               |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | —                 | No — si están vacías el SDK usa IAM role (preferible en AWS) |
+| `S3_SERVER_SIDE_ENCRYPTION`                   | `AES256`          | No (vaciala si tu proveedor rechaza el header)               |
+| `S3_SSE_KMS_KEY_ID`                           | —                 | Sí con `aws:kms`                                             |
+| `BACKUP_RETENTION_DIARIO_DIAS`                | `0` (apagado)     | No                                                           |
+| `BACKUP_RETENTION_MENSUAL_MESES`              | `0` (apagado)     | No                                                           |
+| `BACKUP_RETENTION_CHECK_INTERVAL_MS`          | `86400000` (24 h) | No                                                           |
 
 ### Migrar de local a S3
 

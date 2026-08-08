@@ -112,7 +112,10 @@ export async function resolverRateLimitTenant(tenantId: string): Promise<LimiteR
       return valor;
     } catch (err) {
       // Un fallo de Redis no puede tumbar el ERP: se sigue por memoria.
-      logger.warn({ err, tenantId }, "Redis falló al resolver el rate limit del tenant, se usa caché en memoria");
+      logger.warn(
+        { err, tenantId },
+        "Redis falló al resolver el rate limit del tenant, se usa caché en memoria"
+      );
     }
   }
 
@@ -139,7 +142,10 @@ export async function invalidarCacheRateLimit(tenantId: string): Promise<void> {
   try {
     await redis.del(claveCache(tenantId));
   } catch (err) {
-    logger.warn({ err, tenantId }, "No se pudo invalidar el caché del rate limit; caducará por TTL");
+    logger.warn(
+      { err, tenantId },
+      "No se pudo invalidar el caché del rate limit; caducará por TTL"
+    );
   }
 }
 
@@ -191,7 +197,8 @@ export async function sugerirRateLimitTenant(tenantId: string): Promise<Sugerenc
 
   const usuariosActivos = Number(usuarios.rows[0].total);
   const picoHorario = metricas.rows[0].pico === null ? null : Number(metricas.rows[0].pico);
-  const picoRpmEstimado = picoHorario === null ? null : Math.ceil((picoHorario / 60) * FACTOR_RAFAGA);
+  const picoRpmEstimado =
+    picoHorario === null ? null : Math.ceil((picoHorario / 60) * FACTOR_RAFAGA);
 
   // Tres candidatos; gana el mayor. Nunca por debajo del default global,
   // para no "sugerir" un recorte a un cliente que hoy anda bien.

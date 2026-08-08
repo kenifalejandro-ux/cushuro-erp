@@ -59,7 +59,9 @@ describe("exportarTenantService / POST .../backups", () => {
     const { tenant, usuario } = await nuevoTenant();
     await cargarDatosDePrueba(tenant.id, usuario.id);
 
-    const res = await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
+    const res = await request(app)
+      .post(`/api/platform/tenants/${tenant.id}/backups`)
+      .set("Authorization", BEARER);
 
     expect(res.status).toBe(201);
     expect(res.body.backup.tablas.usuarios).toBe(1);
@@ -77,8 +79,12 @@ describe("exportarTenantService / POST .../backups", () => {
 
   it("tamanoBytes viaja como number, no como string (tamano_bytes es BIGINT)", async () => {
     const { tenant } = await nuevoTenant();
-    const creado = await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
-    const listado = await request(app).get(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
+    const creado = await request(app)
+      .post(`/api/platform/tenants/${tenant.id}/backups`)
+      .set("Authorization", BEARER);
+    const listado = await request(app)
+      .get(`/api/platform/tenants/${tenant.id}/backups`)
+      .set("Authorization", BEARER);
 
     // node-pg devuelve los BIGINT como STRING. Sin la normalización, sumar
     // tamaños daría concatenación ("100"+"200"="100200") y cualquier
@@ -91,7 +97,9 @@ describe("exportarTenantService / POST .../backups", () => {
 
   it("GET .../backups lista los backups del tenant, más nuevo primero", async () => {
     const { tenant } = await nuevoTenant();
-    const primero = await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
+    const primero = await request(app)
+      .post(`/api/platform/tenants/${tenant.id}/backups`)
+      .set("Authorization", BEARER);
     // El orden lo da creado_en (DEFAULT now(), sin desempate por otra
     // columna — tenant_backups.id es un UUID random, no sirve como
     // segundo criterio). Bajo carga pesada (suite completa en paralelo)
@@ -100,9 +108,13 @@ describe("exportarTenantService / POST .../backups", () => {
     // que se fuerza acá un desfasaje mínimo en vez de tocar el schema por
     // un empate de laboratorio.
     await new Promise((r) => setTimeout(r, 5));
-    const segundo = await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
+    const segundo = await request(app)
+      .post(`/api/platform/tenants/${tenant.id}/backups`)
+      .set("Authorization", BEARER);
 
-    const res = await request(app).get(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
+    const res = await request(app)
+      .get(`/api/platform/tenants/${tenant.id}/backups`)
+      .set("Authorization", BEARER);
     expect(res.status).toBe(200);
     expect(res.body.backups.length).toBeGreaterThanOrEqual(2);
     expect(res.body.backups[0].id).toBe(segundo.body.backup.id);
@@ -147,7 +159,9 @@ describe("backup de plataforma / POST /backups/plataforma", () => {
     const { tenant, usuario } = await nuevoTenant();
     await cargarDatosDePrueba(tenant.id, usuario.id);
 
-    const res = await request(app).post("/api/platform/backups/plataforma").set("Authorization", BEARER);
+    const res = await request(app)
+      .post("/api/platform/backups/plataforma")
+      .set("Authorization", BEARER);
 
     expect(res.status).toBe(201);
     expect(res.body.backup.estado).toBe("completo");
@@ -163,21 +177,31 @@ describe("backup de plataforma / POST /backups/plataforma", () => {
   });
 
   it("la key va bajo backups/platform/, separada del prefijo de los tenants", async () => {
-    const res = await request(app).post("/api/platform/backups/plataforma").set("Authorization", BEARER);
+    const res = await request(app)
+      .post("/api/platform/backups/plataforma")
+      .set("Authorization", BEARER);
 
-    expect(res.body.backup.storageKey).toMatch(/^backups\/platform\/\d{4}\/\d{2}\/platform_\d{8}T\d{6}\.\d{3}Z-[0-9a-f]{6}\.json\.gz\.enc$/);
+    expect(res.body.backup.storageKey).toMatch(
+      /^backups\/platform\/\d{4}\/\d{2}\/platform_\d{8}T\d{6}\.\d{3}Z-[0-9a-f]{6}\.json\.gz\.enc$/
+    );
   });
 
   it("GET lista los backups de plataforma, más nuevo primero", async () => {
-    const primero = await request(app).post("/api/platform/backups/plataforma").set("Authorization", BEARER);
+    const primero = await request(app)
+      .post("/api/platform/backups/plataforma")
+      .set("Authorization", BEARER);
     // Desfasaje mínimo para que "primero" y "segundo" no empaten en
     // creado_en bajo carga pesada — necesario para poder comparar el
     // orden relativo ENTRE ELLOS DOS (ver el comentario de abajo sobre
     // por qué no se puede afirmar más que eso).
     await new Promise((r) => setTimeout(r, 5));
-    const segundo = await request(app).post("/api/platform/backups/plataforma").set("Authorization", BEARER);
+    const segundo = await request(app)
+      .post("/api/platform/backups/plataforma")
+      .set("Authorization", BEARER);
 
-    const res = await request(app).get("/api/platform/backups/plataforma").set("Authorization", BEARER);
+    const res = await request(app)
+      .get("/api/platform/backups/plataforma")
+      .set("Authorization", BEARER);
     expect(res.status).toBe(200);
 
     // platform_backups es un recurso GLOBAL (sin tenant_id): a diferencia
@@ -199,15 +223,21 @@ describe("backup de plataforma / POST /backups/plataforma", () => {
     const { tenant: aBorrar } = await nuevoTenant();
     const { tenant: sobreviviente } = await nuevoTenant();
 
-    const backup = await request(app).post("/api/platform/backups/plataforma").set("Authorization", BEARER);
+    const backup = await request(app)
+      .post("/api/platform/backups/plataforma")
+      .set("Authorization", BEARER);
     expect(backup.status).toBe(201);
 
     // Se le cambia el nombre al sobreviviente DESPUÉS del backup: el
     // restore aditivo no debe pisarlo (ON CONFLICT DO NOTHING).
-    await pool.query(`UPDATE tenants SET nombre = 'Nombre cambiado' WHERE id = $1`, [sobreviviente.id]);
+    await pool.query(`UPDATE tenants SET nombre = 'Nombre cambiado' WHERE id = $1`, [
+      sobreviviente.id,
+    ]);
     // Y se borra el otro por completo (cascadea a sus dependencias).
     await borrarTenantDePrueba(aBorrar.id);
-    expect((await pool.query(`SELECT id FROM tenants WHERE id = $1`, [aBorrar.id])).rows).toHaveLength(0);
+    expect(
+      (await pool.query(`SELECT id FROM tenants WHERE id = $1`, [aBorrar.id])).rows
+    ).toHaveLength(0);
 
     const res = await request(app)
       .post(`/api/platform/backups/plataforma/${backup.body.backup.id}/restaurar`)
@@ -226,16 +256,23 @@ describe("backup de plataforma / POST /backups/plataforma", () => {
     expect(restaurado.rows).toHaveLength(1);
 
     // El sobreviviente conserva su nombre nuevo: aditivo no es "rollback".
-    const intacto = await pool.query(`SELECT nombre FROM tenants WHERE id = $1`, [sobreviviente.id]);
+    const intacto = await pool.query(`SELECT nombre FROM tenants WHERE id = $1`, [
+      sobreviviente.id,
+    ]);
     expect(intacto.rows[0].nombre).toBe("Nombre cambiado");
   });
 
   it("saltea usuario_modulos cuyos usuarios ya no existen (viven en los backups por tenant)", async () => {
     const { tenant, usuario } = await nuevoTenant();
-    const backup = await request(app).post("/api/platform/backups/plataforma").set("Authorization", BEARER);
+    const backup = await request(app)
+      .post("/api/platform/backups/plataforma")
+      .set("Authorization", BEARER);
 
     // El backup tiene que haber capturado los módulos de ESTE usuario.
-    const antes = await pool.query(`SELECT count(*) AS total FROM usuario_modulos WHERE usuario_id = $1`, [usuario.id]);
+    const antes = await pool.query(
+      `SELECT count(*) AS total FROM usuario_modulos WHERE usuario_id = $1`,
+      [usuario.id]
+    );
     expect(Number(antes.rows[0].total)).toBeGreaterThan(0);
 
     // Borrar el tenant se lleva puestos sus usuarios; sus usuario_modulos
@@ -255,14 +292,17 @@ describe("backup de plataforma / POST /backups/plataforma", () => {
     // así que ese contador depende de los tenants que otros archivos de
     // test estén creando/borrando en paralelo — assertarlo hacía el test
     // flaky (falló una vez en la suite completa, nunca aislado).
-    const despues = await pool.query(`SELECT count(*) AS total FROM usuario_modulos WHERE usuario_id = $1`, [
-      usuario.id,
-    ]);
+    const despues = await pool.query(
+      `SELECT count(*) AS total FROM usuario_modulos WHERE usuario_id = $1`,
+      [usuario.id]
+    );
     expect(Number(despues.rows[0].total)).toBe(0);
   });
 
   it("da 400 sin confirmar:true", async () => {
-    const backup = await request(app).post("/api/platform/backups/plataforma").set("Authorization", BEARER);
+    const backup = await request(app)
+      .post("/api/platform/backups/plataforma")
+      .set("Authorization", BEARER);
 
     const res = await request(app)
       .post(`/api/platform/backups/plataforma/${backup.body.backup.id}/restaurar`)
@@ -282,7 +322,9 @@ describe("backup de plataforma / POST /backups/plataforma", () => {
   });
 
   it("queda auditado", async () => {
-    const res = await request(app).post("/api/platform/backups/plataforma").set("Authorization", BEARER);
+    const res = await request(app)
+      .post("/api/platform/backups/plataforma")
+      .set("Authorization", BEARER);
 
     const auditoria = await pool.query(
       `SELECT resultado, detalle FROM platform_audit_log
@@ -298,7 +340,9 @@ describe("restaurarBackupService / POST /backups/:id/restaurar", () => {
     const { tenant, usuario } = await nuevoTenant();
     await cargarDatosDePrueba(tenant.id, usuario.id);
 
-    const backup = await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
+    const backup = await request(app)
+      .post(`/api/platform/tenants/${tenant.id}/backups`)
+      .set("Authorization", BEARER);
     expect(backup.status).toBe(201);
 
     // Datos agregados DESPUÉS del backup — el restore tiene que borrarlos.
@@ -341,7 +385,9 @@ describe("restaurarBackupService / POST /backups/:id/restaurar", () => {
       client.query(`SELECT token_version FROM usuarios WHERE id = $1`, [usuario.id])
     );
 
-    const backup = await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
+    const backup = await request(app)
+      .post(`/api/platform/tenants/${tenant.id}/backups`)
+      .set("Authorization", BEARER);
     await request(app)
       .post(`/api/platform/backups/${backup.body.backup.id}/restaurar`)
       .set("Authorization", BEARER)
@@ -356,7 +402,9 @@ describe("restaurarBackupService / POST /backups/:id/restaurar", () => {
   it("restaura en un tenant DISTINTO (clonado), reescribiendo tenant_id", async () => {
     const { tenant: origen, usuario } = await nuevoTenant();
     await cargarDatosDePrueba(origen.id, usuario.id);
-    const backup = await request(app).post(`/api/platform/tenants/${origen.id}/backups`).set("Authorization", BEARER);
+    const backup = await request(app)
+      .post(`/api/platform/tenants/${origen.id}/backups`)
+      .set("Authorization", BEARER);
 
     const { tenant: destino } = await nuevoTenant();
 
@@ -383,7 +431,9 @@ describe("restaurarBackupService / POST /backups/:id/restaurar", () => {
 
   it("da 400 sin confirmar:true", async () => {
     const { tenant } = await nuevoTenant();
-    const backup = await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
+    const backup = await request(app)
+      .post(`/api/platform/tenants/${tenant.id}/backups`)
+      .set("Authorization", BEARER);
 
     const res = await request(app)
       .post(`/api/platform/backups/${backup.body.backup.id}/restaurar`)
@@ -404,7 +454,9 @@ describe("restaurarBackupService / POST /backups/:id/restaurar", () => {
 
   it("audita el fallo (resultado 'failure') cuando el objeto del backup no existe", async () => {
     const { tenant } = await nuevoTenant();
-    const backup = await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
+    const backup = await request(app)
+      .post(`/api/platform/tenants/${tenant.id}/backups`)
+      .set("Authorization", BEARER);
 
     // Se apunta la fila a una key inexistente: simula el objeto borrado por
     // fuera (lifecycle rule mal configurada, borrado manual en el bucket).
@@ -431,7 +483,9 @@ describe("restaurarBackupService / POST /backups/:id/restaurar", () => {
 
   it("queda auditado con antes/después de tablas restauradas", async () => {
     const { tenant } = await nuevoTenant();
-    const backup = await request(app).post(`/api/platform/tenants/${tenant.id}/backups`).set("Authorization", BEARER);
+    const backup = await request(app)
+      .post(`/api/platform/tenants/${tenant.id}/backups`)
+      .set("Authorization", BEARER);
 
     await request(app)
       .post(`/api/platform/backups/${backup.body.backup.id}/restaurar`)

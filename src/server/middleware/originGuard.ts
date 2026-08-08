@@ -35,7 +35,6 @@ export const corsOptions: CorsOptions = {
   maxAge: 86400,
 };
 
-
 export function ensureAllowedOrigin(req: Request, res: Response, next: NextFunction) {
   const origin = req.get("origin");
 

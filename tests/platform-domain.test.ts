@@ -10,7 +10,9 @@ import { describe, it, expect, vi, afterAll } from "vitest";
 import request from "supertest";
 
 vi.mock("dns/promises", () => ({
-  resolveTxt: vi.fn().mockRejectedValue(Object.assign(new Error("no encontrado"), { code: "ENOTFOUND" })),
+  resolveTxt: vi
+    .fn()
+    .mockRejectedValue(Object.assign(new Error("no encontrado"), { code: "ENOTFOUND" })),
 }));
 
 const { app, crearTenantDePrueba, borrarTenantDePrueba, idUnico } = await import("./helpers");
@@ -214,7 +216,9 @@ describe("GET .../dominio", () => {
     const { resolveTxt } = await import("dns/promises");
     vi.mocked(resolveTxt).mockClear();
 
-    const res = await request(app).get(`/api/platform/tenants/${tenant.id}/dominio`).set("Authorization", BEARER);
+    const res = await request(app)
+      .get(`/api/platform/tenants/${tenant.id}/dominio`)
+      .set("Authorization", BEARER);
 
     expect(res.status).toBe(200);
     expect(res.body.dominio.dominioEstado).toBe("pendiente_verificacion");

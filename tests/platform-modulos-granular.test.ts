@@ -8,7 +8,13 @@
  */
 import { describe, it, expect, afterAll } from "vitest";
 import request from "supertest";
-import { app, crearTenantDePrueba, borrarTenantDePrueba, idUnico, redisDisponible } from "./helpers";
+import {
+  app,
+  crearTenantDePrueba,
+  borrarTenantDePrueba,
+  idUnico,
+  redisDisponible,
+} from "./helpers";
 import { env } from "../src/server/config/env";
 import { closeDatabase, pool } from "../src/server/config/database";
 import { enBucketDeRollout } from "../src/server/services/auth.service";
@@ -64,14 +70,24 @@ describe("estado 'rollout' de punta a punta", () => {
   it("rollout al 100% deja el módulo en modulosPermitidos; al 0% lo saca — estable entre logins", async () => {
     const { tenant, usuario } = await nuevoTenant();
 
-    const configBase = ["repuestos", "combustible", "documentos", "dashboard", "equipos", "checklists"].map(
-      (modulo) => ({ modulo, estado: "habilitado" as const })
-    );
+    const configBase = [
+      "repuestos",
+      "combustible",
+      "documentos",
+      "dashboard",
+      "equipos",
+      "checklists",
+    ].map((modulo) => ({ modulo, estado: "habilitado" as const }));
 
     const al100 = await request(app)
       .put(`/api/platform/tenants/${tenant.id}/modulos`)
       .set("Authorization", BEARER)
-      .send({ configuraciones: [...configBase, { modulo: "iperc", estado: "rollout", rolloutPorcentaje: 100 }] });
+      .send({
+        configuraciones: [
+          ...configBase,
+          { modulo: "iperc", estado: "rollout", rolloutPorcentaje: 100 },
+        ],
+      });
     expect(al100.status).toBe(200);
     expect(al100.body.modulos.find((m: any) => m.modulo === "iperc").estado).toBe("rollout");
 
@@ -94,7 +110,12 @@ describe("estado 'rollout' de punta a punta", () => {
     const al0 = await request(app)
       .put(`/api/platform/tenants/${tenant.id}/modulos`)
       .set("Authorization", BEARER)
-      .send({ configuraciones: [...configBase, { modulo: "iperc", estado: "rollout", rolloutPorcentaje: 0 }] });
+      .send({
+        configuraciones: [
+          ...configBase,
+          { modulo: "iperc", estado: "rollout", rolloutPorcentaje: 0 },
+        ],
+      });
     expect(al0.status).toBe(200);
 
     const loginTrasApagar = await request(app).post("/api/auth/login").send({
@@ -142,12 +163,14 @@ describe("PUT /modulos/:modulo/global", () => {
     expect(res.status).toBe(200);
     expect(res.body.tenantsAfectados).toBeGreaterThanOrEqual(2);
 
-    const filaA = await pool.query(`SELECT estado FROM tenant_modulos WHERE tenant_id = $1 AND modulo = 'dashboard'`, [
-      tenantA.id,
-    ]);
-    const filaB = await pool.query(`SELECT estado FROM tenant_modulos WHERE tenant_id = $1 AND modulo = 'dashboard'`, [
-      tenantB.id,
-    ]);
+    const filaA = await pool.query(
+      `SELECT estado FROM tenant_modulos WHERE tenant_id = $1 AND modulo = 'dashboard'`,
+      [tenantA.id]
+    );
+    const filaB = await pool.query(
+      `SELECT estado FROM tenant_modulos WHERE tenant_id = $1 AND modulo = 'dashboard'`,
+      [tenantB.id]
+    );
     expect(filaA.rows[0].estado).toBe("deshabilitado");
     expect(filaB.rows[0].estado).toBe("deshabilitado");
 
@@ -166,20 +189,27 @@ describe("PUT /modulos/:modulo/global", () => {
     expect(res.status).toBe(400);
   });
 
-  it.skipIf(!conRedis)("un platform_admin sin rol super_admin no puede aplicar el toggle global (403)", async () => {
-    const email = `${idUnico("no-super-global")}@platform-admin-test.local`;
-    await request(app)
-      .post("/api/platform/admins")
-      .set("Authorization", BEARER)
-      .send({ email, password: "ClaveDePrueba123", nombre: "No super", rol: "admin" });
+  it.skipIf(!conRedis)(
+    "un platform_admin sin rol super_admin no puede aplicar el toggle global (403)",
+    async () => {
+      const email = `${idUnico("no-super-global")}@platform-admin-test.local`;
+      await request(app)
+        .post("/api/platform/admins")
+        .set("Authorization", BEARER)
+        .send({ email, password: "ClaveDePrueba123", nombre: "No super", rol: "admin" });
 
-    const agent = request.agent(app);
-    const login = await agent.post("/api/platform/admin-sesion").send({ email, password: "ClaveDePrueba123" });
-    expect(login.status).toBe(200);
+      const agent = request.agent(app);
+      const login = await agent
+        .post("/api/platform/admin-sesion")
+        .send({ email, password: "ClaveDePrueba123" });
+      expect(login.status).toBe(200);
 
-    const res = await agent.put("/api/platform/modulos/dashboard/global").send({ estado: "habilitado" });
-    expect(res.status).toBe(403);
+      const res = await agent
+        .put("/api/platform/modulos/dashboard/global")
+        .send({ estado: "habilitado" });
+      expect(res.status).toBe(403);
 
-    await pool.query(`DELETE FROM platform_admins WHERE email = $1`, [email]);
-  });
+      await pool.query(`DELETE FROM platform_admins WHERE email = $1`, [email]);
+    }
+  );
 });

@@ -8,7 +8,6 @@ import { CombustibleService } from "./combustible.service";
 const service = new CombustibleService();
 
 export class CombustibleController {
-
   async getAll(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
@@ -41,7 +40,9 @@ export class CombustibleController {
       const id = Number(req.params.id);
       const { nivel_actual } = req.body;
 
-      const updated = await withTenant(tenantId, (client) => service.updateNivel(client, tenantId, id, nivel_actual));
+      const updated = await withTenant(tenantId, (client) =>
+        service.updateNivel(client, tenantId, id, nivel_actual)
+      );
 
       if (!updated) {
         return res.status(404).json({ error: "No encontrado" });

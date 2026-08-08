@@ -13,10 +13,7 @@
  */
 import { describe, it, expect } from "vitest";
 
-import {
-  censurarCamposSensibles,
-  filtrarEventoSentry,
-} from "../client/src/config/sentryFilter";
+import { censurarCamposSensibles, filtrarEventoSentry } from "../client/src/config/sentryFilter";
 
 describe("filtro de eventos de Sentry (frontend)", () => {
   it("censura credenciales sin importar a qué profundidad estén", () => {

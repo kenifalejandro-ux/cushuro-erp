@@ -85,7 +85,10 @@ export async function reclamarPendientes(limit: number): Promise<EventoOutbox[]>
 }
 
 export async function marcarProcesado(id: string): Promise<void> {
-  await pool.query(`UPDATE platform_outbox SET estado = 'procesado', procesado_en = now() WHERE id = $1`, [id]);
+  await pool.query(
+    `UPDATE platform_outbox SET estado = 'procesado', procesado_en = now() WHERE id = $1`,
+    [id]
+  );
 }
 
 const MAX_INTENTOS = 5;
@@ -105,7 +108,11 @@ function calcularBackoffMs(intentos: number): number {
  *  funcionar (ej. Redis caído de forma permanente) y ensuciar los logs
  *  cada PLATFORM_OUTBOX_POLL_INTERVAL_MS. `error` queda en ultimo_error
  *  para poder diagnosticar un evento 'fallido' sin ir a buscar logs viejos. */
-export async function marcarFallo(id: string, intentosActuales: number, error: string): Promise<void> {
+export async function marcarFallo(
+  id: string,
+  intentosActuales: number,
+  error: string
+): Promise<void> {
   const intentos = intentosActuales + 1;
   const agotado = intentos >= MAX_INTENTOS;
   const backoffSegundos = calcularBackoffMs(intentos) / 1000;

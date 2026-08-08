@@ -30,7 +30,9 @@ import { env } from "../config/env";
 export const SESSION_COOKIE_PREFIX = "sid.";
 
 export function idSesionDeCookie(valorCookie: string): string | null {
-  return valorCookie.startsWith(SESSION_COOKIE_PREFIX) ? valorCookie.slice(SESSION_COOKIE_PREFIX.length) : null;
+  return valorCookie.startsWith(SESSION_COOKIE_PREFIX)
+    ? valorCookie.slice(SESSION_COOKIE_PREFIX.length)
+    : null;
 }
 
 export function cookieDeSesion(sessionId: string): string {
@@ -77,7 +79,10 @@ export async function crearSesion(ip: string, actor: ActorSesion): Promise<strin
 
     return sessionId;
   } catch (err) {
-    logger.warn({ err }, "No se pudo crear la sesión de plataforma en Redis, se usa el modo sin sesión");
+    logger.warn(
+      { err },
+      "No se pudo crear la sesión de plataforma en Redis, se usa el modo sin sesión"
+    );
     return null;
   }
 }

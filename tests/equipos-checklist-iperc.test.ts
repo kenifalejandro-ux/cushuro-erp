@@ -18,7 +18,9 @@ describe("equipos + checklist de pre-uso + IPERC continuo", () => {
     const creado = await crearTenantDePrueba(password);
     tenantId = creado.tenant.id;
     tenantSlug = creado.tenant.slug;
-    await agentAdmin.post("/api/auth/login").send({ tenantSlug, email: creado.usuario.email, password });
+    await agentAdmin
+      .post("/api/auth/login")
+      .send({ tenantSlug, email: creado.usuario.email, password });
   });
 
   afterAll(async () => {
@@ -40,7 +42,11 @@ describe("equipos + checklist de pre-uso + IPERC continuo", () => {
     const res = await agentAdmin.post("/api/erp/checklists/plantillas").send({
       nombre: "Pre-uso camioneta",
       tipo_equipo: "Camioneta",
-      items: [{ descripcion: "Frenos" }, { descripcion: "Luces" }, { descripcion: "Niveles de aceite" }],
+      items: [
+        { descripcion: "Frenos" },
+        { descripcion: "Luces" },
+        { descripcion: "Niveles de aceite" },
+      ],
     });
     expect(res.status).toBe(201);
     expect(res.body.items).toHaveLength(3);
@@ -93,16 +99,25 @@ describe("equipos + checklist de pre-uso + IPERC continuo", () => {
   it("un operador puede crear IPERC pero no aprobarlo (403); admin sí puede", async () => {
     const emailOperador = `operador-iperc-${Date.now()}@test.local`;
     await withTenant(tenantId, (client) =>
-      crearUsuarioService({ tenantId, nombre: "Operador", email: emailOperador, password, rol: "operador" }, client)
+      crearUsuarioService(
+        { tenantId, nombre: "Operador", email: emailOperador, password, rol: "operador" },
+        client
+      )
     );
 
     const agentOperador = request.agent(app);
-    await agentOperador.post("/api/auth/login").send({ tenantSlug, email: emailOperador, password });
+    await agentOperador
+      .post("/api/auth/login")
+      .send({ tenantSlug, email: emailOperador, password });
 
-    const intentoOperador = await agentOperador.patch(`/api/erp/iperc/${ipercId}/estado`).send({ estado: "aprobado" });
+    const intentoOperador = await agentOperador
+      .patch(`/api/erp/iperc/${ipercId}/estado`)
+      .send({ estado: "aprobado" });
     expect(intentoOperador.status).toBe(403);
 
-    const aprobacionAdmin = await agentAdmin.patch(`/api/erp/iperc/${ipercId}/estado`).send({ estado: "aprobado" });
+    const aprobacionAdmin = await agentAdmin
+      .patch(`/api/erp/iperc/${ipercId}/estado`)
+      .send({ estado: "aprobado" });
     expect(aprobacionAdmin.status).toBe(200);
     expect(aprobacionAdmin.body.estado).toBe("aprobado");
   });
@@ -126,8 +141,12 @@ describe("aislamiento entre tenants: equipos e IPERC", () => {
 
     const agentA = request.agent(app);
     const agentB = request.agent(app);
-    await agentA.post("/api/auth/login").send({ tenantSlug: a.tenant.slug, email: a.usuario.email, password });
-    await agentB.post("/api/auth/login").send({ tenantSlug: b.tenant.slug, email: b.usuario.email, password });
+    await agentA
+      .post("/api/auth/login")
+      .send({ tenantSlug: a.tenant.slug, email: a.usuario.email, password });
+    await agentB
+      .post("/api/auth/login")
+      .send({ tenantSlug: b.tenant.slug, email: b.usuario.email, password });
 
     await agentA.post("/api/erp/equipos").send({ placa_codigo: "AAA-111", tipo: "Camioneta" });
     await agentB.post("/api/erp/equipos").send({ placa_codigo: "AAA-111", tipo: "Camioneta" });

@@ -152,7 +152,10 @@ export async function registrarSesionRechazada(
       return;
     }
   } catch (err) {
-    logger.warn({ err }, "No se pudo aplicar el dedupe de auditoría de plataforma, se registra igual");
+    logger.warn(
+      { err },
+      "No se pudo aplicar el dedupe de auditoría de plataforma, se registra igual"
+    );
   }
 
   await registrarAuditoria({
@@ -245,7 +248,9 @@ export async function listarAuditoriaService(filtros: FiltrosAuditoria): Promise
     // índice idx_platform_audit_log_creado_id de 0014) — "lo que sigue"
     // son filas más viejas, o filas con el mismo creado_en pero id mayor
     // (mismo desempate que el ORDER BY de abajo).
-    condiciones.push(`(a.creado_en < $${iCreado} OR (a.creado_en = $${iCreado} AND a.id > $${iId}))`);
+    condiciones.push(
+      `(a.creado_en < $${iCreado} OR (a.creado_en = $${iCreado} AND a.id > $${iId}))`
+    );
   }
 
   params.push(limit);
@@ -290,11 +295,12 @@ export async function listarAuditoriaService(filtros: FiltrosAuditoria): Promise
 
   const entradas = filas.map((fila) => ({
     ...fila,
-    usuarioEmail: fila.usuarioId ? emailPorUsuarioId.get(fila.usuarioId) ?? null : null,
+    usuarioEmail: fila.usuarioId ? (emailPorUsuarioId.get(fila.usuarioId) ?? null) : null,
   }));
 
   const ultima = filas[filas.length - 1];
-  const siguienteCursor = filas.length === limit && ultima ? { creadoEn: ultima.creadoEn, id: ultima.id } : null;
+  const siguienteCursor =
+    filas.length === limit && ultima ? { creadoEn: ultima.creadoEn, id: ultima.id } : null;
 
   return { entradas, siguienteCursor };
 }

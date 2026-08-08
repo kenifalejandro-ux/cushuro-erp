@@ -22,9 +22,10 @@ async function estaLibre(lockId: number): Promise<boolean> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const { rows } = await client.query<{ tomado: boolean }>("SELECT pg_try_advisory_xact_lock($1) AS tomado", [
-      lockId,
-    ]);
+    const { rows } = await client.query<{ tomado: boolean }>(
+      "SELECT pg_try_advisory_xact_lock($1) AS tomado",
+      [lockId]
+    );
     await client.query("ROLLBACK"); // libera lo que haya tomado, sin dejar rastro
     return rows[0].tomado;
   } finally {

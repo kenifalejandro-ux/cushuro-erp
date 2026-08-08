@@ -9,12 +9,13 @@ import { registrarAuditoria } from "../../server/services/platformAudit.service"
 import { EquiposService } from "./equipos.service";
 
 export const EquiposController = {
-
   async getAll(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
       const paginacion = parsePaginacion(req.query);
-      const filas = await withTenant(tenantId, (client) => EquiposService.getAll(client, tenantId, paginacion));
+      const filas = await withTenant(tenantId, (client) =>
+        EquiposService.getAll(client, tenantId, paginacion)
+      );
       res.json(armarRespuestaPaginada(filas, paginacion));
     } catch {
       res.status(500).json({ message: "Error al obtener equipos" });
@@ -24,7 +25,9 @@ export const EquiposController = {
   async create(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const nuevo = await withTenant(tenantId, (client) => EquiposService.create(client, tenantId, req.body));
+      const nuevo = await withTenant(tenantId, (client) =>
+        EquiposService.create(client, tenantId, req.body)
+      );
       await registrarAuditoria({
         accion: "equipos.crear",
         tenantId,
@@ -42,7 +45,9 @@ export const EquiposController = {
     try {
       const tenantId = getTenantId(req);
       const id = Number(req.params.id);
-      const actualizado = await withTenant(tenantId, (client) => EquiposService.update(client, tenantId, id, req.body));
+      const actualizado = await withTenant(tenantId, (client) =>
+        EquiposService.update(client, tenantId, id, req.body)
+      );
 
       if (!actualizado) {
         res.status(404).json({ message: "Equipo no encontrado" });
@@ -65,7 +70,9 @@ export const EquiposController = {
     try {
       const tenantId = getTenantId(req);
       const id = Number(req.params.id);
-      const eliminado = await withTenant(tenantId, (client) => EquiposService.delete(client, tenantId, id));
+      const eliminado = await withTenant(tenantId, (client) =>
+        EquiposService.delete(client, tenantId, id)
+      );
 
       if (!eliminado) {
         res.status(404).json({ message: "Equipo no encontrado" });

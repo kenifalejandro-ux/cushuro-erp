@@ -155,7 +155,10 @@ async function existeRegistroTxt(dominio: string, valorEsperado: string): Promis
     return registros.some((partes) => partes.join("").trim() === valorEsperado);
   } catch (err: any) {
     if (err?.code !== "ENOTFOUND" && err?.code !== "ENODATA") {
-      logger.warn({ err, dominio }, "Error inesperado resolviendo el TXT de verificación de dominio");
+      logger.warn(
+        { err, dominio },
+        "Error inesperado resolviendo el TXT de verificación de dominio"
+      );
     }
     return false;
   }
@@ -165,8 +168,14 @@ async function existeRegistroTxt(dominio: string, valorEsperado: string): Promis
  *  puede llamar tantas veces como haga falta (ej. "Verificar ahora" en la
  *  UI mientras el cliente todavía está propagando su DNS), sin perder el
  *  token entre intentos. */
-export async function verificarDominioService(tenantId: string, contexto: ContextoAuditoria): Promise<DominioTenant> {
-  const actual = await pool.query<FilaDominio>(`SELECT ${SELECT_DOMINIO} FROM tenants WHERE id = $1`, [tenantId]);
+export async function verificarDominioService(
+  tenantId: string,
+  contexto: ContextoAuditoria
+): Promise<DominioTenant> {
+  const actual = await pool.query<FilaDominio>(
+    `SELECT ${SELECT_DOMINIO} FROM tenants WHERE id = $1`,
+    [tenantId]
+  );
   if (actual.rows.length === 0) {
     throw new AppError(404, "Tenant no encontrado");
   }
@@ -209,7 +218,10 @@ export async function verificarDominioService(tenantId: string, contexto: Contex
  *  record pendiente sin disparar una consulta DNS real (eso solo lo hace
  *  verificarDominioService, a pedido explícito de "Verificar ahora"). */
 export async function obtenerDominioTenantService(tenantId: string): Promise<DominioTenant> {
-  const result = await pool.query<FilaDominio>(`SELECT ${SELECT_DOMINIO} FROM tenants WHERE id = $1`, [tenantId]);
+  const result = await pool.query<FilaDominio>(
+    `SELECT ${SELECT_DOMINIO} FROM tenants WHERE id = $1`,
+    [tenantId]
+  );
   if (result.rows.length === 0) {
     throw new AppError(404, "Tenant no encontrado");
   }

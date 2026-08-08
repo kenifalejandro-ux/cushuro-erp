@@ -11,7 +11,9 @@ describe("paginación de repuestos", () => {
   beforeAll(async () => {
     const creado = await crearTenantDePrueba(password);
     tenantId = creado.tenant.id;
-    await agent.post("/api/auth/login").send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
+    await agent
+      .post("/api/auth/login")
+      .send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
 
     const filas = Array.from({ length: 55 }, (_, i) => ({
       codigo: `PAG-${String(i + 1).padStart(3, "0")}`,
@@ -63,7 +65,9 @@ describe("paginación por cursor de checklists", () => {
   beforeAll(async () => {
     const creado = await crearTenantDePrueba(password);
     tenantId = creado.tenant.id;
-    await agent.post("/api/auth/login").send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
+    await agent
+      .post("/api/auth/login")
+      .send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
 
     const ids = await withTenant(tenantId, async (client) => {
       const equipo = await client.query(
@@ -95,17 +99,27 @@ describe("paginación por cursor de checklists", () => {
     const res = await agent.get("/api/erp/checklists?pageSize=50");
     expect(res.status).toBe(200);
     expect(res.body.data.map((c: any) => c.id)).toEqual(idsDesc.slice(0, 50));
-    expect(res.body.pagination).toMatchObject({ pageSize: 50, hasMore: true, nextCursor: idsDesc[49] });
+    expect(res.body.pagination).toMatchObject({
+      pageSize: 50,
+      hasMore: true,
+      nextCursor: idsDesc[49],
+    });
     // A diferencia de la paginación por offset, no hay total ni totalPages.
     expect(res.body.pagination.total).toBeUndefined();
   });
 
   it("con el cursor de la página anterior trae el resto, sin más páginas", async () => {
     const primera = await agent.get("/api/erp/checklists?pageSize=50");
-    const segunda = await agent.get(`/api/erp/checklists?pageSize=50&cursor=${primera.body.pagination.nextCursor}`);
+    const segunda = await agent.get(
+      `/api/erp/checklists?pageSize=50&cursor=${primera.body.pagination.nextCursor}`
+    );
 
     expect(segunda.body.data.map((c: any) => c.id)).toEqual(idsDesc.slice(50, 55));
-    expect(segunda.body.pagination).toMatchObject({ pageSize: 50, hasMore: false, nextCursor: null });
+    expect(segunda.body.pagination).toMatchObject({
+      pageSize: 50,
+      hasMore: false,
+      nextCursor: null,
+    });
   });
 
   it("pageSize por encima del tope de 200 se recorta, y alcanza para traer todo en una sola página", async () => {
@@ -125,7 +139,9 @@ describe("paginación por cursor de IPERC", () => {
   beforeAll(async () => {
     const creado = await crearTenantDePrueba(password);
     tenantId = creado.tenant.id;
-    await agent.post("/api/auth/login").send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
+    await agent
+      .post("/api/auth/login")
+      .send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
 
     const ids = await withTenant(tenantId, async (client) => {
       const resultado: number[] = [];

@@ -46,7 +46,12 @@ import { pool } from "../config/database";
 import { logger } from "../config/logger";
 import { AppError } from "../shared/middlewares/error.middleware";
 import { registrarAuditoria, type ContextoAuditoria } from "./platformAudit.service";
-import { guardarBackup, leerBackup, driverDeEscritura, type DriverStorage } from "./platformBackupStorage";
+import {
+  guardarBackup,
+  leerBackup,
+  driverDeEscritura,
+  type DriverStorage,
+} from "./platformBackupStorage";
 import { construirKeyPlataforma } from "./platformBackupS3";
 
 interface TablaPlataforma {
@@ -86,7 +91,9 @@ export interface PlatformBackup {
   creadoEn: string;
 }
 
-export async function exportarPlataformaService(contexto: ContextoAuditoria): Promise<PlatformBackup> {
+export async function exportarPlataformaService(
+  contexto: ContextoAuditoria
+): Promise<PlatformBackup> {
   try {
     // Sin withTenant(): ninguna de estas tablas tiene RLS (son de
     // plataforma, ver migraciones 0008/0016/0026/0028), y justamente hace
@@ -104,9 +111,13 @@ export async function exportarPlataformaService(contexto: ContextoAuditoria): Pr
       tablas,
     };
 
-    const resumenTablas = Object.fromEntries(Object.entries(tablas).map(([nombre, filas]) => [nombre, filas.length]));
+    const resumenTablas = Object.fromEntries(
+      Object.entries(tablas).map(([nombre, filas]) => [nombre, filas.length])
+    );
     const key = construirKeyPlataforma();
-    const { ubicacion, bytes } = await guardarBackup(key, JSON.stringify(backup), { tipo: "plataforma" });
+    const { ubicacion, bytes } = await guardarBackup(key, JSON.stringify(backup), {
+      tipo: "plataforma",
+    });
 
     const registro = await pool.query(
       `INSERT INTO platform_backups (storage, storage_key, tamano_bytes, tablas, estado)
@@ -118,7 +129,12 @@ export async function exportarPlataformaService(contexto: ContextoAuditoria): Pr
 
     await registrarAuditoria({
       accion: "crear_backup_plataforma",
-      detalle: { backupId: registro.rows[0].id, storage: ubicacion.storage, storageKey: key, tablas: resumenTablas },
+      detalle: {
+        backupId: registro.rows[0].id,
+        storage: ubicacion.storage,
+        storageKey: key,
+        tablas: resumenTablas,
+      },
       contexto,
     });
 
@@ -126,11 +142,17 @@ export async function exportarPlataformaService(contexto: ContextoAuditoria): Pr
     // ver normalizarFilaBackup() en platformBackup.service.ts.
     return { ...registro.rows[0], tamanoBytes: Number(registro.rows[0].tamanoBytes) };
   } catch (err) {
-    logger.error({ err, storage: driverDeEscritura() }, "Falló la creación del backup de plataforma");
+    logger.error(
+      { err, storage: driverDeEscritura() },
+      "Falló la creación del backup de plataforma"
+    );
 
     await registrarAuditoria({
       accion: "crear_backup_plataforma",
-      detalle: { storage: driverDeEscritura(), error: err instanceof Error ? err.message : String(err) },
+      detalle: {
+        storage: driverDeEscritura(),
+        error: err instanceof Error ? err.message : String(err),
+      },
       contexto,
       resultado: "failure",
     });

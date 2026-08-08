@@ -4,16 +4,18 @@ import type { PoolClient } from "pg";
 import type { Paginacion, CursorPaginacion } from "../../server/shared/utils/pagination";
 
 export const ChecklistsRepository = {
-
   // ── Plantillas ───────────────────────────────────────────────────────
   async findPlantillas(client: PoolClient, tenantId: string, { pageSize, offset }: Paginacion) {
-    const result = await client.query(`
+    const result = await client.query(
+      `
       SELECT id, nombre, tipo_equipo, creado_en, COUNT(*) OVER() AS total_count
       FROM checklist_plantillas
       WHERE tenant_id = $1
       ORDER BY id DESC
       LIMIT $2 OFFSET $3
-    `, [tenantId, pageSize, offset]);
+    `,
+      [tenantId, pageSize, offset]
+    );
     return result.rows;
   },
 
@@ -75,7 +77,8 @@ export const ChecklistsRepository = {
   // es una de las dos tablas particionadas (migrations/0037), la única con
   // volumen que puede crecer sin techo natural por tenant.
   async findAll(client: PoolClient, tenantId: string, { pageSize, cursor }: CursorPaginacion) {
-    const result = await client.query(`
+    const result = await client.query(
+      `
       SELECT c.id, c.equipo_id, e.placa_codigo, c.plantilla_id, c.usuario_id,
         u.nombre AS usuario_nombre, c.fecha, c.turno, c.resultado,
         c.observaciones_generales, c.creado_en
@@ -85,7 +88,9 @@ export const ChecklistsRepository = {
       WHERE c.tenant_id = $1 AND ($2::int IS NULL OR c.id < $2)
       ORDER BY c.id DESC
       LIMIT $3
-    `, [tenantId, cursor, pageSize + 1]);
+    `,
+      [tenantId, cursor, pageSize + 1]
+    );
     return result.rows;
   },
 
@@ -132,7 +137,15 @@ export const ChecklistsRepository = {
       `INSERT INTO checklists (tenant_id, equipo_id, plantilla_id, usuario_id, turno, resultado, observaciones_generales)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, equipo_id, plantilla_id, usuario_id, fecha, turno, resultado, observaciones_generales, creado_en`,
-      [tenantId, data.equipo_id, data.plantilla_id, usuarioId, data.turno ?? null, resultado, data.observaciones_generales ?? null]
+      [
+        tenantId,
+        data.equipo_id,
+        data.plantilla_id,
+        usuarioId,
+        data.turno ?? null,
+        resultado,
+        data.observaciones_generales ?? null,
+      ]
     );
     const checklistId = checklist.rows[0].id;
     // checklists está particionada por RANGE(creado_en) (migración 0037):
@@ -147,7 +160,14 @@ export const ChecklistsRepository = {
         `INSERT INTO checklist_items (tenant_id, checklist_id, checklist_creado_en, descripcion, estado, observacion)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id, descripcion, estado, observacion`,
-        [tenantId, checklistId, checklistCreadoEn, item.descripcion, item.estado, item.observacion ?? null]
+        [
+          tenantId,
+          checklistId,
+          checklistCreadoEn,
+          item.descripcion,
+          item.estado,
+          item.observacion ?? null,
+        ]
       );
       items.push(result.rows[0]);
     }
@@ -156,10 +176,10 @@ export const ChecklistsRepository = {
   },
 
   async eliminar(client: PoolClient, tenantId: string, id: number) {
-    const result = await client.query(
-      `DELETE FROM checklists WHERE id = $1 AND tenant_id = $2`,
-      [id, tenantId]
-    );
+    const result = await client.query(`DELETE FROM checklists WHERE id = $1 AND tenant_id = $2`, [
+      id,
+      tenantId,
+    ]);
     return (result.rowCount ?? 0) > 0;
   },
 };

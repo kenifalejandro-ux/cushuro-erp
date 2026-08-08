@@ -30,13 +30,17 @@ describe("auth", () => {
   });
 
   it("login con password incorrecto falla con 401 y mensaje genérico", async () => {
-    const res = await request(app).post("/api/auth/login").send({ tenantSlug, email, password: "incorrecta123" });
+    const res = await request(app)
+      .post("/api/auth/login")
+      .send({ tenantSlug, email, password: "incorrecta123" });
     expect(res.status).toBe(401);
     expect(res.body.message).toBe("Credenciales inválidas");
   });
 
   it("login con email inexistente falla con el MISMO mensaje genérico (anti-enumeración)", async () => {
-    const res = await request(app).post("/api/auth/login").send({ tenantSlug, email: "no-existe@test.local", password });
+    const res = await request(app)
+      .post("/api/auth/login")
+      .send({ tenantSlug, email: "no-existe@test.local", password });
     expect(res.status).toBe(401);
     expect(res.body.message).toBe("Credenciales inválidas");
   });
@@ -45,14 +49,20 @@ describe("auth", () => {
     // usuarios tiene RLS: hasta un UPDATE de test necesita pasar por
     // withTenant() con el tenantId correcto seteado en la transacción.
     await withTenant(tenantId, (client) =>
-      client.query("UPDATE usuarios SET activo = false WHERE tenant_id = $1 AND email = $2", [tenantId, email])
+      client.query("UPDATE usuarios SET activo = false WHERE tenant_id = $1 AND email = $2", [
+        tenantId,
+        email,
+      ])
     );
     try {
       const res = await request(app).post("/api/auth/login").send({ tenantSlug, email, password });
       expect(res.status).toBe(401);
     } finally {
       await withTenant(tenantId, (client) =>
-        client.query("UPDATE usuarios SET activo = true WHERE tenant_id = $1 AND email = $2", [tenantId, email])
+        client.query("UPDATE usuarios SET activo = true WHERE tenant_id = $1 AND email = $2", [
+          tenantId,
+          email,
+        ])
       );
     }
   });
