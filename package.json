@@ -11,6 +11,7 @@
     "diagnose:queries": "tsx scripts/diagnosticoQueries.ts",
     "tenant:create": "tsx scripts/onboardTenant.ts",
     "backup:restore-drill": "tsx scripts/restoreDrill.ts",
+    "backup:restore-drill:escritura": "tsx scripts/restoreDrillEscritura.ts",
     "preview": "npm run preview --prefix client",
     "start": "tsx server.ts",
     "server": "tsx server.ts",
@@ -29,6 +30,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1102.0",
     "@aws-sdk/lib-storage": "^3.1102.0",
+    "@sentry/node": "^10.69.0",
     "axios": "^1.11.0",
     "bcrypt": "^6.0.0",
     "compression": "^1.8.1",

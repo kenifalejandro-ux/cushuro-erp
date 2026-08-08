@@ -20,6 +20,7 @@ import { pool } from "../config/database";
 import { logger } from "../config/logger";
 import { env } from "../config/env";
 import { runSiPrimero, LOCK_IDS } from "../shared/utils/advisoryLock";
+import { capturarError } from "../config/sentry";
 
 /** `client` opcional: el worker de abajo pasa el que sostiene el advisory
  *  lock (para que la protección sea real bajo PgBouncer transaction mode —
@@ -34,7 +35,8 @@ export async function asegurarParticionesFuturas(ejecutor: Pool | PoolClient = p
 // partición) así que no hay riesgo de corrupción, pero sí de dos INSERTs
 // en pg_class compitiendo por la misma partición nueva sin necesidad.
 setInterval(() => {
-  runSiPrimero(LOCK_IDS.particionado, (client) => asegurarParticionesFuturas(client)).catch((err) =>
-    logger.error({ err }, "Error al asegurar las particiones futuras de checklists/ipercs")
-  );
+  runSiPrimero(LOCK_IDS.particionado, (client) => asegurarParticionesFuturas(client)).catch((err) => {
+    logger.error({ err }, "Error al asegurar las particiones futuras de checklists/ipercs");
+    capturarError(err, { worker: "particionado" });
+  });
 }, env.particionesCheckIntervalMs).unref();

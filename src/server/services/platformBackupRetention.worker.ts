@@ -38,6 +38,7 @@ import { logger } from "../config/logger";
 import { env } from "../config/env";
 import { borrarBackupsEnLote, type UbicacionBackup, type DriverStorage } from "./platformBackupStorage";
 import { runSiPrimero, LOCK_IDS } from "../shared/utils/advisoryLock";
+import { capturarError } from "../config/sentry";
 
 interface FilaBackup {
   id: string;
@@ -170,7 +171,8 @@ export async function podarBackupsViejos(opciones?: {
 }
 
 setInterval(() => {
-  runSiPrimero(LOCK_IDS.backupRetention, (client) => podarBackupsViejos({ ejecutor: client })).catch((err) =>
-    logger.error({ err }, "Error inesperado en la retención de backups")
-  );
+  runSiPrimero(LOCK_IDS.backupRetention, (client) => podarBackupsViejos({ ejecutor: client })).catch((err) => {
+    logger.error({ err }, "Error inesperado en la retención de backups");
+    capturarError(err, { worker: "platformBackupRetention" });
+  });
 }, env.backupRetentionCheckIntervalMs).unref();

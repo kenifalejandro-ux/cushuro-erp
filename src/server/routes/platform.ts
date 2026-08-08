@@ -28,6 +28,7 @@ import "../services/platformAuditRetention.worker"; // ídem — deshabilitado s
 import "../services/platformBackupRetention.worker"; // ídem — deshabilitado si las dos BACKUP_RETENTION_* no están seteadas
 import "../services/particionado.worker"; // ídem — aprovisiona particiones futuras de checklists/ipercs (migración 0037)
 import "../services/platformBackupDrill.worker"; // ídem — restore drill básico, siempre activo (es de solo lectura)
+import "../services/platformBackupWriteDrill.worker"; // ídem — restore drill de escritura, deshabilitado si BACKUP_WRITE_DRILL_ENABLED no está en "true"
 import {
   crearTenantSchema,
   onboardTenantSchema,

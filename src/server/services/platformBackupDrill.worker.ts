@@ -33,6 +33,7 @@ import { logger } from "../config/logger";
 import { env } from "../config/env";
 import { leerBackup, type DriverStorage } from "./platformBackupStorage";
 import { runSiPrimero, LOCK_IDS } from "../shared/utils/advisoryLock";
+import { capturarError } from "../config/sentry";
 
 export interface ResultadoDrillBackup {
   backupId: string;
@@ -139,7 +140,8 @@ export async function correrRestoreDrill(): Promise<ResumenDrill> {
 }
 
 setInterval(() => {
-  runSiPrimero(LOCK_IDS.backupDrill, correrRestoreDrill).catch((err) =>
-    logger.error({ err }, "Error inesperado en el restore drill")
-  );
+  runSiPrimero(LOCK_IDS.backupDrill, correrRestoreDrill).catch((err) => {
+    logger.error({ err }, "Error inesperado en el restore drill");
+    capturarError(err, { worker: "platformBackupDrill" });
+  });
 }, env.backupDrillCheckIntervalMs).unref();

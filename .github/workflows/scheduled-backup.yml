@@ -1,0 +1,119 @@
+name: Scheduled Backups
+
+# Punto 1 de la iniciativa de backups: hoy la única forma de generar un
+# backup es que alguien entre al panel y apriete el botón (POST
+# /tenants/:id/backups, POST /backups/plataforma). Este workflow es el que
+# lo hace solo, todos los días. A diferencia de los workers in-process del
+# server (particionado, retención, restore drills — ver advisoryLock.ts),
+# corre en infraestructura de GitHub, separada del proceso de Node: el
+# backup no debe depender de que el propio proceso que protege esté vivo
+# en ese instante exacto.
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # Todos los días 03:00 UTC (~22:00 hora Perú, fuera de horario laboral)
+  workflow_dispatch: # Para poder dispararlo a mano desde la pestaña Actions
+
+jobs:
+  run-backups:
+    runs-on: ubuntu-latest
+    # Nada acá debería tardar más que unos minutos (N tenants + 1 llamada de
+    # plataforma); un timeout corto evita que un curl colgado consuma horas
+    # del runner si la API deja de responder sin cerrar la conexión.
+    timeout-minutes: 15
+    steps:
+      - name: Respaldar todos los tenants y la plataforma
+        env:
+          # Reusa la misma variable que ya usa cd.yml para el health-check
+          # (vars.PRODUCTION_URL) en vez de inventar un secret nuevo para lo
+          # mismo — es una URL, no un dato sensible.
+          PROD_API_URL: ${{ vars.PRODUCTION_URL }}
+          PLATFORM_ADMIN_TOKEN: ${{ secrets.PLATFORM_ADMIN_TOKEN }}
+        run: |
+          echo "=== Iniciando ciclo de respaldos automáticos ==="
+
+          if [ -z "$PROD_API_URL" ] || [ -z "$PLATFORM_ADMIN_TOKEN" ]; then
+            echo "Error: faltan vars.PRODUCTION_URL o secrets.PLATFORM_ADMIN_TOKEN en el repositorio."
+            exit 1
+          fi
+
+          # El router de plataforma se monta bajo /api/platform (ver
+          # src/server/app.ts) -- a diferencia de /health, que es raíz.
+          API="${PROD_API_URL}/api/platform"
+
+          # curl devuelve "000" en %{http_code} cuando la conexión ni
+          # siquiera se establece (DNS, timeout, servidor caído) -- un
+          # chequeo de "-ge 400" a secas deja pasar ese caso como si nada
+          # (000 no es >= 400), y el script seguiría con un body vacío en
+          # vez de fallar fuerte. http_ok() lo cubre exigiendo 2xx.
+          http_ok() {
+            [ "$1" -ge 200 ] && [ "$1" -lt 300 ]
+          }
+
+          echo "Consultando lista de tenants en: ${API}/tenants"
+          RESPONSE=$(curl -sS --max-time 30 -w "\n%{http_code}" -X GET "${API}/tenants" \
+            -H "Authorization: Bearer ${PLATFORM_ADMIN_TOKEN}")
+          HTTP_BODY=$(echo "$RESPONSE" | head -n -1)
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+
+          if ! http_ok "$HTTP_CODE"; then
+            echo "Error crítico: no se pudo obtener la lista de tenants (HTTP $HTTP_CODE)"
+            echo "$HTTP_BODY"
+            exit 1
+          fi
+
+          # GET /tenants devuelve { ok: true, tenants: [...] } (ver
+          # platform.ts) -- sin fallbacks a formas que no existen: si el
+          # campo no está, es porque el contrato de la API cambió, y eso
+          # tiene que fallar fuerte, no seguir de largo como si hubiera
+          # cero tenants que respaldar.
+          TENANT_IDS=$(node -e "
+            const res = JSON.parse(process.argv[1]);
+            if (!Array.isArray(res.tenants)) {
+              console.error('Respuesta inesperada de GET /tenants: falta el campo tenants');
+              process.exit(1);
+            }
+            console.log(res.tenants.map(t => t.id).join(' '));
+          " "$HTTP_BODY") || exit 1
+
+          echo "Tenants a respaldar: ${TENANT_IDS:-(ninguno)}"
+
+          # Se intenta el backup de TODOS los tenants aunque alguno falle en
+          # el camino -- un problema puntual de un tenant (cuota, un hipo de
+          # S3) no debe dejar sin backup a los que venían después en la
+          # lista. El job igual termina en fallo si quedó alguno pendiente
+          # (ver el chequeo final), así que la alerta por mail de GitHub
+          # sigue llegando igual -- no se pierde nada por no cortar acá.
+          FALLIDOS=()
+          for id in $TENANT_IDS; do
+            echo "Respaldando tenant ${id}..."
+            BACKUP_RES=$(curl -sS --max-time 30 -w "\n%{http_code}" -X POST "${API}/tenants/${id}/backups" \
+              -H "Authorization: Bearer ${PLATFORM_ADMIN_TOKEN}")
+            B_CODE=$(echo "$BACKUP_RES" | tail -n 1)
+
+            if http_ok "$B_CODE"; then
+              echo "-> OK"
+            else
+              echo "-> FALLÓ (HTTP $B_CODE)"
+              FALLIDOS+=("tenant:${id}")
+            fi
+          done
+
+          echo "Respaldando plataforma..."
+          PLATFORM_RES=$(curl -sS --max-time 30 -w "\n%{http_code}" -X POST "${API}/backups/plataforma" \
+            -H "Authorization: Bearer ${PLATFORM_ADMIN_TOKEN}")
+          P_CODE=$(echo "$PLATFORM_RES" | tail -n 1)
+
+          if http_ok "$P_CODE"; then
+            echo "-> Plataforma respaldada correctamente."
+          else
+            echo "-> FALLÓ el respaldo de plataforma (HTTP $P_CODE)"
+            FALLIDOS+=("plataforma")
+          fi
+
+          if [ "${#FALLIDOS[@]}" -gt 0 ]; then
+            echo "=== ${#FALLIDOS[@]} respaldo(s) fallaron: ${FALLIDOS[*]} ==="
+            exit 1
+          fi
+
+          echo "=== Ciclo de respaldos finalizado con éxito ==="
