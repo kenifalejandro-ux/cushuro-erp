@@ -5,12 +5,14 @@ import { emailConfigured, env } from "../config/env";
 import { getRedis } from "../config/redis";
 import { ensureAllowedOrigin } from "../middleware/originGuard";
 import { asyncHandler } from "../shared/utils/asyncHandler";
+import rateLimiter from "../middleware/rateLimiter";
 
 export function createSystemRouter() {
   const router = Router();
 
   router.get(
     "/status",
+    rateLimiter,
     asyncHandler(async (_req, res) => {
       const redis = getRedis();
       let redisStatus = "disabled";

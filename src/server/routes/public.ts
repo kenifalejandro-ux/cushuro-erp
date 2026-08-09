@@ -4,6 +4,7 @@ import { Router } from "express";
 import { env } from "../config/env";
 import { getRedis } from "../config/redis";
 import { asyncHandler } from "../shared/utils/asyncHandler";
+import rateLimiter from "../middleware/rateLimiter";
 
 export function createPublicRouter() {
   const router = Router();
@@ -11,6 +12,7 @@ export function createPublicRouter() {
   // Ruta de estado general del servidor (útil para debugging)
   router.get(
     "/status",
+    rateLimiter,
     asyncHandler(async (_req, res) => {
       const redis = getRedis();
       let redisStatus = "disabled";
