@@ -26,7 +26,11 @@ export default defineConfig([
   {
     // Reglas base para todo archivo .ts del backend, tenga o no type info.
     files: ["**/*.ts"],
-    extends: [js.configs.recommended, ...tsPlugin.configs["flat/recommended"], eslintConfigPrettier],
+    extends: [
+      js.configs.recommended,
+      ...tsPlugin.configs["flat/recommended"],
+      eslintConfigPrettier,
+    ],
     plugins: {
       prettier: prettierPlugin,
     },
@@ -87,6 +91,31 @@ export default defineConfig([
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/no-misused-promises": "error",
       "@typescript-eslint/await-thenable": "error",
+    },
+  },
+  {
+    // Las tablas de negocio (repuestos, equipos, checklists, ipercs, etc.)
+    // tienen RLS por tenant_id -- un pool.query() directo abre una conexión
+    // sin app.tenant_id seteado y o bien rompe en runtime ("unrecognized
+    // configuration parameter") o, peor, corre fuera de una transacción con
+    // el GUC ya fijado por otra request y devuelve filas de otro tenant. Ya
+    // pasó 3 veces en la misma rama (siempre mezclado con una tabla sin RLS
+    // en la misma función) antes de que existiera esta regla -- ver
+    // docs/adr/0001-multi-tenancy-plataforma.md.
+    files: ["src/modules/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "../../server/config/database",
+              importNames: ["pool"],
+              message: "Tablas de negocio tienen RLS — usar withTenant(), no pool directo.",
+            },
+          ],
+        },
+      ],
     },
   },
   {
