@@ -22,6 +22,7 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { randomBytes } from "crypto";
 import { ZodError } from "zod";
+import rateLimiter from "../middleware/rateLimiter";
 import { scimAuthMiddleware, getScimTenantId } from "../shared/middlewares/scim.middleware";
 import { getClientIp, getRequestId, getUserAgent } from "../shared/utils/request";
 import { AppError } from "../shared/middlewares/error.middleware";
@@ -80,7 +81,10 @@ function errorScim(res: Response, status: number, detail: string) {
 export function createScimRouter() {
   const router = Router();
 
-  router.use(scimAuthMiddleware);
+  // Sin esto, el bearer token de un tenant se podía probar sin límite: el
+  // resto de la app (login, forgot-password, reset-password) ya pasa por
+  // rateLimiter antes de validar la credencial, SCIM había quedado afuera.
+  router.use(rateLimiter, scimAuthMiddleware);
 
   router.get(
     "/Users",
