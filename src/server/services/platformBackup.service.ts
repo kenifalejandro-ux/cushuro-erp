@@ -24,6 +24,7 @@ import { randomUUID } from "crypto";
 import type { PoolClient } from "pg";
 import { pool, withTenant } from "../config/database";
 import { logger } from "../config/logger";
+import { capturarError } from "../config/sentry";
 import { AppError } from "../shared/middlewares/error.middleware";
 import { MODULOS } from "../../modules/registry";
 import type { TablaBackupMeta } from "../../modules/types";
@@ -197,6 +198,14 @@ export async function exportarTenantService(
       contexto,
       resultado: "failure",
     });
+
+    // Mismo criterio que Sentry.setupExpressErrorHandler (ver sentry.ts):
+    // solo >= 500 es un incidente operativo. Un AppError de negocio (ej.
+    // cuota de backups excedida, statusCode 403) no debe despertar a nadie
+    // -- quedarse SIN backup por un fallo real de infra sí.
+    if (!(err instanceof AppError) || err.statusCode >= 500) {
+      capturarError(err, { tenantId, storage: driverDeEscritura(), accion: "crear_backup_tenant" });
+    }
 
     // Un AppError ya trae el status correcto (503 si falta configuración de
     // cifrado, etc.) y se propaga tal cual; cualquier otra cosa se

@@ -10,6 +10,19 @@
  * registrarMetricaRequest() nunca lanza ni bloquea la respuesta real — se
  * llama desde tenantMetrics.middleware.ts después de que la respuesta ya
  * salió (`res.on("finish")`), puramente informativo.
+ *
+ * PENDIENTE (revisión de código, hallazgo 4.1): se agregó `ultimoBackupFallido`
+ * porque tenant_backups tiene tenant_id. NO se agregó `outboxFallidosUltimas24h`
+ * a propósito — platform_outbox (migrations/0018_platform_outbox.sql) no
+ * tiene columna tenant_id: es una cola de eventos de PLATAFORMA
+ * (idempotency_response de alta de tenant, alerta_rafaga por IP), no de un
+ * tenant existente. Agregar ese campo acá mostraría el mismo número
+ * platform-wide en la salud de cada tenant, lo cual sería engañoso. La
+ * instrumentación de Sentry para eventos agotados (marcarFallo() en
+ * platformOutbox.service.ts) sí quedó hecha; falta decidir dónde vive la
+ * métrica agregada — candidatos: un endpoint de "salud de plataforma"
+ * separado de /tenants/:id/salud, o agregar tenant_id a platform_outbox si
+ * en el futuro un evento SÍ nace ligado a un tenant puntual.
  */
 import { pool, withTenant } from "../config/database";
 import { resumenCuotasTenant, type EstadoCuota } from "./platformCuotas.service";
@@ -61,6 +74,11 @@ export interface SaludTenant {
    *  endpoint aparte porque "¿este tenant está bien?" incluye "¿está por
    *  chocar contra un límite?": enterarse cuando ya se bloqueó es tarde. */
   cuotas: EstadoCuota[];
+  /** Cuándo fue el backup fallido más reciente de este tenant (tenant_backups
+   *  SÍ tiene tenant_id, a diferencia de platform_outbox — ver el comentario
+   *  de calcularSalud() más abajo sobre por qué el outbox no entra acá).
+   *  null si nunca falló uno. */
+  ultimoBackupFallido: string | null;
   alertas: string[];
 }
 
@@ -82,7 +100,7 @@ async function calcularSalud(tenantId: string): Promise<SaludTenant> {
   // convive bien dentro del mismo Promise.all que las otras dos queries
   // (que sí van por pool.query porque refresh_tokens/tenant_metricas_horarias
   // no tienen RLS).
-  const [usuarios, ultimoAcceso, metricas, cuotas] = await Promise.all([
+  const [usuarios, ultimoAcceso, metricas, cuotas, ultimoBackupFallido] = await Promise.all([
     withTenant(tenantId, (client) =>
       client.query(
         `SELECT count(*) FILTER (WHERE activo) AS activos, count(*) AS total FROM usuarios WHERE tenant_id = $1`,
@@ -103,6 +121,12 @@ async function calcularSalud(tenantId: string): Promise<SaludTenant> {
       [tenantId]
     ),
     resumenCuotasTenant(tenantId),
+    // tenant_backups tiene tenant_id (a diferencia de platform_outbox, que
+    // no lo tiene — ver el comentario más abajo sobre outboxFallidosUltimas24h).
+    pool.query(
+      `SELECT max(creado_en) AS ultimo FROM tenant_backups WHERE tenant_id = $1 AND estado = 'fallido'`,
+      [tenantId]
+    ),
   ]);
 
   const requests = Number(metricas.rows[0].requests);
@@ -142,6 +166,7 @@ async function calcularSalud(tenantId: string): Promise<SaludTenant> {
     tasaError,
     latenciaPromedioMsUltimas24h: latenciaPromedioMs,
     recursosCreadosUltimas24h: recursos,
+    ultimoBackupFallido: ultimoBackupFallido.rows[0].ultimo,
     cuotas,
     alertas,
   };

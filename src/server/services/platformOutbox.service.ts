@@ -13,6 +13,7 @@
  */
 import type { Pool, PoolClient } from "pg";
 import { pool } from "../config/database";
+import { capturarError } from "../config/sentry";
 
 export type TipoEventoOutbox = "idempotency_response" | "alerta_rafaga";
 
@@ -111,7 +112,8 @@ function calcularBackoffMs(intentos: number): number {
 export async function marcarFallo(
   id: string,
   intentosActuales: number,
-  error: string
+  error: string,
+  tipo?: TipoEventoOutbox
 ): Promise<void> {
   const intentos = intentosActuales + 1;
   const agotado = intentos >= MAX_INTENTOS;
@@ -123,4 +125,13 @@ export async function marcarFallo(
      WHERE id = $5`,
     [agotado ? "fallido" : "pendiente", intentos, error.slice(0, 2000), backoffSegundos, id]
   );
+
+  // Un reintento transitorio no amerita una alerta -- recién cuando el
+  // evento agota MAX_INTENTOS y queda 'fallido' para siempre es una señal
+  // real de que algo necesita intervención humana (ver el comentario de
+  // arriba: antes de esto, un evento agotado solo dejaba rastro en
+  // ultimo_error, sin avisar a nadie).
+  if (agotado) {
+    capturarError(new Error(error), { worker: "platformOutbox", eventoId: id, tipo, intentos });
+  }
 }

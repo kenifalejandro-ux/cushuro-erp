@@ -74,7 +74,7 @@ export async function drenarUnaVez(): Promise<void> {
         { err, evento: evento.id, tipo: evento.tipo },
         "Falló el handler de un evento de outbox"
       );
-      await marcarFallo(evento.id, evento.intentos, mensaje);
+      await marcarFallo(evento.id, evento.intentos, mensaje, evento.tipo);
     }
   }
 }
