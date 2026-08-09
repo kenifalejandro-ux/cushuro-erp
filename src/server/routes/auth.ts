@@ -4,6 +4,8 @@ import { Router, type Response } from "express";
 import { env } from "../config/env";
 import { validate } from "../middleware/validate";
 import rateLimiter from "../middleware/rateLimiter";
+import loginEmailRateLimiter from "../middleware/loginEmailRateLimiter";
+import forgotPasswordEmailRateLimiter from "../middleware/forgotPasswordEmailRateLimiter";
 import { verifyRecaptcha } from "../middleware/verifyRecaptcha";
 import { resolveTenantSubdomain } from "../middleware/resolveTenantSubdomain";
 import {
@@ -79,6 +81,7 @@ authRouter.post(
   rateLimiter,
   resolveTenantSubdomain,
   validate(loginSchema),
+  loginEmailRateLimiter,
   ...(env.isProduction ? [verifyRecaptcha] : []),
   asyncHandler(async (req, res, next) => {
     try {
@@ -219,6 +222,7 @@ authRouter.post(
   rateLimiter,
   resolveTenantSubdomain,
   validate(forgotPasswordSchema),
+  forgotPasswordEmailRateLimiter,
   asyncHandler(async (req, res, next) => {
     try {
       const result = await solicitarRecuperacionService(req.validatedBody as ForgotPasswordInput);

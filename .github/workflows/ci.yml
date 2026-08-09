@@ -97,6 +97,14 @@ jobs:
       PLATFORM_TENANT_CREATION_MAX_REQUESTS: 1000
       PLATFORM_ADMIN_LOGIN_WINDOW_MS: 60000
       PLATFORM_ADMIN_LOGIN_MAX_REQUESTS: 1000
+      # Mismo motivo que los dos de arriba: tests/auth.test.ts (y cualquier
+      # otro que loguee al mismo usuario de prueba varias veces) chocaría
+      # contra el default de producción (10/hora) mucho antes de terminar
+      # la suite.
+      LOGIN_EMAIL_RATE_LIMIT_WINDOW_MS: 60000
+      LOGIN_EMAIL_RATE_LIMIT_MAX_REQUESTS: 1000
+      FORGOT_PASSWORD_EMAIL_RATE_LIMIT_WINDOW_MS: 60000
+      FORGOT_PASSWORD_EMAIL_RATE_LIMIT_MAX_REQUESTS: 1000
 
     steps:
       - uses: actions/checkout@v7
@@ -281,6 +289,12 @@ jobs:
       # cobertura en tests/erp-rate-limit.test.ts, donde SÍ es el sujeto del
       # test. Acá solo estorba.
       RATE_LIMIT_MAX_REQUESTS: 100
+      # Mismo problema, otra causa: LOGIN_EMAIL_RATE_LIMIT_MAX_REQUESTS es
+      # por tenantSlug+email, no por IP -- los 9 logins de arriba son casi
+      # todos contra el mismo E2E_ADMIN_EMAIL, muy cerca del default de
+      # producción (10/hora). Un reintento de CI (retries: 1) alcanzaría
+      # para superarlo.
+      LOGIN_EMAIL_RATE_LIMIT_MAX_REQUESTS: 100
 
     steps:
       - uses: actions/checkout@v7

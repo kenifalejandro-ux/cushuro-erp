@@ -1,15 +1,16 @@
 /** src/server/middleware/redisRateLimiter.ts
  *
- * Factory compartida por los rate limiters específicos de plataforma
- * (platformTenantRateLimiter.ts, platformAdminLoginRateLimiter.ts) — cada
- * uno tiene su propia clave de Redis y su propia ventana/límite
- * configurable por env, pero el mecanismo (INCR+PEXPIRE en Redis, con
- * fallback a un Map en memoria si Redis no está disponible) es idéntico.
- * No reemplaza al rateLimiter genérico (middleware/rateLimiter.ts) — ese
- * sigue aplicándose antes, sobre `path`+ip, para cualquier formulario de
- * la app; esto es la capa adicional para acciones con más blast radius o
- * más riesgo (crear un tenant, adivinar una contraseña de admin) que no
- * deben compartir ventana con el resto.
+ * Factory compartida por los rate limiters específicos de plataforma y de
+ * auth (platformTenantRateLimiter.ts, platformAdminLoginRateLimiter.ts,
+ * loginEmailRateLimiter.ts, forgotPasswordEmailRateLimiter.ts) — cada uno
+ * tiene su propia clave de Redis y su propia ventana/límite configurable
+ * por env, pero el mecanismo (INCR+PEXPIRE en Redis, con fallback a un Map
+ * en memoria si Redis no está disponible) es idéntico. No reemplaza al
+ * rateLimiter genérico (middleware/rateLimiter.ts) — ese sigue
+ * aplicándose antes, sobre `path`+ip, para cualquier formulario de la
+ * app; esto es la capa adicional para acciones con más blast radius o más
+ * riesgo (crear un tenant, adivinar una contraseña) que no deben
+ * compartir ventana con el resto.
  */
 import type { NextFunction, Request, Response } from "express";
 import { getRedis } from "../config/redis";
@@ -21,11 +22,20 @@ import { asyncHandler } from "../shared/utils/asyncHandler";
 
 type MemoryEntry = { count: number; resetAt: number };
 
-export function crearLimitadorPorIp(opciones: {
+/** Factory genérica: el "sujeto" del límite lo decide `extraerClave` (IP,
+ *  email+tenant, lo que haga falta) — el resto (Redis+memoria, backoff,
+ *  alerta de ráfaga) es idéntico sea cual sea el sujeto. `undefined` de
+ *  `extraerClave` significa "nada que limitar en este request" (ej. el
+ *  campo que hace falta para armar la clave no está en el body) y deja
+ *  pasar sin contar: la validación de schema previa ya se encarga de
+ *  rechazar un body incompleto, este middleware no debe fallar cerrado
+ *  por eso. */
+export function crearLimitador(opciones: {
   prefijoClave: string;
   windowMs: number;
   maxRequests: number;
   mensaje: string;
+  extraerClave: (req: Request) => string | undefined;
 }) {
   const memoryStore = new Map<string, MemoryEntry>();
 
@@ -41,13 +51,14 @@ export function crearLimitadorPorIp(opciones: {
   // outbox por cada request de más, en vez de uno solo avisando que la
   // ráfaga empezó. Best-effort: si esto falla, la respuesta 429 al
   // cliente no se ve afectada (ver el try/catch alrededor).
-  async function avisarPrimerRechazo(ip: string, retryAfterSeconds: number) {
+  async function avisarPrimerRechazo(ip: string, sujeto: string, retryAfterSeconds: number) {
     try {
       await escribirEventoOutbox(pool, {
         tipo: "alerta_rafaga",
         payload: {
           limitador: opciones.prefijoClave,
           ip,
+          sujeto,
           maxRequests: opciones.maxRequests,
           retryAfterSeconds,
         },
@@ -63,8 +74,11 @@ export function crearLimitadorPorIp(opciones: {
   }
 
   return asyncHandler(async function limitar(req: Request, res: Response, next: NextFunction) {
+    const sujeto = opciones.extraerClave(req);
+    if (sujeto === undefined) return next();
+
     const ip = getClientIp(req);
-    const key = `${opciones.prefijoClave}:${ip}`;
+    const key = `${opciones.prefijoClave}:${sujeto}`;
     const redis = getRedis();
 
     if (redis) {
@@ -77,7 +91,7 @@ export function crearLimitadorPorIp(opciones: {
           const retryAfterSeconds =
             ttl > 0 ? Math.max(1, Math.ceil(ttl / 1000)) : Math.ceil(opciones.windowMs / 1000);
           if (intentos === opciones.maxRequests + 1)
-            await avisarPrimerRechazo(ip, retryAfterSeconds);
+            await avisarPrimerRechazo(ip, sujeto, retryAfterSeconds);
           return rechazar(res, retryAfterSeconds);
         }
         return next();
@@ -97,11 +111,21 @@ export function crearLimitadorPorIp(opciones: {
     if (actual.count > opciones.maxRequests) {
       const retryAfterSeconds = Math.max(1, Math.ceil((actual.resetAt - ahora) / 1000));
       if (actual.count === opciones.maxRequests + 1)
-        await avisarPrimerRechazo(ip, retryAfterSeconds);
+        await avisarPrimerRechazo(ip, sujeto, retryAfterSeconds);
       return rechazar(res, retryAfterSeconds);
     }
 
     memoryStore.set(key, actual);
     next();
   });
+}
+
+/** El caso más común: limitar por IP del request. */
+export function crearLimitadorPorIp(opciones: {
+  prefijoClave: string;
+  windowMs: number;
+  maxRequests: number;
+  mensaje: string;
+}) {
+  return crearLimitador({ ...opciones, extraerClave: getClientIp });
 }

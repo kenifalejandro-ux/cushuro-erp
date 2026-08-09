@@ -134,6 +134,25 @@ export const env = {
   // no solo abuso de formulario.
   platformAdminLoginWindowMs: readNumber(process.env.PLATFORM_ADMIN_LOGIN_WINDOW_MS, 15 * 60_000),
   platformAdminLoginMaxRequests: readNumber(process.env.PLATFORM_ADMIN_LOGIN_MAX_REQUESTS, 10),
+  // Complementa al rateLimiter genérico (form:${path}:${ip}) en /login y
+  // /forgot-password: ese es por IP, así que un atacante repartiendo
+  // intentos contra UNA cuenta entre varias IPs (botnet, proxies
+  // rotativos) no lo activa nunca. Este es por tenantSlug+email -- el
+  // sujeto real del ataque, sea cual sea la IP de origen. No reemplaza al
+  // de IP, se suman los dos (ver loginEmailRateLimiter.ts).
+  loginEmailRateLimitWindowMs: readNumber(
+    process.env.LOGIN_EMAIL_RATE_LIMIT_WINDOW_MS,
+    60 * 60_000
+  ),
+  loginEmailRateLimitMaxRequests: readNumber(process.env.LOGIN_EMAIL_RATE_LIMIT_MAX_REQUESTS, 10),
+  forgotPasswordEmailRateLimitWindowMs: readNumber(
+    process.env.FORGOT_PASSWORD_EMAIL_RATE_LIMIT_WINDOW_MS,
+    60 * 60_000
+  ),
+  forgotPasswordEmailRateLimitMaxRequests: readNumber(
+    process.env.FORGOT_PASSWORD_EMAIL_RATE_LIMIT_MAX_REQUESTS,
+    10
+  ),
   // Cada cuánto platformOutbox.worker.ts revisa platform_outbox por
   // eventos pendientes — un panel de administración no necesita drenar en
   // tiempo real, unos segundos de demora no le importan a nadie.
