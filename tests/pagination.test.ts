@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import { app, crearTenantDePrueba, borrarTenantDePrueba, idUnico } from "./helpers";
-import { pool, closeDatabase, withTenant } from "../src/server/config/database";
+import { closeDatabase, withTenant } from "../src/server/config/database";
 
 describe("paginación de repuestos", () => {
   let tenantId: string;

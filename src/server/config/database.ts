@@ -58,11 +58,11 @@ export async function testDatabaseConnection(): Promise<boolean> {
     });
 
     return true;
-  } catch (error: any) {
+  } catch (error) {
     logger.error({
       err: error,
       message: "❌ Error al conectar con PostgreSQL",
-      detail: error.message,
+      detail: error instanceof Error ? error.message : String(error),
     });
     return false;
   } finally {

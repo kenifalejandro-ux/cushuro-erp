@@ -18,14 +18,13 @@
 import type { Request, Response, NextFunction } from "express";
 import { getPlatformActor } from "../utils/request";
 import { esSuperAdminVigente } from "../../services/platformAdminAccount.service";
+import { asyncHandler } from "../utils/asyncHandler";
 
-export async function platformSuperAdminMiddleware(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  if (await esSuperAdminVigente(getPlatformActor(req))) return next();
-  return res
-    .status(403)
-    .json({ ok: false, message: "Requiere permisos de super-admin de plataforma" });
-}
+export const platformSuperAdminMiddleware = asyncHandler(
+  async function platformSuperAdminMiddleware(req: Request, res: Response, next: NextFunction) {
+    if (await esSuperAdminVigente(getPlatformActor(req))) return next();
+    return res
+      .status(403)
+      .json({ ok: false, message: "Requiere permisos de super-admin de plataforma" });
+  }
+);

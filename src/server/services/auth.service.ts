@@ -18,6 +18,7 @@ import type {
   ResetPasswordInput,
 } from "../schemas/auth.schema";
 import { requerirJwtSecret } from "../shared/utils/jwt-secret";
+import { esViolacionUnicidad } from "../shared/utils/pgError";
 import { escapeHtml } from "../shared/utils/html";
 import {
   setCachedTokenVersion,
@@ -104,7 +105,7 @@ export async function obtenerModulosPermitidos(
 /** Solo para exponer al cliente: nunca se envía tokenVersion en las
  *  respuestas HTTP (login, /me) — es un detalle interno de revocación. */
 export function aPublico(usuario: UsuarioPayload) {
-  const { tokenVersion, ...publico } = usuario;
+  const { tokenVersion: _tokenVersion, ...publico } = usuario;
   return publico;
 }
 
@@ -199,7 +200,17 @@ export async function loginService(
   // su propio dominio/subdominio público).
   const tenant = await resolverTenantActivoPorSlug(input.tenantSlug);
 
-  let fila: any;
+  let fila:
+    | {
+        id: string;
+        tenant_id: string;
+        nombre: string;
+        email: string;
+        password_hash: string;
+        rol: UsuarioPayload["rol"];
+        token_version: number;
+      }
+    | undefined;
   if (tenant) {
     try {
       fila = await withTenant(tenant.id, async (client) => {
@@ -252,7 +263,7 @@ export async function googleLoginService(
   }
 
   let email: string | undefined;
-  let emailVerificado = false;
+  let emailVerificado: boolean;
   try {
     const ticket = await googleClient.verifyIdToken({
       idToken: input.credential,
@@ -457,10 +468,10 @@ export async function crearUsuarioService(
        RETURNING id, tenant_id, nombre, email, rol, token_version`,
       [input.tenantId, input.nombre, input.email.toLowerCase(), passwordHash, input.rol ?? null]
     );
-  } catch (err: any) {
+  } catch (err) {
     // Mismo criterio que loginService: nunca reenviar el error crudo de la
     // BD al cliente (podría filtrar nombres de tabla/constraint).
-    if (err.code === "23505") {
+    if (esViolacionUnicidad(err)) {
       throw new AppError(409, "Ya existe un usuario con ese correo en este tenant");
     }
     logger.error({ err }, "Error de BD al crear usuario");

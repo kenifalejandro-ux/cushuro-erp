@@ -22,12 +22,17 @@ export async function startServer() {
 
   // ====================== CONEXIÓN A BASE DE DATOS ======================
   logger.info("🔌 Intentando conectar a PostgreSQL...");
-  testDatabaseConnection().then((connected) => {
-    if (!connected && env.isProduction) {
-      logger.error("❌ No se pudo conectar a PostgreSQL en entorno de producción");
-      process.exit(1);
-    }
-  });
+  testDatabaseConnection()
+    .then((connected) => {
+      if (!connected && env.isProduction) {
+        logger.error("❌ No se pudo conectar a PostgreSQL en entorno de producción");
+        process.exit(1);
+      }
+    })
+    .catch((err: unknown) => {
+      logger.error({ err }, "❌ Error inesperado verificando conexión a PostgreSQL");
+      if (env.isProduction) process.exit(1);
+    });
 
   // ====================== MIGRACIONES ======================
   // Solo en desarrollo: deja la BD local al día sola en cada arranque, sin
@@ -61,22 +66,28 @@ export async function startServer() {
   const shutdown = (signal: string) => {
     logger.info({ signal }, "🛑 Señal de apagado recibida. Cerrando servidor...");
 
-    server.close(async () => {
-      logger.info("HTTP Server cerrado.");
+    // server.close() espera un callback sync ((err?) => void); el cuerpo
+    // async va en una IIFE aparte, marcada con `void` a propósito -- ya
+    // tiene su propio try/catch adentro, así que no hay nada que ese
+    // rechazo pudiera dejar sin manejar.
+    server.close(() => {
+      void (async () => {
+        logger.info("HTTP Server cerrado.");
 
-      // Cerrar Redis de forma segura (si existe)
-      const redis = getRedis();
-      if (redis) {
-        try {
-          await redis.quit();
-          logger.info("Redis desconectado correctamente.");
-        } catch (error) {
-          logger.warn({ err: error }, "No se pudo cerrar Redis limpiamente.");
+        // Cerrar Redis de forma segura (si existe)
+        const redis = getRedis();
+        if (redis) {
+          try {
+            await redis.quit();
+            logger.info("Redis desconectado correctamente.");
+          } catch (error) {
+            logger.warn({ err: error }, "No se pudo cerrar Redis limpiamente.");
+          }
         }
-      }
 
-      logger.info("✅ Servidor cerrado correctamente.");
-      process.exit(0);
+        logger.info("✅ Servidor cerrado correctamente.");
+        process.exit(0);
+      })();
     });
   };
 

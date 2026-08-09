@@ -13,7 +13,7 @@ export const IpercRepository = {
     { pageSize, cursor }: CursorPaginacion,
     tipo?: string
   ) {
-    const params: any[] = [tenantId, cursor];
+    const params: (string | number | null)[] = [tenantId, cursor];
     let filtroTipo = "";
     if (tipo) {
       params.push(tipo);

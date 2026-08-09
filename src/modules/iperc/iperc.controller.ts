@@ -64,8 +64,8 @@ export const IpercController = {
         contexto: contextoAuditoriaModulo(req),
       });
       res.status(201).json(iperc);
-    } catch (err: any) {
-      if (err?.message?.includes("no existe en este tenant")) {
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("no existe en este tenant")) {
         res.status(400).json({ message: err.message });
         return;
       }

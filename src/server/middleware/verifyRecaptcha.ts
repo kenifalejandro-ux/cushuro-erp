@@ -2,8 +2,13 @@ import axios from "axios";
 import type { NextFunction, Request, Response } from "express";
 import { env } from "../config/env";
 import { getClientIp, getRequestId } from "../shared/utils/request";
+import { asyncHandler } from "../shared/utils/asyncHandler";
 
-export async function verifyRecaptcha(req: Request, res: Response, next: NextFunction) {
+export const verifyRecaptcha = asyncHandler(async function verifyRecaptcha(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   const requestId = getRequestId(req);
   const token =
     typeof req.body?.recaptcha_token === "string" ? req.body.recaptcha_token.trim() : "";
@@ -116,4 +121,4 @@ export async function verifyRecaptcha(req: Request, res: Response, next: NextFun
 
     return res.status(502).json({ message: "No se pudo completar la verificacion anti-spam." });
   }
-}
+});

@@ -28,6 +28,7 @@ import {
 } from "./auth.service";
 import { MODULOS_ERP } from "../schemas/platform.schema";
 import { verificarCuota, CuotaExcedidaError, RECURSO_USUARIOS } from "./platformCuotas.service";
+import { esViolacionUnicidad } from "../shared/utils/pgError";
 import type { CrearTenantInput, CrearUsuarioEnTenantInput } from "../schemas/platform.schema";
 import { registrarAuditoria, type ContextoAuditoria } from "./platformAudit.service";
 import { escribirEventoOutbox } from "./platformOutbox.service";
@@ -70,8 +71,8 @@ export async function crearTenantConAdminService(
         `INSERT INTO tenants (nombre, slug) VALUES ($1, $2) RETURNING id, nombre, slug`,
         [input.tenantNombre, input.tenantSlug]
       );
-    } catch (err: any) {
-      if (err.code === "23505") {
+    } catch (err) {
+      if (esViolacionUnicidad(err)) {
         throw new AppError(409, "Ya existe un tenant con ese slug");
       }
       throw err;

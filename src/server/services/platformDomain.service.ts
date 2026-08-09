@@ -18,6 +18,7 @@ import { resolveTxt } from "dns/promises";
 import { pool } from "../config/database";
 import { logger } from "../config/logger";
 import { AppError } from "../shared/middlewares/error.middleware";
+import { esViolacionUnicidad } from "../shared/utils/pgError";
 import { registrarAuditoria, type ContextoAuditoria } from "./platformAudit.service";
 
 export type EstadoDominio = "pendiente_verificacion" | "activo" | "fallido" | "desactivado";
@@ -121,8 +122,8 @@ export async function asignarDominioTenantService(
         [dominioPersonalizado, generarToken(), tenantId]
       );
     }
-  } catch (err: any) {
-    if (err.code === "23505") {
+  } catch (err) {
+    if (esViolacionUnicidad(err)) {
       throw new AppError(409, "Ese dominio ya está asignado a otro tenant");
     }
     throw err;
@@ -153,8 +154,9 @@ async function existeRegistroTxt(dominio: string, valorEsperado: string): Promis
     // Cada TXT record puede venir partido en varios strings — se unen
     // antes de comparar (dns.resolveTxt de Node ya los separa así).
     return registros.some((partes) => partes.join("").trim() === valorEsperado);
-  } catch (err: any) {
-    if (err?.code !== "ENOTFOUND" && err?.code !== "ENODATA") {
+  } catch (err) {
+    const codigo = err instanceof Error ? (err as NodeJS.ErrnoException).code : undefined;
+    if (codigo !== "ENOTFOUND" && codigo !== "ENODATA") {
       logger.warn(
         { err, dominio },
         "Error inesperado resolviendo el TXT de verificación de dominio"

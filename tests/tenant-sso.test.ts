@@ -23,7 +23,7 @@ vi.mock("openid-client", () => ({
   randomNonce: vi.fn().mockReturnValue("mock-nonce"),
 }));
 
-const { app, crearTenantDePrueba, borrarTenantDePrueba, idUnico, redisDisponible, extraerCookie } =
+const { app, crearTenantDePrueba, borrarTenantDePrueba, redisDisponible, extraerCookie } =
   await import("./helpers");
 const { env } = await import("../src/server/config/env");
 const { pool, withTenant, closeDatabase } = await import("../src/server/config/database");

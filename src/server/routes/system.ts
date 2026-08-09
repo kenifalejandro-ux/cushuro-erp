@@ -4,32 +4,36 @@ import { Router } from "express";
 import { emailConfigured, env } from "../config/env";
 import { getRedis } from "../config/redis";
 import { ensureAllowedOrigin } from "../middleware/originGuard";
+import { asyncHandler } from "../shared/utils/asyncHandler";
 
 export function createSystemRouter() {
   const router = Router();
 
-  router.get("/status", async (_req, res) => {
-    const redis = getRedis();
-    let redisStatus = "disabled";
+  router.get(
+    "/status",
+    asyncHandler(async (_req, res) => {
+      const redis = getRedis();
+      let redisStatus = "disabled";
 
-    if (redis) {
-      try {
-        await redis.ping();
-        redisStatus = "connected";
-      } catch {
-        redisStatus = "error";
+      if (redis) {
+        try {
+          await redis.ping();
+          redisStatus = "connected";
+        } catch {
+          redisStatus = "error";
+        }
       }
-    }
 
-    return res.json({
-      ok: true,
-      port: env.port,
-      redis: redisStatus,
-      recaptchaConfigured: Boolean(env.recaptchaSiteKey),
-      emailConfigured,
-      allowedOrigins: env.allowedOrigins.size,
-    });
-  });
+      return res.json({
+        ok: true,
+        port: env.port,
+        redis: redisStatus,
+        recaptchaConfigured: Boolean(env.recaptchaSiteKey),
+        emailConfigured,
+        allowedOrigins: env.allowedOrigins.size,
+      });
+    })
+  );
 
   router.get("/api/recaptcha-site-key", ensureAllowedOrigin, (_req, res) => {
     if (!env.recaptchaSiteKey) {

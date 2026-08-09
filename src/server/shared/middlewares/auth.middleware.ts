@@ -9,10 +9,15 @@ import { logger } from "../../config/logger";
 import type { UsuarioPayload } from "../../services/auth.service";
 import { requerirJwtSecret } from "../utils/jwt-secret";
 import { getCachedTokenVersion, setCachedTokenVersion } from "../utils/token-version-cache";
+import { asyncHandler } from "../utils/asyncHandler";
 
 const JWT_SECRET = requerirJwtSecret();
 
-export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
+export const authMiddleware = asyncHandler(async function authMiddleware(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   try {
     // Sesión de navegador: cookie httpOnly (no accesible por JS, a salvo de robo por XSS).
     // Header Bearer: vía alterna para clientes no-navegador (scripts, integraciones API).
@@ -75,14 +80,14 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
 
     req.usuario = payload;
     next();
-  } catch (err: any) {
-    if (err.name === "TokenExpiredError") {
+  } catch (err) {
+    if (err instanceof Error && err.name === "TokenExpiredError") {
       return res.status(401).json({ ok: false, message: "Token expirado" });
     }
-    if (err.name === "JsonWebTokenError") {
+    if (err instanceof Error && err.name === "JsonWebTokenError") {
       return res.status(401).json({ ok: false, message: "Token inválido" });
     }
     logger.error({ err }, "Error en authMiddleware");
     return res.status(500).json({ ok: false, message: "Error de autenticación" });
   }
-}
+});

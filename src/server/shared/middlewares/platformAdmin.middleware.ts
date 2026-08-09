@@ -34,6 +34,7 @@ import { env } from "../../config/env";
 import { getClientIp, getRequestId, getUserAgent, type PlatformActor } from "../utils/request";
 import { registrarSesionRechazada } from "../../services/platformAudit.service";
 import { idSesionDeCookie, obtenerSesion } from "../../services/platformSession.service";
+import { asyncHandler } from "../utils/asyncHandler";
 
 export const PLATFORM_SESSION_COOKIE = "platform_session";
 
@@ -65,7 +66,11 @@ function adjuntarActor(req: Request, actor: PlatformActor, sessionId?: string) {
   if (sessionId) (req as Request & { platformSessionId?: string }).platformSessionId = sessionId;
 }
 
-export async function platformAdminMiddleware(req: Request, res: Response, next: NextFunction) {
+export const platformAdminMiddleware = asyncHandler(async function platformAdminMiddleware(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   if (!env.platformAdminToken) {
     return res.status(503).json({ ok: false, message: "Onboarding de tenants no configurado" });
   }
@@ -112,4 +117,4 @@ export async function platformAdminMiddleware(req: Request, res: Response, next:
   }
 
   return rechazar(req, res, { via: "cookie_legado" });
-}
+});

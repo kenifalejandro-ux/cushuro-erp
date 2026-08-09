@@ -34,7 +34,7 @@ import {
   consultarIdempotencia,
   liberarIdempotencia,
 } from "../services/platformIdempotency.service";
-import { buscarRespuestaPorClave, escribirEventoOutbox } from "../services/platformOutbox.service";
+import { buscarRespuestaPorClave } from "../services/platformOutbox.service";
 import "../services/platformOutbox.worker"; // se activa solo con importarse (setInterval + .unref())
 import "../services/platformAuditRetention.worker"; // ídem — deshabilitado si PLATFORM_AUDIT_RETENTION_DAYS no está seteado
 import "../services/platformBackupRetention.worker"; // ídem — deshabilitado si las dos BACKUP_RETENTION_* no están seteadas
@@ -61,6 +61,9 @@ import {
   fijarCuotaTenantSchema,
   asignarPlanTenantSchema,
   type ActualizarModuloGlobalInput,
+  type CrearTenantInput,
+  type OnboardTenantInput,
+  type CrearUsuarioEnTenantInput,
 } from "../schemas/platform.schema";
 import {
   crearTenantConAdminService,
@@ -129,13 +132,17 @@ import {
   generarTokenScimService,
   revocarTokenScimService,
 } from "../services/platformScim.service";
-import { configurarSsoTenantSchema } from "../schemas/platform.schema";
+import {
+  configurarSsoTenantSchema,
+  type ConfigurarSsoTenantInput,
+} from "../schemas/platform.schema";
 import {
   listarAuditoriaService,
   registrarAuditoria,
   type ContextoAuditoria,
   type ResultadoAuditoria,
 } from "../services/platformAudit.service";
+import { asyncHandler } from "../shared/utils/asyncHandler";
 
 /** Arma el contexto de auditoría a partir del request — si no hay actor
  *  resuelto (rutas de login/logout, que corren antes de
@@ -187,7 +194,7 @@ function validarConAuditoria(
     usuarioId?: string | null;
   } = () => ({})
 ) {
-  return async (req: Request, res: Response, next: NextFunction) => {
+  return asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       req.validatedBody = await schema.parseAsync(req.body);
       next();
@@ -225,7 +232,7 @@ function validarConAuditoria(
 
       return res.status(500).json({ message: "Error interno validando formulario" });
     }
-  };
+  });
 }
 
 export function createPlatformRouter() {
@@ -233,48 +240,57 @@ export function createPlatformRouter() {
 
   // Sin platformAdminMiddleware a propósito: son las rutas que ESTABLECEN
   // la cookie que ese middleware después va a aceptar.
-  router.post("/sesion", rateLimiter, validate(platformSesionSchema), async (req, res) => {
-    const { token } = req.validatedBody as { token: string };
+  router.post(
+    "/sesion",
+    rateLimiter,
+    validate(platformSesionSchema),
+    asyncHandler(async (req, res) => {
+      const { token } = req.validatedBody as { token: string };
 
-    if (!env.platformAdminToken || !tokensCoinciden(token, env.platformAdminToken)) {
+      if (!env.platformAdminToken || !tokensCoinciden(token, env.platformAdminToken)) {
+        await registrarAuditoria({
+          accion: "platform.session.started",
+          contexto: contextoDe(req),
+          resultado: "failure",
+        });
+        return res.status(401).json({ ok: false, message: "Token inválido" });
+      }
+
+      const actor: ActorSesion = {
+        actorType: "emergency_shared_secret",
+        actorLabel: "secreto-compartido",
+      };
+      // sessionId es null si Redis no está disponible — en ese caso la
+      // cookie cae al formato legado (token crudo), sin sesión revocable
+      // individualmente (ver platformSession.service.ts).
+      const sessionId = await crearSesion(getClientIp(req), actor);
+      const valorCookie = sessionId ? cookieDeSesion(sessionId) : token;
+
+      // httpOnly a propósito: esta credencial puede tocar todos los tenants
+      // a la vez — nunca debe quedar en sessionStorage/localStorage legible
+      // por JS (un XSS en la página se lo robaría directo). path acotado a
+      // /api/platform: nunca se manda a las rutas de negocio de un tenant.
+      res.cookie(PLATFORM_SESSION_COOKIE, valorCookie, {
+        httpOnly: true,
+        secure: env.isProduction,
+        sameSite: "strict",
+        path: "/api/platform",
+        maxAge: env.platformSessionTtlMs,
+      });
+
       await registrarAuditoria({
         accion: "platform.session.started",
-        contexto: contextoDe(req),
-        resultado: "failure",
+        contexto: {
+          ...contextoDe(req),
+          sessionId: sessionId ?? undefined,
+          ...actorAContexto(actor),
+        },
+        detalle: sessionId ? undefined : { advertencia: "sin_redis_sesion_no_revocable" },
       });
-      return res.status(401).json({ ok: false, message: "Token inválido" });
-    }
 
-    const actor: ActorSesion = {
-      actorType: "emergency_shared_secret",
-      actorLabel: "secreto-compartido",
-    };
-    // sessionId es null si Redis no está disponible — en ese caso la
-    // cookie cae al formato legado (token crudo), sin sesión revocable
-    // individualmente (ver platformSession.service.ts).
-    const sessionId = await crearSesion(getClientIp(req), actor);
-    const valorCookie = sessionId ? cookieDeSesion(sessionId) : token;
-
-    // httpOnly a propósito: esta credencial puede tocar todos los tenants
-    // a la vez — nunca debe quedar en sessionStorage/localStorage legible
-    // por JS (un XSS en la página se lo robaría directo). path acotado a
-    // /api/platform: nunca se manda a las rutas de negocio de un tenant.
-    res.cookie(PLATFORM_SESSION_COOKIE, valorCookie, {
-      httpOnly: true,
-      secure: env.isProduction,
-      sameSite: "strict",
-      path: "/api/platform",
-      maxAge: env.platformSessionTtlMs,
-    });
-
-    await registrarAuditoria({
-      accion: "platform.session.started",
-      contexto: { ...contextoDe(req), sessionId: sessionId ?? undefined, ...actorAContexto(actor) },
-      detalle: sessionId ? undefined : { advertencia: "sin_redis_sesion_no_revocable" },
-    });
-
-    res.status(200).json({ ok: true });
-  });
+      res.status(200).json({ ok: true });
+    })
+  );
 
   // Login individual de un Platform Admin (email + password) — el "modo
   // preferido" desde que existen cuentas individuales (migrations/
@@ -287,7 +303,7 @@ export function createPlatformRouter() {
     rateLimiter,
     platformAdminLoginRateLimiter,
     validate(platformAdminLoginSchema),
-    async (req, res) => {
+    asyncHandler(async (req, res) => {
       const { email, password } = req.validatedBody as { email: string; password: string };
 
       if (!getRedis()) {
@@ -337,7 +353,7 @@ export function createPlatformRouter() {
       });
 
       res.status(200).json({ ok: true });
-    }
+    })
   );
 
   // ── SSO de Platform Admin (proveedor único global, ver env PLATFORM_SSO_*) ──
@@ -348,91 +364,109 @@ export function createPlatformRouter() {
     res.status(200).json({ ok: true, disponible: ssoDisponibleParaPlatformAdmin() });
   });
 
-  router.get("/sso/iniciar", rateLimiter, async (_req, res, next) => {
-    try {
-      const { redirectUrl } = await iniciarSsoPlatformAdminService();
-      res.redirect(redirectUrl);
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/sso/iniciar",
+    rateLimiter,
+    asyncHandler(async (_req, res, next) => {
+      try {
+        const { redirectUrl } = await iniciarSsoPlatformAdminService();
+        res.redirect(redirectUrl);
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
-  router.get("/sso/callback", rateLimiter, async (req, res) => {
-    try {
-      const state = typeof req.query.state === "string" ? req.query.state : "";
-      const currentUrl = new URL(`${req.protocol}://${req.get("host")}${req.originalUrl}`);
-      const { admin } = await manejarCallbackSsoPlatformAdminService(state, currentUrl);
+  router.get(
+    "/sso/callback",
+    rateLimiter,
+    asyncHandler(async (req, res) => {
+      try {
+        const state = typeof req.query.state === "string" ? req.query.state : "";
+        const currentUrl = new URL(`${req.protocol}://${req.get("host")}${req.originalUrl}`);
+        const { admin } = await manejarCallbackSsoPlatformAdminService(state, currentUrl);
 
-      const actor: ActorSesion = {
-        actorType: "platform_admin",
-        actorId: admin.id,
-        actorLabel: admin.email,
-      };
-      const sessionId = await crearSesion(getClientIp(req), actor);
-      if (!sessionId) {
-        return res.redirect(
-          `${env.appPublicUrl}/plataforma?ssoError=${encodeURIComponent("No se pudo iniciar sesión")}`
-        );
+        const actor: ActorSesion = {
+          actorType: "platform_admin",
+          actorId: admin.id,
+          actorLabel: admin.email,
+        };
+        const sessionId = await crearSesion(getClientIp(req), actor);
+        if (!sessionId) {
+          return res.redirect(
+            `${env.appPublicUrl}/plataforma?ssoError=${encodeURIComponent("No se pudo iniciar sesión")}`
+          );
+        }
+
+        res.cookie(PLATFORM_SESSION_COOKIE, cookieDeSesion(sessionId), {
+          httpOnly: true,
+          secure: env.isProduction,
+          sameSite: "strict",
+          path: "/api/platform",
+          maxAge: env.platformSessionTtlMs,
+        });
+
+        await registrarAuditoria({
+          accion: "platform.session.started",
+          contexto: { ...contextoDe(req), sessionId, ...actorAContexto(actor) },
+          detalle: { via: "sso" },
+        });
+
+        res.redirect(`${env.appPublicUrl}/plataforma`);
+      } catch (err) {
+        const mensaje = err instanceof Error ? err.message : "No se pudo iniciar sesión con SSO";
+        res.redirect(`${env.appPublicUrl}/plataforma?ssoError=${encodeURIComponent(mensaje)}`);
+      }
+    })
+  );
+
+  router.post(
+    "/sesion/salir",
+    asyncHandler(async (req, res) => {
+      const cookieValue = (req as Request & { cookies?: Record<string, string> }).cookies?.[
+        PLATFORM_SESSION_COOKIE
+      ];
+      const sessionId = cookieValue ? idSesionDeCookie(cookieValue) : null;
+
+      let actor: ActorSesion | undefined;
+      if (sessionId) {
+        actor = (await obtenerSesion(sessionId))?.actor;
+        await revocarSesion(sessionId);
+      } else if (cookieValue) {
+        // Formato legado (cookie = token crudo): solo el secreto compartido
+        // usaba esa forma.
+        actor = { actorType: "emergency_shared_secret", actorLabel: "secreto-compartido" };
       }
 
-      res.cookie(PLATFORM_SESSION_COOKIE, cookieDeSesion(sessionId), {
-        httpOnly: true,
-        secure: env.isProduction,
-        sameSite: "strict",
-        path: "/api/platform",
-        maxAge: env.platformSessionTtlMs,
-      });
-
+      res.clearCookie(PLATFORM_SESSION_COOKIE, { path: "/api/platform" });
       await registrarAuditoria({
-        accion: "platform.session.started",
-        contexto: { ...contextoDe(req), sessionId, ...actorAContexto(actor) },
-        detalle: { via: "sso" },
+        accion: "platform.session.ended",
+        contexto: {
+          ...contextoDe(req),
+          sessionId: sessionId ?? undefined,
+          ...actorAContexto(actor),
+        },
       });
-
-      res.redirect(`${env.appPublicUrl}/plataforma`);
-    } catch (err) {
-      const mensaje = err instanceof Error ? err.message : "No se pudo iniciar sesión con SSO";
-      res.redirect(`${env.appPublicUrl}/plataforma?ssoError=${encodeURIComponent(mensaje)}`);
-    }
-  });
-
-  router.post("/sesion/salir", async (req, res) => {
-    const cookieValue = (req as Request & { cookies?: Record<string, string> }).cookies?.[
-      PLATFORM_SESSION_COOKIE
-    ];
-    const sessionId = cookieValue ? idSesionDeCookie(cookieValue) : null;
-
-    let actor: ActorSesion | undefined;
-    if (sessionId) {
-      actor = (await obtenerSesion(sessionId))?.actor;
-      await revocarSesion(sessionId);
-    } else if (cookieValue) {
-      // Formato legado (cookie = token crudo): solo el secreto compartido
-      // usaba esa forma.
-      actor = { actorType: "emergency_shared_secret", actorLabel: "secreto-compartido" };
-    }
-
-    res.clearCookie(PLATFORM_SESSION_COOKIE, { path: "/api/platform" });
-    await registrarAuditoria({
-      accion: "platform.session.ended",
-      contexto: { ...contextoDe(req), sessionId: sessionId ?? undefined, ...actorAContexto(actor) },
-    });
-    res.status(200).json({ ok: true });
-  });
+      res.status(200).json({ ok: true });
+    })
+  );
 
   router.use(rateLimiter, platformAdminMiddleware);
 
   // "¿Quién soy?" — la UI lo usa para decidir si mostrar la sección de
   // administración de otros Platform Admin (solo super_admin/emergencia).
-  router.get("/whoami", async (req, res) => {
-    const actor = getPlatformActor(req);
-    res.status(200).json({
-      ok: true,
-      actorType: actor?.actorType ?? "unauthenticated",
-      actorLabel: actor?.actorLabel ?? null,
-      esSuperAdmin: await esSuperAdminVigente(actor),
-    });
-  });
+  router.get(
+    "/whoami",
+    asyncHandler(async (req, res) => {
+      const actor = getPlatformActor(req);
+      res.status(200).json({
+        ok: true,
+        actorType: actor?.actorType ?? "unauthenticated",
+        actorLabel: actor?.actorLabel ?? null,
+        esSuperAdmin: await esSuperAdminVigente(actor),
+      });
+    })
+  );
 
   // Revoca una sesión de login puntual (por su session_id, visible en la
   // propia auditoría) sin tener que rotar PLATFORM_ADMIN_TOKEN ni
@@ -440,35 +474,42 @@ export function createPlatformRouter() {
   // panel se vio comprometida". Requiere volver a autenticarse (bearer o
   // cookie válida) para revocar, como cualquier otra acción de acá para
   // abajo.
-  router.post("/sesiones/:sessionId/revocar", async (req, res, next) => {
-    try {
-      const revocada = await revocarSesion(req.params.sessionId);
-      await registrarAuditoria({
-        accion: "platform.session.revocada",
-        contexto: contextoDe(req),
-        detalle: { sessionId: req.params.sessionId, revocada },
-      });
-      res.status(200).json({ ok: true, revocada });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.post(
+    "/sesiones/:sessionId/revocar",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const revocada = await revocarSesion(req.params.sessionId);
+        await registrarAuditoria({
+          accion: "platform.session.revocada",
+          contexto: contextoDe(req),
+          detalle: { sessionId: req.params.sessionId, revocada },
+        });
+        res.status(200).json({ ok: true, revocada });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
   // ── Gestión de otras cuentas de Platform Admin (solo super_admin) ──────
-  router.get("/admins", platformSuperAdminMiddleware, async (req, res, next) => {
-    try {
-      const admins = await listarPlatformAdminsService();
-      res.status(200).json({ ok: true, admins });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/admins",
+    platformSuperAdminMiddleware,
+    asyncHandler(async (req, res, next) => {
+      try {
+        const admins = await listarPlatformAdminsService();
+        res.status(200).json({ ok: true, admins });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
   router.post(
     "/admins",
     platformSuperAdminMiddleware,
     validarConAuditoria(crearPlatformAdminSchema, "crear_platform_admin"),
-    async (req, res, next) => {
+    asyncHandler(async (req, res, next) => {
       try {
         const input = req.validatedBody as {
           email: string;
@@ -486,25 +527,29 @@ export function createPlatformRouter() {
       } catch (err) {
         next(err);
       }
-    }
+    })
   );
 
   // Sesiones activas de un admin puntual — para poder revocar una sola
   // (ver POST /sesiones/:sessionId/revocar) sin desactivar la cuenta entera.
-  router.get("/admins/:id/sesiones", platformSuperAdminMiddleware, async (req, res, next) => {
-    try {
-      const sesiones = await listarSesionesDeAdmin(req.params.id);
-      res.status(200).json({ ok: true, sesiones });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/admins/:id/sesiones",
+    platformSuperAdminMiddleware,
+    asyncHandler(async (req, res, next) => {
+      try {
+        const sesiones = await listarSesionesDeAdmin(req.params.id);
+        res.status(200).json({ ok: true, sesiones });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
   router.patch(
     "/admins/:id/estado",
     platformSuperAdminMiddleware,
     validarConAuditoria(cambiarEstadoPlatformAdminSchema, "cambiar_estado_platform_admin"),
-    async (req, res, next) => {
+    asyncHandler(async (req, res, next) => {
       try {
         const actor = getPlatformActor(req);
         const { activo, motivo } = req.validatedBody as { activo: boolean; motivo?: string };
@@ -528,56 +573,71 @@ export function createPlatformRouter() {
       } catch (err) {
         next(err);
       }
-    }
+    })
   );
 
-  router.get("/tenants", async (req, res, next) => {
-    try {
-      const tenants = await listarTenantsService();
-      res.status(200).json({ ok: true, tenants });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/tenants",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const tenants = await listarTenantsService();
+        res.status(200).json({ ok: true, tenants });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
   // Resumen de salud de todos los tenants — antes de /tenants/:id/salud
   // a propósito (aunque Express no los confunde, distinta cantidad de
   // segmentos): así queda junto al resto de las rutas "de lista".
-  router.get("/tenants/salud", async (req, res, next) => {
-    try {
-      const salud = await obtenerSaludTodosLosTenantsService();
-      res.status(200).json({ ok: true, salud });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/tenants/salud",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const salud = await obtenerSaludTodosLosTenantsService();
+        res.status(200).json({ ok: true, salud });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
-  router.get("/tenants/:id/salud", async (req, res, next) => {
-    try {
-      const salud = await obtenerSaludTenantService(req.params.id);
-      res.status(200).json({ ok: true, salud });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/tenants/:id/salud",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const salud = await obtenerSaludTenantService(req.params.id);
+        res.status(200).json({ ok: true, salud });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
-  router.get("/tenants/:id/backups", async (req, res, next) => {
-    try {
-      const backups = await listarBackupsTenantService(req.params.id);
-      res.status(200).json({ ok: true, backups });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/tenants/:id/backups",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const backups = await listarBackupsTenantService(req.params.id);
+        res.status(200).json({ ok: true, backups });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
-  router.post("/tenants/:id/backups", async (req, res, next) => {
-    try {
-      const backup = await exportarTenantService(req.params.id, contextoDe(req));
-      res.status(201).json({ ok: true, backup });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.post(
+    "/tenants/:id/backups",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const backup = await exportarTenantService(req.params.id, contextoDe(req));
+        res.status(201).json({ ok: true, backup });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
   // Destructivo (vacía el tenant destino antes de restaurar) — gateado a
   // super_admin/emergencia, mismo criterio que el toggle global de
@@ -587,7 +647,7 @@ export function createPlatformRouter() {
     "/backups/:backupId/restaurar",
     platformSuperAdminMiddleware,
     validate(restaurarBackupSchema),
-    async (req, res, next) => {
+    asyncHandler(async (req, res, next) => {
       try {
         const { targetTenantId } = req.validatedBody as { targetTenantId: string; confirmar: true };
         const resultado = await restaurarBackupService(
@@ -599,7 +659,7 @@ export function createPlatformRouter() {
       } catch (err) {
         next(err);
       }
-    }
+    })
   );
 
   // ── Planes ────────────────────────────────────────────────────────────
@@ -607,33 +667,42 @@ export function createPlatformRouter() {
   // nombre de límites por recurso; el escalón intermedio entre la excepción
   // puntual de un tenant y el default global del registry.
 
-  router.get("/planes", async (req, res, next) => {
-    try {
-      // ?soloActivos=true para el selector del panel: un plan dado de baja
-      // no debe ofrecerse para asignar, pero sí seguir siendo visible en el
-      // listado completo (los tenants que ya lo tienen lo conservan).
-      const planes = await listarPlanesService(req.query.soloActivos === "true");
-      res.status(200).json({ ok: true, planes });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/planes",
+    asyncHandler(async (req, res, next) => {
+      try {
+        // ?soloActivos=true para el selector del panel: un plan dado de baja
+        // no debe ofrecerse para asignar, pero sí seguir siendo visible en el
+        // listado completo (los tenants que ya lo tienen lo conservan).
+        const planes = await listarPlanesService(req.query.soloActivos === "true");
+        res.status(200).json({ ok: true, planes });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
-  router.get("/planes/:idOCodigo", async (req, res, next) => {
-    try {
-      res.status(200).json({ ok: true, plan: await obtenerPlanService(req.params.idOCodigo) });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/planes/:idOCodigo",
+    asyncHandler(async (req, res, next) => {
+      try {
+        res.status(200).json({ ok: true, plan: await obtenerPlanService(req.params.idOCodigo) });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
-  router.get("/tenants/:id/plan", async (req, res, next) => {
-    try {
-      res.status(200).json({ ok: true, plan: await obtenerPlanDeTenantService(req.params.id) });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/tenants/:id/plan",
+    asyncHandler(async (req, res, next) => {
+      try {
+        res.status(200).json({ ok: true, plan: await obtenerPlanDeTenantService(req.params.id) });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
   // super_admin, mismo criterio que el ajuste de cuotas: cambia lo que un
   // cliente puede consumir. La respuesta incluye `recursosExcedidos` para
@@ -643,7 +712,7 @@ export function createPlatformRouter() {
     "/tenants/:id/plan",
     platformSuperAdminMiddleware,
     validate(asignarPlanTenantSchema),
-    async (req, res, next) => {
+    asyncHandler(async (req, res, next) => {
       try {
         const { plan, motivo } = req.validatedBody as { plan: string | null; motivo?: string };
         const resultado = await asignarPlanATenantService(
@@ -656,7 +725,7 @@ export function createPlatformRouter() {
       } catch (err) {
         next(err);
       }
-    }
+    })
   );
 
   // ── Cuotas por tenant ─────────────────────────────────────────────────
@@ -665,32 +734,35 @@ export function createPlatformRouter() {
   // el consumo real, y pedirlos por separado invitaría a mostrar uno sin
   // el otro.
 
-  router.get("/tenants/:id/cuotas", async (req, res, next) => {
-    try {
-      // El rate limit va SEPARADO de `cuotas` a propósito: es un ritmo
-      // (req/min), no un acumulado, y meterlo en la misma tabla obligaría a
-      // inventar un valor de "uso" que no significa nada. Se devuelve con su
-      // sugerencia y los datos que la justifican, para que quien lo configure
-      // decida mirando el tráfico real y no adivinando.
-      const [cuotas, rateLimitRpm, sugerencia] = await Promise.all([
-        resumenCuotasTenant(req.params.id),
-        resolverRateLimitTenant(req.params.id),
-        sugerirRateLimitTenant(req.params.id),
-      ]);
+  router.get(
+    "/tenants/:id/cuotas",
+    asyncHandler(async (req, res, next) => {
+      try {
+        // El rate limit va SEPARADO de `cuotas` a propósito: es un ritmo
+        // (req/min), no un acumulado, y meterlo en la misma tabla obligaría a
+        // inventar un valor de "uso" que no significa nada. Se devuelve con su
+        // sugerencia y los datos que la justifican, para que quien lo configure
+        // decida mirando el tráfico real y no adivinando.
+        const [cuotas, rateLimitRpm, sugerencia] = await Promise.all([
+          resumenCuotasTenant(req.params.id),
+          resolverRateLimitTenant(req.params.id),
+          sugerirRateLimitTenant(req.params.id),
+        ]);
 
-      res.status(200).json({
-        ok: true,
-        cuotas,
-        rateLimit: {
-          recurso: RECURSO_RATE_LIMIT,
-          limiteRpm: rateLimitRpm, // null = sin techo
-          ...sugerencia,
-        },
-      });
-    } catch (err) {
-      next(err);
-    }
-  });
+        res.status(200).json({
+          ok: true,
+          cuotas,
+          rateLimit: {
+            recurso: RECURSO_RATE_LIMIT,
+            limiteRpm: rateLimitRpm, // null = sin techo
+            ...sugerencia,
+          },
+        });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
   // Subirle la cuota a UN cliente es una decisión comercial puntual; subir
   // el default de TODOS es cambiar el registry y desplegar (ver la
@@ -700,7 +772,7 @@ export function createPlatformRouter() {
     "/tenants/:id/cuotas",
     platformSuperAdminMiddleware,
     validate(fijarCuotaTenantSchema),
-    async (req, res, next) => {
+    asyncHandler(async (req, res, next) => {
       try {
         const { recurso, limite, motivo } = req.validatedBody as {
           recurso: string;
@@ -729,7 +801,7 @@ export function createPlatformRouter() {
       } catch (err) {
         next(err);
       }
-    }
+    })
   );
 
   // ── Backups de la capa de plataforma ──────────────────────────────────
@@ -738,27 +810,34 @@ export function createPlatformRouter() {
   // (password_hash de admins, secretos de SSO) — ver
   // platformBackupPlataforma.service.ts.
 
-  router.get("/backups/plataforma", async (_req, res, next) => {
-    try {
-      const backups = await listarBackupsPlataformaService();
-      res.status(200).json({ ok: true, backups });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/backups/plataforma",
+    asyncHandler(async (_req, res, next) => {
+      try {
+        const backups = await listarBackupsPlataformaService();
+        res.status(200).json({ ok: true, backups });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
   // Crear el backup exige super_admin: a diferencia del backup de un
   // tenant (que solo copia datos que ese admin ya puede ver por el panel),
   // éste materializa en un solo archivo los hashes de contraseña de TODOS
   // los admins de plataforma y los secretos de SSO de todos los clientes.
-  router.post("/backups/plataforma", platformSuperAdminMiddleware, async (req, res, next) => {
-    try {
-      const backup = await exportarPlataformaService(contextoDe(req));
-      res.status(201).json({ ok: true, backup });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.post(
+    "/backups/plataforma",
+    platformSuperAdminMiddleware,
+    asyncHandler(async (req, res, next) => {
+      try {
+        const backup = await exportarPlataformaService(contextoDe(req));
+        res.status(201).json({ ok: true, backup });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
   // Aditivo, nunca destructivo (ver restaurarBackupPlataformaService), pero
   // igual gateado a super_admin + confirmar:true: reinsertar tenants o
@@ -768,7 +847,7 @@ export function createPlatformRouter() {
     "/backups/plataforma/:backupId/restaurar",
     platformSuperAdminMiddleware,
     validate(restaurarBackupPlataformaSchema),
-    async (req, res, next) => {
+    asyncHandler(async (req, res, next) => {
       try {
         const resultado = await restaurarBackupPlataformaService(
           req.params.backupId,
@@ -778,7 +857,7 @@ export function createPlatformRouter() {
       } catch (err) {
         next(err);
       }
-    }
+    })
   );
 
   // Compartido entre /tenants y /tenants/onboard — ambos son "crear un
@@ -831,10 +910,15 @@ export function createPlatformRouter() {
     "/tenants",
     platformTenantRateLimiter,
     validarConAuditoria(crearTenantSchema, "crear_tenant"),
-    (req, res, next) =>
+    asyncHandler((req, res, next) =>
       crearTenantConIdempotencia(req, res, next, (idempotencyKey) =>
-        crearTenantConAdminService(req.validatedBody as any, contextoDe(req), idempotencyKey)
+        crearTenantConAdminService(
+          req.validatedBody as CrearTenantInput,
+          contextoDe(req),
+          idempotencyKey
+        )
       )
+    )
   );
 
   // Onboarding completo: lo mismo que /tenants + asignación de plan inicial
@@ -848,10 +932,15 @@ export function createPlatformRouter() {
     platformTenantRateLimiter,
     platformSuperAdminMiddleware,
     validarConAuditoria(onboardTenantSchema, "onboard_tenant"),
-    (req, res, next) =>
+    asyncHandler((req, res, next) =>
       crearTenantConIdempotencia(req, res, next, (idempotencyKey) =>
-        onboardTenantService(req.validatedBody as any, contextoDe(req), idempotencyKey)
+        onboardTenantService(
+          req.validatedBody as OnboardTenantInput,
+          contextoDe(req),
+          idempotencyKey
+        )
       )
+    )
   );
 
   router.patch(
@@ -859,7 +948,7 @@ export function createPlatformRouter() {
     validarConAuditoria(cambiarEstadoTenantSchema, "cambiar_estado_tenant", (req) => ({
       tenantId: req.params.id,
     })),
-    async (req, res, next) => {
+    asyncHandler(async (req, res, next) => {
       try {
         const { activo, motivo } = req.validatedBody as { activo: boolean; motivo?: string };
         const tenant = await cambiarEstadoTenantService(
@@ -872,22 +961,25 @@ export function createPlatformRouter() {
       } catch (err) {
         next(err);
       }
-    }
+    })
   );
 
-  router.get("/tenants/:id/dominio", async (req, res, next) => {
-    try {
-      const dominio = await obtenerDominioTenantService(req.params.id);
-      res.status(200).json({ ok: true, dominio });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/tenants/:id/dominio",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const dominio = await obtenerDominioTenantService(req.params.id);
+        res.status(200).json({ ok: true, dominio });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
   router.patch(
     "/tenants/:id/dominio",
     validate(actualizarDominioSchema),
-    async (req, res, next) => {
+    asyncHandler(async (req, res, next) => {
       try {
         const { dominioPersonalizado } = req.validatedBody as {
           dominioPersonalizado: string | null;
@@ -901,88 +993,110 @@ export function createPlatformRouter() {
       } catch (err) {
         next(err);
       }
-    }
+    })
   );
 
   // Consulta DNS de verdad (TXT record) y activa el dominio si coincide —
   // se puede llamar cuantas veces haga falta mientras el cliente termina
   // de propagar su DNS, sin perder el token entre intentos.
-  router.post("/tenants/:id/dominio/verificar", async (req, res, next) => {
-    try {
-      const dominio = await verificarDominioService(req.params.id, contextoDe(req));
-      res.status(200).json({ ok: true, dominio });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.post(
+    "/tenants/:id/dominio/verificar",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const dominio = await verificarDominioService(req.params.id, contextoDe(req));
+        res.status(200).json({ ok: true, dominio });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
   // ── SSO del tenant (config por empresa, ver tenant_sso_config) ─────────
-  router.get("/tenants/:id/sso", async (req, res, next) => {
-    try {
-      const sso = await obtenerConfigSsoTenantService(req.params.id);
-      res.status(200).json({ ok: true, sso });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/tenants/:id/sso",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const sso = await obtenerConfigSsoTenantService(req.params.id);
+        res.status(200).json({ ok: true, sso });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
-  router.put("/tenants/:id/sso", validate(configurarSsoTenantSchema), async (req, res, next) => {
-    try {
-      const sso = await configurarSsoTenantService(
-        req.params.id,
-        req.validatedBody as any,
-        contextoDe(req)
-      );
-      res.status(200).json({ ok: true, sso });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.put(
+    "/tenants/:id/sso",
+    validate(configurarSsoTenantSchema),
+    asyncHandler(async (req, res, next) => {
+      try {
+        const sso = await configurarSsoTenantService(
+          req.params.id,
+          req.validatedBody as ConfigurarSsoTenantInput,
+          contextoDe(req)
+        );
+        res.status(200).json({ ok: true, sso });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
   // ── SCIM del tenant (config del token, ver tenant_scim_config) ─────────
-  router.get("/tenants/:id/scim", async (req, res, next) => {
-    try {
-      const scim = await obtenerConfigScimService(req.params.id);
-      res.status(200).json({ ok: true, scim });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/tenants/:id/scim",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const scim = await obtenerConfigScimService(req.params.id);
+        res.status(200).json({ ok: true, scim });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
   // Devuelve el token en texto plano UNA SOLA VEZ — el panel lo muestra al
   // admin en el momento y no lo vuelve a pedir (no se puede: solo se guarda
   // el hash, ver platformScim.service.ts).
-  router.post("/tenants/:id/scim/token", async (req, res, next) => {
-    try {
-      const token = await generarTokenScimService(req.params.id, contextoDe(req));
-      res.status(200).json({ ok: true, token });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.post(
+    "/tenants/:id/scim/token",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const token = await generarTokenScimService(req.params.id, contextoDe(req));
+        res.status(200).json({ ok: true, token });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
-  router.delete("/tenants/:id/scim/token", async (req, res, next) => {
-    try {
-      await revocarTokenScimService(req.params.id, contextoDe(req));
-      res.status(200).json({ ok: true });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.delete(
+    "/tenants/:id/scim/token",
+    asyncHandler(async (req, res, next) => {
+      try {
+        await revocarTokenScimService(req.params.id, contextoDe(req));
+        res.status(200).json({ ok: true });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
-  router.get("/tenants/:id/modulos", async (req, res, next) => {
-    try {
-      const modulos = await obtenerModulosTenantService(req.params.id);
-      res.status(200).json({ ok: true, modulos });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/tenants/:id/modulos",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const modulos = await obtenerModulosTenantService(req.params.id);
+        res.status(200).json({ ok: true, modulos });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
   router.put(
     "/tenants/:id/modulos",
     validate(actualizarModulosTenantSchema),
-    async (req, res, next) => {
+    asyncHandler(async (req, res, next) => {
       try {
         const { configuraciones } = req.validatedBody as { configuraciones: ConfiguracionModulo[] };
         const resultado = await actualizarModulosTenantService(
@@ -994,7 +1108,7 @@ export function createPlatformRouter() {
       } catch (err) {
         next(err);
       }
-    }
+    })
   );
 
   // Aplica el mismo estado a un módulo en TODOS los tenants de una sola
@@ -1005,7 +1119,7 @@ export function createPlatformRouter() {
     "/modulos/:modulo/global",
     platformSuperAdminMiddleware,
     validate(actualizarModuloGlobalSchema),
-    async (req, res, next) => {
+    asyncHandler(async (req, res, next) => {
       try {
         if (!MODULOS_ERP.includes(req.params.modulo as (typeof MODULOS_ERP)[number])) {
           return res.status(400).json({ ok: false, message: "Módulo desconocido" });
@@ -1020,35 +1134,38 @@ export function createPlatformRouter() {
       } catch (err) {
         next(err);
       }
-    }
+    })
   );
 
-  router.get("/tenants/:id/usuarios", async (req, res, next) => {
-    try {
-      const usuarios = await listarUsuariosTenantService(req.params.id);
-      res.status(200).json({ ok: true, usuarios });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/tenants/:id/usuarios",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const usuarios = await listarUsuariosTenantService(req.params.id);
+        res.status(200).json({ ok: true, usuarios });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
   router.post(
     "/tenants/:id/usuarios",
     validarConAuditoria(crearUsuarioEnTenantSchema, "crear_usuario", (req) => ({
       tenantId: req.params.id,
     })),
-    async (req, res, next) => {
+    asyncHandler(async (req, res, next) => {
       try {
         const usuario = await crearUsuarioEnTenantService(
           req.params.id,
-          req.validatedBody as any,
+          req.validatedBody as CrearUsuarioEnTenantInput,
           contextoDe(req)
         );
         res.status(201).json({ ok: true, usuario });
       } catch (err) {
         next(err);
       }
-    }
+    })
   );
 
   // Anidadas bajo su tenant a propósito (no /usuarios/:id/...): usuarios
@@ -1061,7 +1178,7 @@ export function createPlatformRouter() {
       tenantId: req.params.tenantId,
       usuarioId: req.params.usuarioId,
     })),
-    async (req, res, next) => {
+    asyncHandler(async (req, res, next) => {
       try {
         const { activo, motivo } = req.validatedBody as { activo: boolean; motivo?: string };
         const usuario = await cambiarEstadoUsuarioService(
@@ -1075,22 +1192,28 @@ export function createPlatformRouter() {
       } catch (err) {
         next(err);
       }
-    }
+    })
   );
 
-  router.get("/tenants/:tenantId/usuarios/:usuarioId/modulos", async (req, res, next) => {
-    try {
-      const modulos = await obtenerModulosUsuarioService(req.params.tenantId, req.params.usuarioId);
-      res.status(200).json({ ok: true, modulos });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/tenants/:tenantId/usuarios/:usuarioId/modulos",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const modulos = await obtenerModulosUsuarioService(
+          req.params.tenantId,
+          req.params.usuarioId
+        );
+        res.status(200).json({ ok: true, modulos });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
   router.put(
     "/tenants/:tenantId/usuarios/:usuarioId/modulos",
     validate(actualizarModulosSchema),
-    async (req, res, next) => {
+    asyncHandler(async (req, res, next) => {
       try {
         const { modulos } = req.validatedBody as { modulos: string[] };
         const resultado = await actualizarModulosUsuarioService(
@@ -1103,61 +1226,64 @@ export function createPlatformRouter() {
       } catch (err) {
         next(err);
       }
-    }
+    })
   );
 
-  router.get("/auditoria", async (req, res, next) => {
-    try {
-      const q = req.query;
-      const tenantId = typeof q.tenantId === "string" ? q.tenantId : undefined;
-      const accion = typeof q.accion === "string" ? q.accion : undefined;
-      const resultado: ResultadoAuditoria | undefined =
-        q.resultado === "success" || q.resultado === "failure" ? q.resultado : undefined;
-      const sessionId = typeof q.sessionId === "string" ? q.sessionId : undefined;
-      const actorId = typeof q.actorId === "string" ? q.actorId : undefined;
-      const desde = typeof q.desde === "string" ? q.desde : undefined;
-      const hasta = typeof q.hasta === "string" ? q.hasta : undefined;
-      const limit = typeof q.limit === "string" ? Number(q.limit) : undefined;
+  router.get(
+    "/auditoria",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const q = req.query;
+        const tenantId = typeof q.tenantId === "string" ? q.tenantId : undefined;
+        const accion = typeof q.accion === "string" ? q.accion : undefined;
+        const resultado: ResultadoAuditoria | undefined =
+          q.resultado === "success" || q.resultado === "failure" ? q.resultado : undefined;
+        const sessionId = typeof q.sessionId === "string" ? q.sessionId : undefined;
+        const actorId = typeof q.actorId === "string" ? q.actorId : undefined;
+        const desde = typeof q.desde === "string" ? q.desde : undefined;
+        const hasta = typeof q.hasta === "string" ? q.hasta : undefined;
+        const limit = typeof q.limit === "string" ? Number(q.limit) : undefined;
 
-      if (
-        (desde && Number.isNaN(Date.parse(desde))) ||
-        (hasta && Number.isNaN(Date.parse(hasta)))
-      ) {
-        return res.status(400).json({ ok: false, message: "Rango de fechas inválido" });
-      }
-
-      let cursor: { creadoEn: string; id: string } | undefined;
-      if (typeof q.cursor === "string" && q.cursor) {
-        const [creadoEn, id] = Buffer.from(q.cursor, "base64url").toString("utf8").split("|");
-        if (!creadoEn || !id) {
-          return res.status(400).json({ ok: false, message: "Cursor inválido" });
+        if (
+          (desde && Number.isNaN(Date.parse(desde))) ||
+          (hasta && Number.isNaN(Date.parse(hasta)))
+        ) {
+          return res.status(400).json({ ok: false, message: "Rango de fechas inválido" });
         }
-        cursor = { creadoEn, id };
+
+        let cursor: { creadoEn: string; id: string } | undefined;
+        if (typeof q.cursor === "string" && q.cursor) {
+          const [creadoEn, id] = Buffer.from(q.cursor, "base64url").toString("utf8").split("|");
+          if (!creadoEn || !id) {
+            return res.status(400).json({ ok: false, message: "Cursor inválido" });
+          }
+          cursor = { creadoEn, id };
+        }
+
+        const pagina = await listarAuditoriaService({
+          tenantId,
+          accion,
+          resultado,
+          sessionId,
+          actorId,
+          desde,
+          hasta,
+          cursor,
+          limit,
+        });
+
+        const siguienteCursor = pagina.siguienteCursor
+          ? Buffer.from(`${pagina.siguienteCursor.creadoEn}|${pagina.siguienteCursor.id}`).toString(
+              "base64url"
+            )
+          : null;
+
+        res.status(200).json({ ok: true, entradas: pagina.entradas, siguienteCursor });
+      } catch (err) {
+        next(err);
       }
-
-      const pagina = await listarAuditoriaService({
-        tenantId,
-        accion,
-        resultado,
-        sessionId,
-        actorId,
-        desde,
-        hasta,
-        cursor,
-        limit,
-      });
-
-      const siguienteCursor = pagina.siguienteCursor
-        ? Buffer.from(`${pagina.siguienteCursor.creadoEn}|${pagina.siguienteCursor.id}`).toString(
-            "base64url"
-          )
-        : null;
-
-      res.status(200).json({ ok: true, entradas: pagina.entradas, siguienteCursor });
-    } catch (err) {
-      next(err);
-    }
-  });
+    })
+  );
 
   return router;
 }

@@ -29,6 +29,7 @@ import { registrarAuditoria } from "../../services/platformAudit.service";
 import { contextoAuditoriaModulo } from "../utils/moduleAudit";
 import { obtenerModulo } from "../../../modules/registry";
 import { logger } from "../../config/logger";
+import { asyncHandler } from "../utils/asyncHandler";
 
 /** Cuántos registros va a crear este request. El body de los endpoints
  *  /bulk es un array crudo (ver repuestos.controller.ts); cualquier otro
@@ -53,7 +54,7 @@ export function requireCuota(moduloId: string) {
     return (_req: Request, _res: Response, next: NextFunction) => next();
   }
 
-  return async (req: Request, res: Response, next: NextFunction) => {
+  return asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     if (req.method !== "POST") return next();
 
     try {
@@ -99,5 +100,5 @@ export function requireCuota(moduloId: string) {
       }
       next(err);
     }
-  };
+  });
 }

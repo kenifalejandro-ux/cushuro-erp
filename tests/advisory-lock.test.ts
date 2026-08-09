@@ -49,7 +49,7 @@ describe("runSiPrimero", () => {
       await otraSesion.query("SELECT pg_advisory_xact_lock($1)", [LOCK_ID_TEST]);
 
       let corrio = false;
-      const resultado = await runSiPrimero(LOCK_ID_TEST, async (client) => {
+      const resultado = await runSiPrimero(LOCK_ID_TEST, async (_client) => {
         corrio = true;
         return "no debería llegar acá";
       });

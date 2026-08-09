@@ -3,6 +3,15 @@
 import type { PoolClient } from "pg";
 import type { Paginacion } from "../../server/shared/utils/pagination";
 
+// Sin schema de validación (req.body pasa directo desde el controller) --
+// documenta la forma asumida por las queries de abajo, no valida en runtime.
+export type EquipoPayload = {
+  placa_codigo: string;
+  tipo: string;
+  marca?: string;
+  modelo?: string;
+};
+
 export const EquiposRepository = {
   async findAll(client: PoolClient, tenantId: string, { pageSize, offset }: Paginacion) {
     const result = await client.query(
@@ -20,7 +29,7 @@ export const EquiposRepository = {
     return result.rows;
   },
 
-  async create(client: PoolClient, tenantId: string, data: any) {
+  async create(client: PoolClient, tenantId: string, data: EquipoPayload) {
     const { placa_codigo, tipo, marca, modelo } = data;
 
     const result = await client.query(
@@ -33,7 +42,7 @@ export const EquiposRepository = {
     return result.rows[0];
   },
 
-  async update(client: PoolClient, tenantId: string, id: number, data: any) {
+  async update(client: PoolClient, tenantId: string, id: number, data: EquipoPayload) {
     const { placa_codigo, tipo, marca, modelo } = data;
 
     const result = await client.query(

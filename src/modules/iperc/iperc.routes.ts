@@ -3,6 +3,7 @@
 import { Router } from "express";
 import { validate } from "../../server/middleware/validate";
 import { requireRole } from "../../server/shared/middlewares/roles.middleware";
+import { asyncHandler } from "../../server/shared/utils/asyncHandler";
 import {
   crearIpercSchema,
   cambiarEstadoIpercSchema,
@@ -13,30 +14,34 @@ import { IpercController } from "./iperc.controller";
 const router = Router();
 
 // Línea Base
-router.get("/lineas-base", IpercController.getLineasBase);
-router.get("/lineas-base/:id", IpercController.getLineaBase);
+router.get("/lineas-base", asyncHandler(IpercController.getLineasBase));
+router.get("/lineas-base/:id", asyncHandler(IpercController.getLineaBase));
 router.post(
   "/lineas-base",
   requireRole("admin", "operador"),
   validate(crearLineaBaseSchema),
-  IpercController.crearLineaBase
+  asyncHandler(IpercController.crearLineaBase)
 );
 router.patch(
   "/lineas-base/:id/estado",
   requireRole("admin"),
   validate(cambiarEstadoIpercSchema),
-  IpercController.cambiarEstadoLineaBase
+  asyncHandler(IpercController.cambiarEstadoLineaBase)
 );
-router.delete("/lineas-base/:id", requireRole("admin"), IpercController.eliminarLineaBase);
+router.delete(
+  "/lineas-base/:id",
+  requireRole("admin"),
+  asyncHandler(IpercController.eliminarLineaBase)
+);
 
 // Continuo / Específico (ver campo `tipo`)
-router.get("/", IpercController.getAll);
-router.get("/:id", IpercController.getById);
+router.get("/", asyncHandler(IpercController.getAll));
+router.get("/:id", asyncHandler(IpercController.getById));
 router.post(
   "/",
   requireRole("admin", "operador"),
   validate(crearIpercSchema),
-  IpercController.crear
+  asyncHandler(IpercController.crear)
 );
 
 // Aprobar/rechazar: solo admin — se reutiliza el rol existente en vez de
@@ -47,9 +52,9 @@ router.patch(
   "/:id/estado",
   requireRole("admin"),
   validate(cambiarEstadoIpercSchema),
-  IpercController.cambiarEstado
+  asyncHandler(IpercController.cambiarEstado)
 );
 
-router.delete("/:id", requireRole("admin"), IpercController.eliminar);
+router.delete("/:id", requireRole("admin"), asyncHandler(IpercController.eliminar));
 
 export default router;
