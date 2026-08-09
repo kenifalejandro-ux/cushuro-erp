@@ -16,7 +16,7 @@ export const DocumentosController = {
         DocumentosService.getAll(client, tenantId, paginacion)
       );
       res.json(armarRespuestaPaginada(filas, paginacion));
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Error al obtener documentos" });
     }
   },

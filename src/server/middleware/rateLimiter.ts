@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { env } from "../config/env";
 import { getRedis } from "../config/redis";
 import { getClientIp, getRequestId } from "../shared/utils/request";
+import { asyncHandler } from "../shared/utils/asyncHandler";
 
 type MemoryEntry = { count: number; resetAt: number };
 
@@ -36,7 +37,11 @@ function sendRateLimitResponse(req: Request, res: Response, retryAfterSeconds: n
   return res.status(429).send("Demasiados intentos. Espera un momento antes de volver a enviar.");
 }
 
-export default async function rateLimiter(req: Request, res: Response, next: NextFunction) {
+export default asyncHandler(async function rateLimiter(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   const ip = getClientIp(req);
   const requestId = getRequestId(req);
   const key = `form:${req.path}:${ip}`;
@@ -114,4 +119,4 @@ export default async function rateLimiter(req: Request, res: Response, next: Nex
   }
 
   next();
-}
+});

@@ -2,18 +2,18 @@
 
 import type { PoolClient } from "pg";
 import type { Paginacion } from "../../server/shared/utils/pagination";
-import { DocumentosRepository } from "./documentos.repository";
+import { DocumentosRepository, type DocumentoPayload } from "./documentos.repository";
 
 export const DocumentosService = {
   getAll(client: PoolClient, tenantId: string, paginacion: Paginacion) {
     return DocumentosRepository.findAll(client, tenantId, paginacion);
   },
 
-  create(client: PoolClient, tenantId: string, data: any) {
+  create(client: PoolClient, tenantId: string, data: DocumentoPayload) {
     return DocumentosRepository.create(client, tenantId, data);
   },
 
-  update(client: PoolClient, tenantId: string, id: number, data: any) {
+  update(client: PoolClient, tenantId: string, id: number, data: DocumentoPayload) {
     return DocumentosRepository.update(client, tenantId, id, data);
   },
 
@@ -21,7 +21,7 @@ export const DocumentosService = {
     return DocumentosRepository.delete(client, tenantId, id);
   },
 
-  bulkCreate(client: PoolClient, tenantId: string, data: any[]) {
+  bulkCreate(client: PoolClient, tenantId: string, data: DocumentoPayload[]) {
     return DocumentosRepository.bulkCreate(client, tenantId, data);
   },
 

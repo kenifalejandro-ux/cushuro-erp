@@ -32,7 +32,7 @@ export function armarRespuestaPaginada<T extends { total_count?: string | number
   { page, pageSize }: Paginacion
 ) {
   const total = filas.length > 0 ? Number(filas[0].total_count) : 0;
-  const data = filas.map(({ total_count, ...resto }) => resto);
+  const data = filas.map(({ total_count: _total_count, ...resto }) => resto);
 
   return {
     data,

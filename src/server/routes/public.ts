@@ -3,33 +3,39 @@
 import { Router } from "express";
 import { env } from "../config/env";
 import { getRedis } from "../config/redis";
+import { asyncHandler } from "../shared/utils/asyncHandler";
+import rateLimiter from "../middleware/rateLimiter";
 
 export function createPublicRouter() {
   const router = Router();
 
   // Ruta de estado general del servidor (útil para debugging)
-  router.get("/status", async (_req, res) => {
-    const redis = getRedis();
-    let redisStatus = "disabled";
+  router.get(
+    "/status",
+    rateLimiter,
+    asyncHandler(async (_req, res) => {
+      const redis = getRedis();
+      let redisStatus = "disabled";
 
-    if (redis) {
-      try {
-        await redis.ping();
-        redisStatus = "connected";
-      } catch {
-        redisStatus = "error";
+      if (redis) {
+        try {
+          await redis.ping();
+          redisStatus = "connected";
+        } catch {
+          redisStatus = "error";
+        }
       }
-    }
 
-    return res.json({
-      ok: true,
-      message: "MinCore ERP API running",
-      port: env.port,
-      redis: redisStatus,
-      environment: env.isProduction ? "production" : "development",
-      timestamp: new Date().toISOString(),
-    });
-  });
+      return res.json({
+        ok: true,
+        message: "MinCore ERP API running",
+        port: env.port,
+        redis: redisStatus,
+        environment: env.isProduction ? "production" : "development",
+        timestamp: new Date().toISOString(),
+      });
+    })
+  );
 
   // Ruta de health check simple (útil para frontend)
   router.get("/health", (_req, res) => {

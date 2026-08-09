@@ -17,6 +17,7 @@ import { getClientIp } from "../shared/utils/request";
 import { pool } from "../config/database";
 import { escribirEventoOutbox } from "../services/platformOutbox.service";
 import { logger } from "../config/logger";
+import { asyncHandler } from "../shared/utils/asyncHandler";
 
 type MemoryEntry = { count: number; resetAt: number };
 
@@ -61,7 +62,7 @@ export function crearLimitadorPorIp(opciones: {
     return res.status(429).json({ ok: false, message: opciones.mensaje, retryAfterSeconds });
   }
 
-  return async function limitar(req: Request, res: Response, next: NextFunction) {
+  return asyncHandler(async function limitar(req: Request, res: Response, next: NextFunction) {
     const ip = getClientIp(req);
     const key = `${opciones.prefijoClave}:${ip}`;
     const redis = getRedis();
@@ -102,5 +103,5 @@ export function crearLimitadorPorIp(opciones: {
 
     memoryStore.set(key, actual);
     next();
-  };
+  });
 }

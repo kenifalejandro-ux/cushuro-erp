@@ -28,7 +28,7 @@ export const DashboardController = {
         DashboardService.getKPIs(client, tenantId)
       );
       res.json(data);
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Error KPIs dashboard" });
     }
   },
@@ -43,7 +43,7 @@ export const DashboardController = {
         DashboardService.repuestosPorCategoria(client, tenantId)
       );
       res.json(data);
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Error chart repuestos" });
     }
   },
@@ -58,7 +58,7 @@ export const DashboardController = {
         DashboardService.valorPorCategoria(client, tenantId)
       );
       res.json(data);
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Error chart valor" });
     }
   },
@@ -73,7 +73,7 @@ export const DashboardController = {
         DashboardService.estadoDocumentos(client, tenantId)
       );
       res.json(data);
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Error chart documentos" });
     }
   },
@@ -88,7 +88,7 @@ export const DashboardController = {
         DashboardService.nivelstock(client, tenantId)
       );
       res.json(data);
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Error chart nivelstock" });
     }
   },

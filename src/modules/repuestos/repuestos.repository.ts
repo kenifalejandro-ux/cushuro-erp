@@ -3,6 +3,18 @@
 import type { PoolClient } from "pg";
 import type { Paginacion } from "../../server/shared/utils/pagination";
 
+// Sin schema de validación (req.body pasa directo desde el controller) --
+// documenta la forma asumida por las queries de abajo, no valida en runtime.
+export type RepuestoPayload = {
+  codigo: string;
+  nombre: string;
+  categoria?: string;
+  stock?: number;
+  stock_minimo?: number;
+  stock_maximo?: number;
+  precio?: number;
+};
+
 export const RepuestosRepository = {
   // =========================================================
   // 📥 LISTAR REPUESTOS (del tenant activo, paginado)
@@ -35,7 +47,7 @@ export const RepuestosRepository = {
   // =========================================================
   // ➕ CREAR REPUESTO
   // =========================================================
-  async create(client: PoolClient, tenantId: string, data: any) {
+  async create(client: PoolClient, tenantId: string, data: RepuestoPayload) {
     const { codigo, nombre, categoria, stock, stock_minimo, stock_maximo, precio } = data;
 
     const result = await client.query(
@@ -65,7 +77,7 @@ export const RepuestosRepository = {
   // =========================================================
   // ✏️ ACTUALIZAR REPUESTO (solo si pertenece al tenant activo)
   // =========================================================
-  async update(client: PoolClient, tenantId: string, id: number, data: any) {
+  async update(client: PoolClient, tenantId: string, id: number, data: RepuestoPayload) {
     const { codigo, nombre, categoria, stock, stock_minimo, stock_maximo, precio } = data;
 
     const result = await client.query(
@@ -101,7 +113,7 @@ export const RepuestosRepository = {
   // =========================================================
   // 📦 INSERCIÓN MASIVA
   // =========================================================
-  async createBulk(client: PoolClient, tenantId: string, rows: any[]) {
+  async createBulk(client: PoolClient, tenantId: string, rows: RepuestoPayload[]) {
     const results = [];
     for (const data of rows) {
       const { codigo, nombre, categoria, stock, stock_minimo, stock_maximo, precio } = data;

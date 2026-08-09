@@ -1,8 +1,9 @@
 import type { NextFunction, Request, Response } from "express";
 import { ZodError, type ZodTypeAny } from "zod";
+import { asyncHandler } from "../shared/utils/asyncHandler";
 
-export const validate =
-  (schema: ZodTypeAny) => async (req: Request, res: Response, next: NextFunction) => {
+export const validate = (schema: ZodTypeAny) =>
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       const parsedData = await schema.parseAsync(req.body);
       req.validatedBody = parsedData;
@@ -31,4 +32,4 @@ export const validate =
 
       return res.status(500).json({ message: "Error interno validando formulario" });
     }
-  };
+  });

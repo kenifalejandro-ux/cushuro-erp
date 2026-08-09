@@ -11,6 +11,7 @@ import { pool } from "../config/database";
 import { AppError } from "../shared/middlewares/error.middleware";
 import { revocarSesionesDeAdmin } from "./platformSession.service";
 import type { PlatformActor } from "../shared/utils/request";
+import { esViolacionUnicidad } from "../shared/utils/pgError";
 
 // Señuelo para que un login con email inexistente tarde lo mismo que uno
 // que sí existe — mismo criterio que HASH_SEÑUELO en auth.service.ts
@@ -80,8 +81,8 @@ export async function crearPlatformAdminService(input: {
       [input.email.toLowerCase(), passwordHash, input.nombre, input.rol]
     );
     return result.rows[0];
-  } catch (err: any) {
-    if (err.code === "23505") {
+  } catch (err) {
+    if (esViolacionUnicidad(err)) {
       throw new AppError(409, "Ya existe un admin de plataforma con ese correo");
     }
     throw err;

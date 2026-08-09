@@ -12,6 +12,7 @@
  */
 import type { Request, Response, NextFunction } from "express";
 import { resolverTenantPorTokenScimService } from "../../services/platformScim.service";
+import { asyncHandler } from "../utils/asyncHandler";
 
 const SCIM_ERROR_SCHEMA = ["urn:ietf:params:scim:api:messages:2.0:Error"];
 
@@ -19,7 +20,11 @@ function errorScim(res: Response, status: number, detail: string) {
   return res.status(status).json({ schemas: SCIM_ERROR_SCHEMA, status: String(status), detail });
 }
 
-export async function scimAuthMiddleware(req: Request, res: Response, next: NextFunction) {
+export const scimAuthMiddleware = asyncHandler(async function scimAuthMiddleware(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : undefined;
 
@@ -34,7 +39,7 @@ export async function scimAuthMiddleware(req: Request, res: Response, next: Next
 
   (req as Request & { scimTenantId?: string }).scimTenantId = tenantId;
   next();
-}
+});
 
 export function getScimTenantId(req: Request): string {
   const tenantId = (req as Request & { scimTenantId?: string }).scimTenantId;

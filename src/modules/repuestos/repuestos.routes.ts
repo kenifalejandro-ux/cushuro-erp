@@ -2,26 +2,27 @@
 
 import { Router } from "express";
 import { requireRole } from "../../server/shared/middlewares/roles.middleware";
+import { asyncHandler } from "../../server/shared/utils/asyncHandler";
 import { RepuestosController } from "./repuestos.controller";
 
 const router = Router();
 
 // 📥 listar
-router.get("/", RepuestosController.getAll);
+router.get("/", asyncHandler(RepuestosController.getAll));
 
 // ➕ crear
-router.post("/", requireRole("admin", "operador"), RepuestosController.create);
+router.post("/", requireRole("admin", "operador"), asyncHandler(RepuestosController.create));
 
 // ✏️ actualizar (NUEVO)
-router.put("/:id", requireRole("admin", "operador"), RepuestosController.update);
+router.put("/:id", requireRole("admin", "operador"), asyncHandler(RepuestosController.update));
 
 // 🗑 eliminar
-router.delete("/:id", requireRole("admin"), RepuestosController.delete);
+router.delete("/:id", requireRole("admin"), asyncHandler(RepuestosController.delete));
 
 // 📦 importación masiva
-router.post("/bulk", requireRole("admin", "operador"), RepuestosController.bulk);
+router.post("/bulk", requireRole("admin", "operador"), asyncHandler(RepuestosController.bulk));
 
 // 📊 KPIs
-router.get("/kpis/dashboard", RepuestosController.kpis);
+router.get("/kpis/dashboard", asyncHandler(RepuestosController.kpis));
 
 export default router;

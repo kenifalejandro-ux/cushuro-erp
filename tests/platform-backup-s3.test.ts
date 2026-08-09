@@ -194,8 +194,7 @@ const {
 } = await import("../src/server/services/platformBackupS3");
 const { guardarBackup, leerBackup, borrarBackupsEnLote } =
   await import("../src/server/services/platformBackupStorage");
-const { esBackupCifrado, descifrarYDescomprimir } =
-  await import("../src/server/services/backupCrypto");
+const { esBackupCifrado } = await import("../src/server/services/backupCrypto");
 const { clasificarBackupsAPodar } =
   await import("../src/server/services/platformBackupRetention.worker");
 const { env } = await import("../src/server/config/env");

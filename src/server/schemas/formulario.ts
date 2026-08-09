@@ -2,12 +2,14 @@ import { z } from "zod";
 
 const sanitizeSingleLine = (value: string) =>
   value
+    // eslint-disable-next-line no-control-regex -- a propósito: despoja caracteres de control de un input de usuario, no es un typo.
     .replace(/[\u0000-\u001f\u007f]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
 const sanitizeMultiline = (value: string) =>
   value
+    // eslint-disable-next-line no-control-regex -- a propósito: idem abajo, despoja caracteres de control de un input de usuario, no es un typo.
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
     .replace(/\r\n/g, "\n")
     .trim();

@@ -28,10 +28,15 @@ import type { Request, Response, NextFunction } from "express";
 import { env } from "../config/env";
 import { pool } from "../config/database";
 import { logger } from "../config/logger";
+import { asyncHandler } from "../shared/utils/asyncHandler";
 
 const SUBDOMINIOS_RESERVADOS = new Set(["www", "app", "api", "admin"]);
 
-export async function resolveTenantSubdomain(req: Request, res: Response, next: NextFunction) {
+export const resolveTenantSubdomain = asyncHandler(async function resolveTenantSubdomain(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   const host = (req.hostname || "").toLowerCase();
 
   // ── 1. Dominio propio del cliente ───────────────────────────────────
@@ -69,4 +74,4 @@ export async function resolveTenantSubdomain(req: Request, res: Response, next: 
 
   req.body = { ...req.body, tenantSlug: slug };
   next();
-}
+});

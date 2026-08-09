@@ -51,6 +51,7 @@ import { env } from "../config/env";
 import { getRedis } from "../config/redis";
 import { getClientIp, getRequestId } from "../shared/utils/request";
 import { resolverRateLimitTenant } from "../services/platformRateLimitCuota";
+import { asyncHandler } from "../shared/utils/asyncHandler";
 
 type EntradaMemoria = { count: number; resetAt: number };
 
@@ -139,7 +140,11 @@ function responder429(res: Response, nivel: "usuario" | "tenant", retryAfterSeco
 
 /** Debe montarse después de authMiddleware y tenantMiddleware (necesita
  *  req.usuario y req.tenantId). */
-export default async function erpRateLimiter(req: Request, res: Response, next: NextFunction) {
+export default asyncHandler(async function erpRateLimiter(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   // Se leen de env en cada request y no al cargar el módulo: permite
   // ajustarlos en tests sin recargar módulos, igual que el driver de backups.
   const { erpRateLimitWindowMs: windowMs, erpRateLimitUsuarioMax } = env;
@@ -181,4 +186,4 @@ export default async function erpRateLimiter(req: Request, res: Response, next: 
   }
 
   next();
-}
+});

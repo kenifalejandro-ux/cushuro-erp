@@ -13,7 +13,7 @@ export class CombustibleController {
       const tenantId = getTenantId(req);
       const data = await withTenant(tenantId, (client) => service.getAll(client, tenantId));
       res.json(data);
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Error al obtener combustible" });
     }
   }
@@ -29,7 +29,7 @@ export class CombustibleController {
       }
 
       res.json(data);
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Error al obtener combustible" });
     }
   }
@@ -49,7 +49,7 @@ export class CombustibleController {
       }
 
       res.json(updated);
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Error al actualizar nivel" });
     }
   }

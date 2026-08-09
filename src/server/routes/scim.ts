@@ -33,6 +33,7 @@ import {
   type UsuarioListado,
 } from "../services/platform.service";
 import type { ContextoAuditoria } from "../services/platformAudit.service";
+import { asyncHandler } from "../shared/utils/asyncHandler";
 
 const SCHEMA_USER = "urn:ietf:params:scim:schemas:core:2.0:User";
 const SCHEMA_LIST = "urn:ietf:params:scim:api:messages:2.0:ListResponse";
@@ -69,13 +70,11 @@ function extraerUserNameDelFiltro(filter: unknown): string | null {
 }
 
 function errorScim(res: Response, status: number, detail: string) {
-  return res
-    .status(status)
-    .json({
-      schemas: ["urn:ietf:params:scim:api:messages:2.0:Error"],
-      status: String(status),
-      detail,
-    });
+  return res.status(status).json({
+    schemas: ["urn:ietf:params:scim:api:messages:2.0:Error"],
+    status: String(status),
+    detail,
+  });
 }
 
 export function createScimRouter() {
@@ -83,69 +82,75 @@ export function createScimRouter() {
 
   router.use(scimAuthMiddleware);
 
-  router.get("/Users", async (req, res, next) => {
-    try {
-      const tenantId = getScimTenantId(req);
-      const usuarios = await listarUsuariosTenantService(tenantId);
-      const userName = extraerUserNameDelFiltro(req.query.filter);
-      const filtrados = userName ? usuarios.filter((u) => u.email === userName) : usuarios;
+  router.get(
+    "/Users",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const tenantId = getScimTenantId(req);
+        const usuarios = await listarUsuariosTenantService(tenantId);
+        const userName = extraerUserNameDelFiltro(req.query.filter);
+        const filtrados = userName ? usuarios.filter((u) => u.email === userName) : usuarios;
 
-      res.status(200).json({
-        schemas: [SCHEMA_LIST],
-        totalResults: filtrados.length,
-        Resources: filtrados.map(usuarioAScim),
-      });
-    } catch (err) {
-      next(err);
-    }
-  });
+        res.status(200).json({
+          schemas: [SCHEMA_LIST],
+          totalResults: filtrados.length,
+          Resources: filtrados.map(usuarioAScim),
+        });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
-  router.get("/Users/:id", async (req, res, next) => {
-    try {
-      const tenantId = getScimTenantId(req);
-      const usuarios = await listarUsuariosTenantService(tenantId);
-      const usuario = usuarios.find((u) => u.id === req.params.id);
-      if (!usuario) return errorScim(res, 404, "Usuario no encontrado");
-      res.status(200).json(usuarioAScim(usuario));
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    "/Users/:id",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const tenantId = getScimTenantId(req);
+        const usuarios = await listarUsuariosTenantService(tenantId);
+        const usuario = usuarios.find((u) => u.id === req.params.id);
+        if (!usuario) return errorScim(res, 404, "Usuario no encontrado");
+        res.status(200).json(usuarioAScim(usuario));
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
-  router.post("/Users", async (req, res, next) => {
-    try {
-      const tenantId = getScimTenantId(req);
-      const body = req.body as {
-        userName?: string;
-        name?: { formatted?: string; givenName?: string; familyName?: string };
-        displayName?: string;
-      };
+  router.post(
+    "/Users",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const tenantId = getScimTenantId(req);
+        const body = req.body as {
+          userName?: string;
+          name?: { formatted?: string; givenName?: string; familyName?: string };
+          displayName?: string;
+        };
 
-      const email = body.userName?.trim();
-      if (!email) return errorScim(res, 400, "userName es obligatorio");
+        const email = body.userName?.trim();
+        if (!email) return errorScim(res, 400, "userName es obligatorio");
 
-      const nombre =
-        body.name?.formatted ||
-        [body.name?.givenName, body.name?.familyName].filter(Boolean).join(" ") ||
-        body.displayName ||
-        email;
+        const nombre =
+          body.name?.formatted ||
+          [body.name?.givenName, body.name?.familyName].filter(Boolean).join(" ") ||
+          body.displayName ||
+          email;
 
-      // Los usuarios provisionados por SCIM entran por SSO, no por
-      // contraseña — se les genera una al azar que nadie conoce ni necesita
-      // conocer (crearUsuarioEnTenantSchema exige el campo, pero nada del
-      // login por contraseña queda accesible sin que un admin la resetee
-      // a propósito). El linking con su identidad SSO ocurre en su primer
-      // login real (ver resolverUsuarioSso en tenantSso.service.ts).
-      const input = crearUsuarioEnTenantSchema.parse({
-        nombre,
-        email,
-        password: randomBytes(24).toString("base64url"),
-      });
+        // Los usuarios provisionados por SCIM entran por SSO, no por
+        // contraseña — se les genera una al azar que nadie conoce ni necesita
+        // conocer (crearUsuarioEnTenantSchema exige el campo, pero nada del
+        // login por contraseña queda accesible sin que un admin la resetee
+        // a propósito). El linking con su identidad SSO ocurre en su primer
+        // login real (ver resolverUsuarioSso en tenantSso.service.ts).
+        const input = crearUsuarioEnTenantSchema.parse({
+          nombre,
+          email,
+          password: randomBytes(24).toString("base64url"),
+        });
 
-      const usuario = await crearUsuarioEnTenantService(tenantId, input, contextoScim(req));
-      res
-        .status(201)
-        .json(
+        const usuario = await crearUsuarioEnTenantService(tenantId, input, contextoScim(req));
+        res.status(201).json(
           usuarioAScim({
             id: usuario.id,
             nombre: usuario.nombre,
@@ -154,46 +159,53 @@ export function createScimRouter() {
             activo: true,
           })
         );
-    } catch (err) {
-      next(err);
-    }
-  });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
-  router.patch("/Users/:id", async (req, res, next) => {
-    try {
-      const tenantId = getScimTenantId(req);
-      const activo = leerActivoDePatch(req.body);
-      if (activo === null)
-        return errorScim(res, 400, "Solo se soporta cambiar el atributo 'active'");
+  router.patch(
+    "/Users/:id",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const tenantId = getScimTenantId(req);
+        const activo = leerActivoDePatch(req.body);
+        if (activo === null)
+          return errorScim(res, 400, "Solo se soporta cambiar el atributo 'active'");
 
-      const usuario = await cambiarEstadoUsuarioService(
-        tenantId,
-        req.params.id,
-        activo,
-        undefined,
-        contextoScim(req)
-      );
-      res.status(200).json(usuarioAScim(usuario));
-    } catch (err) {
-      next(err);
-    }
-  });
+        const usuario = await cambiarEstadoUsuarioService(
+          tenantId,
+          req.params.id,
+          activo,
+          undefined,
+          contextoScim(req)
+        );
+        res.status(200).json(usuarioAScim(usuario));
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
-  router.delete("/Users/:id", async (req, res, next) => {
-    try {
-      const tenantId = getScimTenantId(req);
-      await cambiarEstadoUsuarioService(
-        tenantId,
-        req.params.id,
-        false,
-        "baja vía SCIM",
-        contextoScim(req)
-      );
-      res.status(204).send();
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.delete(
+    "/Users/:id",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const tenantId = getScimTenantId(req);
+        await cambiarEstadoUsuarioService(
+          tenantId,
+          req.params.id,
+          false,
+          "baja vía SCIM",
+          contextoScim(req)
+        );
+        res.status(204).send();
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
 
   // Envoltorio SCIM propio del error, en vez del errorHandler genérico
   // (`{ ok: false, message }`) — un cliente SCIM real espera este schema.

@@ -2,7 +2,7 @@
 
 import type { PoolClient } from "pg";
 import type { Paginacion } from "../../server/shared/utils/pagination";
-import { RepuestosRepository } from "./repuestos.repository";
+import { RepuestosRepository, type RepuestoPayload } from "./repuestos.repository";
 
 export const RepuestosService = {
   // 📥 traer todo (paginado)
@@ -11,12 +11,12 @@ export const RepuestosService = {
   },
 
   // ➕ crear
-  create(client: PoolClient, tenantId: string, data: any) {
+  create(client: PoolClient, tenantId: string, data: RepuestoPayload) {
     return RepuestosRepository.create(client, tenantId, data);
   },
 
   // ✏️ actualizar
-  update(client: PoolClient, tenantId: string, id: number, data: any) {
+  update(client: PoolClient, tenantId: string, id: number, data: RepuestoPayload) {
     return RepuestosRepository.update(client, tenantId, id, data);
   },
 
@@ -26,7 +26,7 @@ export const RepuestosService = {
   },
 
   // 📦 bulk
-  createBulk(client: PoolClient, tenantId: string, rows: any[]) {
+  createBulk(client: PoolClient, tenantId: string, rows: RepuestoPayload[]) {
     return RepuestosRepository.createBulk(client, tenantId, rows);
   },
 

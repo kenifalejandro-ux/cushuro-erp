@@ -31,8 +31,21 @@ function fakeReqRes(ip: string) {
 async function llamar(limitar: ReturnType<typeof crearLimitadorPorIp>, ip: string) {
   const { req, res } = fakeReqRes(ip);
   let siguienteLlamado = false;
-  await limitar(req, res, () => {
-    siguienteLlamado = true;
+  // limitar() ahora pasa por asyncHandler (ver eslint no-misused-promises):
+  // Express nunca esperó su promesa, y desde este test tampoco se puede
+  // esperar el valor de retorno -- se sincroniza con next()/res.json(),
+  // que son los dos puntos donde la lógica async del middleware termina.
+  await new Promise<void>((resolve) => {
+    const jsonOriginal = res.json.bind(res);
+    res.json = (body: unknown) => {
+      const resultado = jsonOriginal(body);
+      resolve();
+      return resultado;
+    };
+    limitar(req, res, () => {
+      siguienteLlamado = true;
+      resolve();
+    });
   });
   return { siguienteLlamado, res };
 }

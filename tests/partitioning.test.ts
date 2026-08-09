@@ -100,13 +100,11 @@ describe("ruteo de particiones, pruning y RLS con datos reales", () => {
       .send({ nombre: "Pre-uso particionado", items: [{ descripcion: "Frenos" }] });
     plantillaId = plantilla.body.id;
 
-    const checklist = await agent
-      .post("/api/erp/checklists")
-      .send({
-        equipo_id: equipoId,
-        plantilla_id: plantillaId,
-        items: [{ descripcion: "Frenos", estado: "bien" }],
-      });
+    const checklist = await agent.post("/api/erp/checklists").send({
+      equipo_id: equipoId,
+      plantilla_id: plantillaId,
+      items: [{ descripcion: "Frenos", estado: "bien" }],
+    });
     checklistId = checklist.body.id;
   });
 

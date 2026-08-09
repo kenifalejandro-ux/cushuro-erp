@@ -144,6 +144,9 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      - name: Lint
+        run: npm run lint
+
       - name: Tests + coverage mínimo (incluye aislamiento entre tenants vía RLS)
         run: npm run test:coverage
 

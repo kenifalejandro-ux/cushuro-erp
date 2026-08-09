@@ -3,6 +3,16 @@
 import type { PoolClient } from "pg";
 import type { Paginacion } from "../../server/shared/utils/pagination";
 
+// Sin schema de validación (ver documentos.routes.ts: req.body pasa directo,
+// sin `validate()`) -- este tipo documenta la forma asumida por las queries
+// de abajo, no agrega validación en runtime.
+export type DocumentoPayload = {
+  nombre_documento: string;
+  responsable: string;
+  fecha_vencimiento: string;
+  estado?: string;
+};
+
 export const DocumentosRepository = {
   // ============================================================
   // 📄 GET /documentos
@@ -33,7 +43,7 @@ export const DocumentosRepository = {
   // 📄 POST /documentos
   // CREAR DOCUMENTO
   // ============================================================
-  async create(client: PoolClient, tenantId: string, data: any) {
+  async create(client: PoolClient, tenantId: string, data: DocumentoPayload) {
     const { nombre_documento, responsable, fecha_vencimiento } = data;
 
     const result = await client.query(
@@ -53,7 +63,7 @@ export const DocumentosRepository = {
   // ✏️ PUT /documentos/:id
   // ACTUALIZAR DOCUMENTO (solo si pertenece al tenant activo)
   // ============================================================
-  async update(client: PoolClient, tenantId: string, id: number, data: any) {
+  async update(client: PoolClient, tenantId: string, id: number, data: DocumentoPayload) {
     const { nombre_documento, responsable, fecha_vencimiento, estado } = data;
 
     const result = await client.query(
@@ -85,7 +95,7 @@ export const DocumentosRepository = {
   },
 
   // 📦 CARGA MASIVA
-  async bulkCreate(client: PoolClient, tenantId: string, items: any[]) {
+  async bulkCreate(client: PoolClient, tenantId: string, items: DocumentoPayload[]) {
     for (const d of items) {
       await client.query(
         `INSERT INTO documentos (tenant_id, nombre_documento, responsable, fecha_vencimiento)
