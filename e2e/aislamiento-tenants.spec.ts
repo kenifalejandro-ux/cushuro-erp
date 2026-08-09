@@ -22,6 +22,7 @@
 import { randomBytes } from "node:crypto";
 
 import { test, expect, type APIRequestContext } from "@playwright/test";
+import { loginPorUI } from "./fixtures/auth";
 
 function leerEnv(nombre: string): string {
   const valor = process.env[nombre];
@@ -85,11 +86,7 @@ test("un usuario de un tenant no puede leer ni modificar datos de otro tenant", 
 
   try {
     // ── 2. El tenant A entra por la UI real ─────────────────────────────
-    await page.goto("/");
-    await page.getByLabel("Correo").fill(tenantA.email);
-    await page.getByLabel("Contraseña").fill(tenantA.password);
-    await page.getByRole("button", { name: "Ingresar" }).click();
-    await expect(page.getByRole("button", { name: "Dashboard" })).toBeVisible();
+    await loginPorUI(page, tenantA.email, tenantA.password);
 
     // A partir de acá se usa `page.request`, no `request`: comparte el jar de
     // cookies del navegador, así que cada llamada sale con la sesión real del
