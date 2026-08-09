@@ -28,7 +28,7 @@ import {
 } from "./auth.service";
 import { MODULOS_ERP } from "../schemas/platform.schema";
 import { verificarCuota, CuotaExcedidaError, RECURSO_USUARIOS } from "./platformCuotas.service";
-import { esViolacionUnicidad } from "../shared/utils/pgError";
+import { esViolacionUnicidad, esViolacionForeignKey } from "../shared/utils/pgError";
 import type { CrearTenantInput, CrearUsuarioEnTenantInput } from "../schemas/platform.schema";
 import { registrarAuditoria, type ContextoAuditoria } from "./platformAudit.service";
 import { escribirEventoOutbox } from "./platformOutbox.service";
@@ -275,30 +275,53 @@ export async function actualizarModulosTenantService(
   return obtenerModulosTenantService(tenantId);
 }
 
+const MAX_INTENTOS_MODULO_GLOBAL = 3;
+
 /** Aplica el mismo estado/porcentaje/versión de un módulo a TODOS los
  *  tenants de una sola vez — "apagar en caliente globalmente" (ej. un
  *  módulo con un bug grave) sin tener que recorrer tenant por tenant desde
  *  la UI. Un solo INSERT ... SELECT ... ON CONFLICT, atómico: o se aplica
- *  a todos o a ninguno. */
+ *  a todos o a ninguno.
+ *
+ *  Reintenta ante un 23503 (foreign_key_violation): el SELECT id FROM
+ *  tenants toma su propia foto, y si un tenant se borra (COMMIT de otra
+ *  transacción) entre esa foto y el INSERT de su fila, el chequeo de FK
+ *  falla ahí, no en el SELECT. Es una carrera real -- dos admins de
+ *  plataforma actuando a la vez, uno dando de baja un tenant justo cuando
+ *  el otro aplica un toggle global -- no un caso hipotético: se detectó
+ *  porque tests/platform-modulos-granular.test.ts fallaba de forma
+ *  intermitente en la suite completa (tenants de OTROS archivos de test
+ *  borrándose en paralelo), nunca aislado. Reintentar alcanza: en el
+ *  siguiente intento ese tenant ya no aparece en el SELECT. */
 export async function actualizarModuloGlobalService(
   modulo: string,
   config: { estado: EstadoModulo; rolloutPorcentaje?: number | null; version?: string | null },
   contexto: ContextoAuditoria
 ): Promise<{ tenantsAfectados: number }> {
-  const result = await pool.query(
-    `INSERT INTO tenant_modulos (tenant_id, modulo, estado, rollout_porcentaje, version)
-     SELECT id, $1, $2, $3, $4 FROM tenants
-     ON CONFLICT (tenant_id, modulo) DO UPDATE SET estado = $2, rollout_porcentaje = $3, version = $4`,
-    [modulo, config.estado, config.rolloutPorcentaje ?? null, config.version ?? null]
-  );
+  for (let intento = 1; intento <= MAX_INTENTOS_MODULO_GLOBAL; intento++) {
+    try {
+      const result = await pool.query(
+        `INSERT INTO tenant_modulos (tenant_id, modulo, estado, rollout_porcentaje, version)
+         SELECT id, $1, $2, $3, $4 FROM tenants
+         ON CONFLICT (tenant_id, modulo) DO UPDATE SET estado = $2, rollout_porcentaje = $3, version = $4`,
+        [modulo, config.estado, config.rolloutPorcentaje ?? null, config.version ?? null]
+      );
 
-  await registrarAuditoria({
-    accion: "actualizar_modulo_global",
-    detalle: { modulo, ...config, tenantsAfectados: result.rowCount ?? 0 },
-    contexto,
-  });
+      await registrarAuditoria({
+        accion: "actualizar_modulo_global",
+        detalle: { modulo, ...config, tenantsAfectados: result.rowCount ?? 0 },
+        contexto,
+      });
 
-  return { tenantsAfectados: result.rowCount ?? 0 };
+      return { tenantsAfectados: result.rowCount ?? 0 };
+    } catch (err) {
+      if (!esViolacionForeignKey(err) || intento === MAX_INTENTOS_MODULO_GLOBAL) throw err;
+    }
+  }
+
+  // Inalcanzable: el loop siempre retorna o lanza -- solo para que TS vea
+  // que la función retorna en todos los caminos.
+  throw new Error("No se pudo actualizar el módulo globalmente");
 }
 
 export interface UsuarioListado {
