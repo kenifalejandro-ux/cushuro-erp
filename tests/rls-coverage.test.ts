@@ -11,7 +11,18 @@
  * razón documentada.
  */
 import { describe, it, expect, afterAll } from "vitest";
-import { pool, closeDatabase } from "../src/server/config/database";
+import { pool, withTenant, closeDatabase } from "../src/server/config/database";
+import { crearTenantDePrueba, borrarTenantDePrueba } from "./helpers";
+
+// Un solo afterAll para todo el archivo, no uno por describe: closeDatabase()
+// cierra el pool COMPARTIDO de la app -- si quedara anidado dentro del
+// primer describe, se dispararía apenas ese describe terminara sus tests,
+// cerrando el pool mientras el segundo describe todavía lo necesita (nuevas
+// llamadas a pool.connect() después de pool.end() fallan de inmediato).
+// Mismo patrón que tests/scim.test.ts, que también tiene más de un describe.
+afterAll(async () => {
+  await closeDatabase();
+});
 
 // Tablas de PLATAFORMA (dueño del ERP) que a propósito no tienen RLS: el
 // panel necesita leer/escribir cualquier tenant fuera de una transacción
@@ -44,10 +55,6 @@ interface FilaTabla {
 }
 
 describe("cobertura de RLS: toda tabla con tenant_id debe tener FORCE RLS + policy tenant_isolation", () => {
-  afterAll(async () => {
-    await closeDatabase();
-  });
-
   it("no hay tablas de negocio con tenant_id sin RLS forzado (o sin estar en la allowlist)", async () => {
     const result = await pool.query<FilaTabla>(`
       SELECT
@@ -88,6 +95,66 @@ describe("cobertura de RLS: toda tabla con tenant_id debe tener FORCE RLS + poli
     const allowlistObsoleta = [...ALLOWLIST_SIN_RLS].filter((t) => !nombresReales.has(t));
     if (allowlistObsoleta.length > 0) {
       console.warn("ALLOWLIST_SIN_RLS tiene tablas que ya no existen:", allowlistObsoleta);
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// El test de arriba solo audita CATÁLOGO (¿existe la policy?) -- no prueba
+// que la policy filtre de verdad. Eso fue justo lo que dejó pasar, durante
+// meses, que `mincoreerp_app` fuera el rol SUPERUSER de Postgres en CI (un
+// superuser se salta RLS siempre, con o sin FORCE): el catálogo decía que
+// todo estaba bien, porque las policies existían -- solo que nadie las
+// hacía cumplir. Ver ci.yml, paso "Crear el rol de la app".
+//
+// Este bloque ejercita RLS de verdad: dos tenants reales, una fila de cada
+// uno en `repuestos`, y una lectura desde la sesión de un tenant SIN
+// `WHERE tenant_id` en el SQL -- si alguien debilita la policy (o si vuelve
+// el bug del rol superuser en CI), este test falla porque la fila ajena
+// aparece en el resultado, no porque un catálogo diga que algo falta.
+// ═══════════════════════════════════════════════════════════════════════════
+describe("RLS: comportamiento real, no solo catálogo", () => {
+  it("una sesión con app.tenant_id de A no ve la fila de B en repuestos, sin filtrar por tenant_id en el SQL", async () => {
+    const tenantA = await crearTenantDePrueba();
+    const tenantB = await crearTenantDePrueba();
+
+    try {
+      await withTenant(tenantA.tenant.id, (client) =>
+        client.query(
+          `INSERT INTO repuestos (tenant_id, codigo, nombre) VALUES ($1, 'RLS-TEST-A', 'Repuesto de A')`,
+          [tenantA.tenant.id]
+        )
+      );
+      await withTenant(tenantB.tenant.id, (client) =>
+        client.query(
+          `INSERT INTO repuestos (tenant_id, codigo, nombre) VALUES ($1, 'RLS-TEST-B', 'Repuesto de B')`,
+          [tenantB.tenant.id]
+        )
+      );
+
+      // Sin "WHERE tenant_id = ..." a propósito: si esta query devolviera
+      // la fila de B, sería porque la policy de Postgres no está filtrando
+      // -- no porque el código de la app se haya olvidado del filtro (esa
+      // defensa en profundidad es justamente lo que este test NO debe
+      // depender de ella).
+      const desdeA = await withTenant(tenantA.tenant.id, (client) =>
+        client.query(`SELECT codigo, tenant_id FROM repuestos WHERE codigo LIKE 'RLS-TEST-%'`)
+      );
+      const codigosVistosPorA = desdeA.rows.map((f) => f.codigo);
+      expect(codigosVistosPorA).toContain("RLS-TEST-A");
+      expect(codigosVistosPorA).not.toContain("RLS-TEST-B");
+      expect(desdeA.rows.every((f) => f.tenant_id === tenantA.tenant.id)).toBe(true);
+
+      // Y en la otra dirección, para no probar solo un sentido de la policy.
+      const desdeB = await withTenant(tenantB.tenant.id, (client) =>
+        client.query(`SELECT codigo, tenant_id FROM repuestos WHERE codigo LIKE 'RLS-TEST-%'`)
+      );
+      const codigosVistosPorB = desdeB.rows.map((f) => f.codigo);
+      expect(codigosVistosPorB).toContain("RLS-TEST-B");
+      expect(codigosVistosPorB).not.toContain("RLS-TEST-A");
+    } finally {
+      await borrarTenantDePrueba(tenantA.tenant.id);
+      await borrarTenantDePrueba(tenantB.tenant.id);
     }
   });
 });
