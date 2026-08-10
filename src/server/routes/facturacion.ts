@@ -8,6 +8,7 @@
 import { Router } from "express";
 import { authMiddleware } from "../shared/middlewares/auth.middleware";
 import { tenantMiddleware } from "../shared/middlewares/tenant.middleware";
+import erpRateLimiter from "../middleware/erpRateLimiter";
 import { asyncHandler } from "../shared/utils/asyncHandler";
 import { getTenantId } from "../shared/utils/request";
 import {
@@ -17,7 +18,11 @@ import {
 
 export const facturacionRouter = Router();
 
-facturacionRouter.use(authMiddleware, tenantMiddleware);
+// Mismo rate limiter que /api/erp (post-auth, por usuario y por tenant) --
+// CodeQL marcó estas rutas como "Missing rate limiting" al no tenerlo
+// (leen la base tras autenticar, mismo perfil de riesgo que cualquier
+// ruta de negocio).
+facturacionRouter.use(authMiddleware, tenantMiddleware, erpRateLimiter);
 
 facturacionRouter.get(
   "/comprobantes",

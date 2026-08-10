@@ -159,5 +159,7 @@ CREATE TABLE IF NOT EXISTS webhooks_pasarela (
 
 CREATE INDEX IF NOT EXISTS idx_cobros_tenant ON cobros(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_cobros_suscripcion ON cobros(suscripcion_id) WHERE suscripcion_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_cobros_metodo_pago ON cobros(metodo_pago_id) WHERE metodo_pago_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_facturas_tenant ON facturas(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_metodos_pago_tenant ON metodos_pago(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_suscripciones_plan ON suscripciones(plan_id);
