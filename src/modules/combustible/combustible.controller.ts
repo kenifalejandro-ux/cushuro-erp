@@ -3,6 +3,7 @@
 import { Request, Response } from "express";
 import { withTenant } from "../../server/config/database";
 import { getTenantId } from "../../server/shared/utils/request";
+import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
 import { CombustibleService } from "./combustible.service";
 
 const service = new CombustibleService();
@@ -48,6 +49,10 @@ export class CombustibleController {
         return res.status(404).json({ error: "No encontrado" });
       }
 
+      await publicarEventoTenant(tenantId, "combustible.nivel_actualizado", {
+        combustibleId: id,
+        nivelActual: nivel_actual,
+      });
       res.json(updated);
     } catch {
       res.status(500).json({ error: "Error al actualizar nivel" });

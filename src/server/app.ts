@@ -14,6 +14,7 @@ import { logger } from "./config/logger";
 import { corsOptions } from "./middleware/originGuard";
 import { authRouter } from "./routes/auth";
 import { facturacionRouter } from "./routes/facturacion";
+import { eventosRouter } from "./routes/events";
 import { createPublicRouter } from "./routes/public";
 import { createSystemRouter } from "./routes/system";
 import { createPlatformRouter } from "./routes/platform";
@@ -169,6 +170,10 @@ export function createApp() {
   // (ver routes/facturacion.ts) — cualquier tenant autenticado la ve,
   // nunca se activa/desactiva por módulo.
   app.use("/api/facturacion", facturacionRouter);
+
+  // Tiempo real (SSE + Redis pub/sub, ver realtimeEvents.service.ts):
+  // transversal como /api/facturacion, ningún módulo lo activa/desactiva.
+  app.use("/api/eventos", eventosRouter);
 
   // Manejo de rutas no encontradas
   app.use("/api", notFoundApiHandler);

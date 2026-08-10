@@ -6,6 +6,7 @@ import { getTenantId } from "../../server/shared/utils/request";
 import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/utils/pagination";
 import { contextoAuditoriaModulo } from "../../server/shared/utils/moduleAudit";
 import { registrarAuditoria } from "../../server/services/platformAudit.service";
+import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
 import { EquiposService } from "./equipos.service";
 
 export const EquiposController = {
@@ -35,6 +36,7 @@ export const EquiposController = {
         detalle: { equipoId: nuevo.id },
         contexto: contextoAuditoriaModulo(req),
       });
+      await publicarEventoTenant(tenantId, "equipos.creado", { equipoId: nuevo.id });
       res.status(201).json(nuevo);
     } catch {
       res.status(500).json({ message: "Error al crear equipo" });
@@ -60,6 +62,7 @@ export const EquiposController = {
         detalle: { equipoId: id },
         contexto: contextoAuditoriaModulo(req),
       });
+      await publicarEventoTenant(tenantId, "equipos.actualizado", { equipoId: id });
       res.json(actualizado);
     } catch {
       res.status(500).json({ message: "Error al actualizar equipo" });
@@ -85,6 +88,7 @@ export const EquiposController = {
         detalle: { equipoId: id },
         contexto: contextoAuditoriaModulo(req),
       });
+      await publicarEventoTenant(tenantId, "equipos.eliminado", { equipoId: id });
       res.json({ message: "Eliminado" });
     } catch {
       res.status(500).json({ message: "Error al eliminar equipo" });

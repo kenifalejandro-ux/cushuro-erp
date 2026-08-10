@@ -11,6 +11,7 @@ import {
 } from "../../server/shared/utils/pagination";
 import { contextoAuditoriaModulo } from "../../server/shared/utils/moduleAudit";
 import { registrarAuditoria } from "../../server/services/platformAudit.service";
+import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
 import type {
   CrearIpercInput,
   CambiarEstadoIpercInput,
@@ -63,6 +64,7 @@ export const IpercController = {
         detalle: { ipercId: iperc.id, tipo: data.tipo },
         contexto: contextoAuditoriaModulo(req),
       });
+      await publicarEventoTenant(tenantId, "iperc.creado", { ipercId: iperc.id, tipo: data.tipo });
       res.status(201).json(iperc);
     } catch (err) {
       if (err instanceof Error && err.message.includes("no existe en este tenant")) {
@@ -78,11 +80,21 @@ export const IpercController = {
       const tenantId = getTenantId(req);
       const id = Number(req.params.id);
       const { estado } = req.validatedBody as CambiarEstadoIpercInput;
-      const iperc = await withTenant(tenantId, (client) =>
+      const resultado = await withTenant(tenantId, (client) =>
         IpercService.cambiarEstado(client, tenantId, id, estado, req.usuario!.id)
       );
-      if (!iperc) {
-        res.status(404).json({ message: "IPERC no encontrado" });
+      if (!resultado.ok) {
+        if (resultado.motivo === "no_encontrado") {
+          res.status(404).json({ message: "IPERC no encontrado" });
+          return;
+        }
+        // 409, no 500: dos personas (ej. supervisor y gerente) intentando
+        // aprobar/rechazar el mismo IPERC casi al mismo tiempo -- quien
+        // llega segundo se entera de que ya no está en borrador, en vez
+        // de pisar en silencio lo que decidió el primero.
+        res.status(409).json({
+          message: `El IPERC ya fue procesado (estado actual: ${resultado.estadoActual})`,
+        });
         return;
       }
       await registrarAuditoria({
@@ -92,7 +104,8 @@ export const IpercController = {
         detalle: { ipercId: id, estado },
         contexto: contextoAuditoriaModulo(req),
       });
-      res.json(iperc);
+      await publicarEventoTenant(tenantId, "iperc.estado_cambiado", { ipercId: id, estado });
+      res.json(resultado.fila);
     } catch {
       res.status(500).json({ message: "Error al cambiar estado del IPERC" });
     }
@@ -116,6 +129,7 @@ export const IpercController = {
         detalle: { ipercId: id },
         contexto: contextoAuditoriaModulo(req),
       });
+      await publicarEventoTenant(tenantId, "iperc.eliminado", { ipercId: id });
       res.json({ message: "Eliminado" });
     } catch {
       res.status(500).json({ message: "Error al eliminar IPERC" });
@@ -166,6 +180,9 @@ export const IpercController = {
         detalle: { lineaBaseId: lineaBase.id },
         contexto: contextoAuditoriaModulo(req),
       });
+      await publicarEventoTenant(tenantId, "iperc.linea_base_creada", {
+        lineaBaseId: lineaBase.id,
+      });
       res.status(201).json(lineaBase);
     } catch {
       res.status(500).json({ message: "Error al crear línea base" });
@@ -177,11 +194,19 @@ export const IpercController = {
       const tenantId = getTenantId(req);
       const id = Number(req.params.id);
       const { estado } = req.validatedBody as CambiarEstadoIpercInput;
-      const lineaBase = await withTenant(tenantId, (client) =>
+      const resultado = await withTenant(tenantId, (client) =>
         IpercService.cambiarEstadoLineaBase(client, tenantId, id, estado, req.usuario!.id)
       );
-      if (!lineaBase) {
-        res.status(404).json({ message: "Línea base no encontrada" });
+      if (!resultado.ok) {
+        if (resultado.motivo === "no_encontrado") {
+          res.status(404).json({ message: "Línea base no encontrada" });
+          return;
+        }
+        // 409, mismo motivo que cambiarEstado(): dos aprobaciones/
+        // rechazos casi simultáneos ya no se pisan en silencio.
+        res.status(409).json({
+          message: `La línea base ya fue procesada (estado actual: ${resultado.estadoActual})`,
+        });
         return;
       }
       await registrarAuditoria({
@@ -191,7 +216,11 @@ export const IpercController = {
         detalle: { lineaBaseId: id, estado },
         contexto: contextoAuditoriaModulo(req),
       });
-      res.json(lineaBase);
+      await publicarEventoTenant(tenantId, "iperc.linea_base_estado_cambiado", {
+        lineaBaseId: id,
+        estado,
+      });
+      res.json(resultado.fila);
     } catch {
       res.status(500).json({ message: "Error al cambiar estado de la línea base" });
     }
@@ -215,6 +244,7 @@ export const IpercController = {
         detalle: { lineaBaseId: id },
         contexto: contextoAuditoriaModulo(req),
       });
+      await publicarEventoTenant(tenantId, "iperc.linea_base_eliminada", { lineaBaseId: id });
       res.json({ message: "Eliminada" });
     } catch {
       res.status(500).json({ message: "Error al eliminar línea base" });

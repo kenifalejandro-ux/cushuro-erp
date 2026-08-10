@@ -4,6 +4,7 @@ import { Request, Response } from "express";
 import { withTenant } from "../../server/config/database";
 import { getTenantId } from "../../server/shared/utils/request";
 import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/utils/pagination";
+import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
 import { DocumentosService } from "./documentos.service";
 
 export const DocumentosController = {
@@ -28,6 +29,7 @@ export const DocumentosController = {
       const data = await withTenant(tenantId, (client) =>
         DocumentosService.create(client, tenantId, req.body)
       );
+      await publicarEventoTenant(tenantId, "documentos.creado", { documentoId: data.id });
       res.status(201).json(data);
     } catch {
       res.status(500).json({ error: "Error al crear documento" });
@@ -47,6 +49,7 @@ export const DocumentosController = {
         return;
       }
 
+      await publicarEventoTenant(tenantId, "documentos.actualizado", { documentoId: data.id });
       res.json(data);
     } catch {
       res.status(500).json({ error: "Error al actualizar documento" });
@@ -57,8 +60,9 @@ export const DocumentosController = {
   async delete(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
+      const id = Number(req.params.id);
       const eliminado = await withTenant(tenantId, (client) =>
-        DocumentosService.delete(client, tenantId, Number(req.params.id))
+        DocumentosService.delete(client, tenantId, id)
       );
 
       if (!eliminado) {
@@ -66,6 +70,7 @@ export const DocumentosController = {
         return;
       }
 
+      await publicarEventoTenant(tenantId, "documentos.eliminado", { documentoId: id });
       res.json({ message: "Eliminado correctamente" });
     } catch {
       res.status(500).json({ error: "Error al eliminar" });
@@ -79,6 +84,9 @@ export const DocumentosController = {
       const data = await withTenant(tenantId, (client) =>
         DocumentosService.bulkCreate(client, tenantId, req.body)
       );
+      await publicarEventoTenant(tenantId, "documentos.carga_masiva", {
+        cantidad: Array.isArray(req.body) ? req.body.length : undefined,
+      });
       res.status(201).json(data);
     } catch {
       res.status(500).json({ error: "Error en carga masiva" });

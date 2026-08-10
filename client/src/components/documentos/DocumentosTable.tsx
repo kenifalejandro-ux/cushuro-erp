@@ -86,11 +86,21 @@ export default function DocumentosTable() {
 
   // 🗑️ DELETE
   const deleteDoc = async (id: number) => {
-    await apiFetch(`/api/erp/documentos/${id}`, {
-      method: "DELETE",
-    });
+    if (!window.confirm("¿Estás seguro de que deseas eliminar este documento?")) return;
 
-    load();
+    try {
+      const res = await apiFetch(`/api/erp/documentos/${id}`, {
+        method: "DELETE",
+      });
+
+      if (res.ok) {
+        load();
+      } else {
+        alert("Error: el servidor no permitió eliminar el documento.");
+      }
+    } catch {
+      alert("Error de conexión con el backend.");
+    }
   };
 
   // 📦 EXCEL

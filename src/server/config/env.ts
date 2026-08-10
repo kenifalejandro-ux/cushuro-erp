@@ -178,6 +178,20 @@ export const env = {
     24 * 60 * 60_000
   ),
   particionesMesesAdelante: readNumber(process.env.PARTICIONES_MESES_ADELANTE, 3),
+  // Retención de eventos_tiempo_real / platform_eventos_tiempo_real —
+  // a diferencia de PLATFORM_AUDIT_RETENTION_DAYS (apagada por default,
+  // es una decisión de compliance), esta va ENCENDIDA por default: no es
+  // un histórico, es solo el buffer de reposición para un cliente SSE que
+  // se reconecta con Last-Event-ID (ver migrations/0042). Dejarla crecer
+  // sin poda es un bug operativo, no una decisión de negocio.
+  eventosTiempoRealRetentionMinutes: readNumber(
+    process.env.EVENTOS_TIEMPO_REAL_RETENTION_MINUTES,
+    60
+  ),
+  eventosTiempoRealRetentionCheckIntervalMs: readNumber(
+    process.env.EVENTOS_TIEMPO_REAL_RETENTION_CHECK_INTERVAL_MS,
+    5 * 60_000
+  ),
   // Backups de tenant (platformBackup.service.ts) — filesystem local por
   // default. El storage queda detrás de platformBackupStorage.ts a
   // propósito, para que pasar a S3-compatible el día que haga falta sea

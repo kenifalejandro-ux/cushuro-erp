@@ -4,6 +4,24 @@ import type { PoolClient } from "pg";
 import type { Paginacion, CursorPaginacion } from "../../server/shared/utils/pagination";
 import type { CrearIpercInput, CrearLineaBaseInput } from "../../server/schemas/iperc.schema";
 
+interface FilaEstadoCambiado {
+  id: number;
+  estado: string;
+  aprobado_por: string;
+  aprobado_en: string;
+}
+
+/** Resultado de cambiarEstado()/cambiarEstadoLineaBase(): distingue "no
+ *  existe" de "existe pero ya no está en borrador" -- antes el UPDATE no
+ *  filtraba por estado actual, así que dos aprobaciones/rechazos
+ *  simultáneos (ej. dos supervisores en el mismo IPERC) se pisaban en
+ *  silencio: los dos requests devolvían 200, y ganaba el que commiteó
+ *  último sin que nadie se enterara del conflicto. */
+export type ResultadoCambiarEstado =
+  | { ok: true; fila: FilaEstadoCambiado }
+  | { ok: false; motivo: "no_encontrado" }
+  | { ok: false; motivo: "ya_procesado"; estadoActual: string };
+
 export const IpercRepository = {
   // Paginación por cursor (ver src/server/shared/utils/pagination.ts): la
   // otra tabla particionada además de checklists (migrations/0037).
@@ -132,20 +150,32 @@ export const IpercRepository = {
     return { ...iperc.rows[0], items };
   },
 
+  // WHERE ... AND estado = 'borrador' a propósito: sin ese filtro, dos
+  // aprobaciones/rechazos que llegan casi al mismo tiempo se pisan en
+  // silencio (el segundo UPDATE gana, sin que nadie se entere). Si el
+  // UPDATE no afecta ninguna fila, el segundo SELECT distingue "no
+  // existe" de "ya lo procesó otro" -- ver ResultadoCambiarEstado.
   async cambiarEstado(
     client: PoolClient,
     tenantId: string,
     id: number,
     estado: "aprobado" | "rechazado",
     aprobadoPor: string
-  ) {
-    const result = await client.query(
+  ): Promise<ResultadoCambiarEstado> {
+    const result = await client.query<FilaEstadoCambiado>(
       `UPDATE ipercs SET estado = $1, aprobado_por = $2, aprobado_en = now()
-       WHERE id = $3 AND tenant_id = $4
+       WHERE id = $3 AND tenant_id = $4 AND estado = 'borrador'
        RETURNING id, estado, aprobado_por, aprobado_en`,
       [estado, aprobadoPor, id, tenantId]
     );
-    return result.rows[0] ?? null;
+    if (result.rows[0]) return { ok: true, fila: result.rows[0] };
+
+    const actual = await client.query<{ estado: string }>(
+      `SELECT estado FROM ipercs WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId]
+    );
+    if (actual.rows.length === 0) return { ok: false, motivo: "no_encontrado" };
+    return { ok: false, motivo: "ya_procesado", estadoActual: actual.rows[0].estado };
   },
 
   async eliminar(client: PoolClient, tenantId: string, id: number) {
@@ -228,20 +258,28 @@ export const IpercRepository = {
     return { ...lineaBase.rows[0], items };
   },
 
+  // Mismo motivo que cambiarEstado() de arriba -- ver ese comentario.
   async cambiarEstadoLineaBase(
     client: PoolClient,
     tenantId: string,
     id: number,
     estado: "aprobado" | "rechazado",
     aprobadoPor: string
-  ) {
-    const result = await client.query(
+  ): Promise<ResultadoCambiarEstado> {
+    const result = await client.query<FilaEstadoCambiado>(
       `UPDATE iperc_lineas_base SET estado = $1, aprobado_por = $2, aprobado_en = now()
-       WHERE id = $3 AND tenant_id = $4
+       WHERE id = $3 AND tenant_id = $4 AND estado = 'borrador'
        RETURNING id, estado, aprobado_por, aprobado_en`,
       [estado, aprobadoPor, id, tenantId]
     );
-    return result.rows[0] ?? null;
+    if (result.rows[0]) return { ok: true, fila: result.rows[0] };
+
+    const actual = await client.query<{ estado: string }>(
+      `SELECT estado FROM iperc_lineas_base WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId]
+    );
+    if (actual.rows.length === 0) return { ok: false, motivo: "no_encontrado" };
+    return { ok: false, motivo: "ya_procesado", estadoActual: actual.rows[0].estado };
   },
 
   async eliminarLineaBase(client: PoolClient, tenantId: string, id: number) {
