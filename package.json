@@ -14,6 +14,7 @@
     "format:check": "prettier --check .",
     "migrate": "tsx migrate.ts",
     "diagnose:queries": "tsx scripts/diagnosticoQueries.ts",
+    "permisos:listar": "tsx scripts/permisosListar.ts",
     "tenant:create": "tsx scripts/onboardTenant.ts",
     "backup:restore-drill": "tsx scripts/restoreDrill.ts",
     "backup:restore-drill:escritura": "tsx scripts/restoreDrillEscritura.ts",
