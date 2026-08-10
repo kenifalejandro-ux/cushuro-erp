@@ -13,6 +13,7 @@ import { env } from "./config/env";
 import { logger } from "./config/logger";
 import { corsOptions } from "./middleware/originGuard";
 import { authRouter } from "./routes/auth";
+import { facturacionRouter } from "./routes/facturacion";
 import { createPublicRouter } from "./routes/public";
 import { createSystemRouter } from "./routes/system";
 import { createPlatformRouter } from "./routes/platform";
@@ -163,6 +164,11 @@ export function createApp() {
   // Rutas del ERP (con prefijo /api) — protegidas por authMiddleware/tenantMiddleware
   // dentro de cada módulo (ver routes/index.ts)
   app.use("/api/erp", createApiRouter());
+
+  // Facturación: transversal como /api/auth, no pasa por MODULOS/registry
+  // (ver routes/facturacion.ts) — cualquier tenant autenticado la ve,
+  // nunca se activa/desactiva por módulo.
+  app.use("/api/facturacion", facturacionRouter);
 
   // Manejo de rutas no encontradas
   app.use("/api", notFoundApiHandler);

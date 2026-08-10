@@ -1,10 +1,14 @@
 // client/src/App.tsx
-import { Suspense, useState } from "react";
+import { Suspense, lazy, useState } from "react";
 
 import Layout from "./components/layout/Layout";
 import { useAuth } from "./context/AuthContext";
 import { MODULOS_CLIENTE } from "./modules/registry";
 import LoginPage from "./pages/LoginPage";
+
+// Facturación no es un módulo del registry (ver Sidebar.tsx) -- se resuelve
+// aparte, no vía MODULOS_CLIENTE.find().
+const FacturacionView = lazy(() => import("./components/facturacion/FacturacionView"));
 
 function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -26,7 +30,7 @@ function App() {
   // (React.lazy, ver modules/registry.tsx) — agregar un módulo nuevo no
   // infla el chunk inicial de los que ya existen.
   const moduloActivo = MODULOS_CLIENTE.find((m) => m.id === activeTab);
-  const ComponenteActivo = moduloActivo?.componente;
+  const ComponenteActivo = activeTab === "facturacion" ? FacturacionView : moduloActivo?.componente;
 
   return (
     <Layout activeTab={activeTab} setActiveTab={setActiveTab}>

@@ -45,6 +45,16 @@ const ALLOWLIST_SIN_RLS = new Set([
   "tenant_metricas_horarias",
   "tenant_backups",
   "tenant_sso_config",
+  // Billing (migración 0041): las administra el panel de plataforma para
+  // cualquier tenant, mismo criterio que tenant_cuotas -- además cobros/
+  // facturas son registro contable y necesitan sobrevivir consultas fuera
+  // de una transacción de tenant (ej. reportes cruzados de todos los
+  // tenants).
+  "suscripciones",
+  "metodos_pago",
+  "cobros",
+  "facturas",
+  "webhooks_pasarela",
 ]);
 
 interface FilaTabla {
