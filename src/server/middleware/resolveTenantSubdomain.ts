@@ -30,7 +30,7 @@ import { pool } from "../config/database";
 import { logger } from "../config/logger";
 import { asyncHandler } from "../shared/utils/asyncHandler";
 
-const SUBDOMINIOS_RESERVADOS = new Set(["www", "app", "api", "admin"]);
+const SUBDOMINIOS_RESERVADOS = new Set(["www", "app", "api", "admin", "sigma"]);
 
 export const resolveTenantSubdomain = asyncHandler(async function resolveTenantSubdomain(
   req: Request,

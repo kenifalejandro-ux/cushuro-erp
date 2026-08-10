@@ -91,13 +91,15 @@ export const env = {
   // renderiza en el login (ver LoginPage.tsx) y POST /api/auth/google
   // responde 503 (ver googleLoginService).
   googleLoginClientId: process.env.GOOGLE_LOGIN_CLIENT_ID || "",
-  // Dominio raíz de la plataforma (ej. "mincoreerp.com"). Mientras esté
+  // Dominio raíz de la plataforma (ej. "mincoreerp.com.pe"). Mientras esté
   // vacío (todavía no hay dominio comprado), el tenant siempre se resuelve
   // del campo "Empresa" del formulario — ver resolveTenantSubdomain.ts.
   // Configurado, cada cliente entra por "<slug>.<appApexDomain>" sin ver
-  // ese campo; el dueño de la plataforma sigue entrando por el dominio raíz
-  // (o localhost) con el campo manual, sin depender de tener su propio
-  // subdominio.
+  // ese campo. El dominio raíz NO apunta al ERP (queda para el sitio de
+  // marketing, proyecto aparte) — el dueño de la plataforma entra por
+  // "sigma.<appApexDomain>/plataforma" (subdominio reservado a propósito
+  // en SUBDOMINIOS_RESERVADOS, no descubrible por ser un nombre sin
+  // relación semántica con "admin/panel"), o por localhost en desarrollo.
   appApexDomain: (process.env.APP_APEX_DOMAIN || "").toLowerCase(),
   // Base del link que va en el correo de recuperación de contraseña
   // cuando el tenant no tiene dominio propio (dominio_personalizado) ni
