@@ -168,32 +168,49 @@ export async function listarTenantsService(): Promise<
   return result.rows;
 }
 
+/** Los cuatro estados del ciclo de vida de un tenant -- ver
+ *  migrations/0038_tenant_estado_ciclo_vida.sql y
+ *  docs/architecture/ciclo-de-vida-tenant.md. `tenants.activo` es una
+ *  columna GENERATED a partir de esta (`estado = 'active'`), así que
+ *  nunca se escribe directo -- Postgres lo rechaza. */
+export type EstadoTenant = "provisioning" | "active" | "suspended" | "pending_deletion";
+
 /** Activa/desactiva un tenant. Un tenant desactivado no puede loguear
  *  (ver loginService) y a los que ya tengan sesión abierta se les corta
  *  el acceso en ≤60s (mismo cache/mecanismo que revoca por token_version,
- *  ver authMiddleware + token-version-cache.ts). */
+ *  ver authMiddleware + token-version-cache.ts).
+ *
+ *  Sigue recibiendo `activo: boolean` (no `estado` directo) a propósito:
+ *  es el contrato que ya usa el panel (CambiarEstadoDialog.tsx) y no hace
+ *  falta tocar el frontend para que el ciclo de vida completo exista en el
+ *  esquema -- `true`/`false` se traducen a 'active'/'suspended', los dos
+ *  únicos estados que este flujo produce hoy. 'provisioning' y
+ *  'pending_deletion' quedan disponibles en la base para cuando haya un
+ *  camino de código real que los use (ver el doc de arquitectura para qué
+ *  falta). */
 export async function cambiarEstadoTenantService(
   tenantId: string,
   activo: boolean,
   motivo: string | undefined,
   contexto: ContextoAuditoria
 ): Promise<TenantCreado> {
-  const anterior = await pool.query(`SELECT activo FROM tenants WHERE id = $1`, [tenantId]);
+  const anterior = await pool.query(`SELECT estado FROM tenants WHERE id = $1`, [tenantId]);
   if (anterior.rows.length === 0) {
     throw new AppError(404, "Tenant no encontrado");
   }
 
+  const estado: EstadoTenant = activo ? "active" : "suspended";
   const result = await pool.query(
-    `UPDATE tenants SET activo = $1 WHERE id = $2 RETURNING id, nombre, slug`,
-    [activo, tenantId]
+    `UPDATE tenants SET estado = $1 WHERE id = $2 RETURNING id, nombre, slug`,
+    [estado, tenantId]
   );
 
   await registrarAuditoria({
     accion: "cambiar_estado_tenant",
     tenantId,
     detalle: {
-      before: { activo: anterior.rows[0].activo },
-      after: { activo },
+      before: { estado: anterior.rows[0].estado },
+      after: { estado },
       motivo: motivo ?? null,
     },
     contexto,
