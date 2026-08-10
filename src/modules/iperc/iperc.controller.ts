@@ -80,11 +80,21 @@ export const IpercController = {
       const tenantId = getTenantId(req);
       const id = Number(req.params.id);
       const { estado } = req.validatedBody as CambiarEstadoIpercInput;
-      const iperc = await withTenant(tenantId, (client) =>
+      const resultado = await withTenant(tenantId, (client) =>
         IpercService.cambiarEstado(client, tenantId, id, estado, req.usuario!.id)
       );
-      if (!iperc) {
-        res.status(404).json({ message: "IPERC no encontrado" });
+      if (!resultado.ok) {
+        if (resultado.motivo === "no_encontrado") {
+          res.status(404).json({ message: "IPERC no encontrado" });
+          return;
+        }
+        // 409, no 500: dos personas (ej. supervisor y gerente) intentando
+        // aprobar/rechazar el mismo IPERC casi al mismo tiempo -- quien
+        // llega segundo se entera de que ya no está en borrador, en vez
+        // de pisar en silencio lo que decidió el primero.
+        res.status(409).json({
+          message: `El IPERC ya fue procesado (estado actual: ${resultado.estadoActual})`,
+        });
         return;
       }
       await registrarAuditoria({
@@ -95,7 +105,7 @@ export const IpercController = {
         contexto: contextoAuditoriaModulo(req),
       });
       await publicarEventoTenant(tenantId, "iperc.estado_cambiado", { ipercId: id, estado });
-      res.json(iperc);
+      res.json(resultado.fila);
     } catch {
       res.status(500).json({ message: "Error al cambiar estado del IPERC" });
     }
@@ -184,11 +194,19 @@ export const IpercController = {
       const tenantId = getTenantId(req);
       const id = Number(req.params.id);
       const { estado } = req.validatedBody as CambiarEstadoIpercInput;
-      const lineaBase = await withTenant(tenantId, (client) =>
+      const resultado = await withTenant(tenantId, (client) =>
         IpercService.cambiarEstadoLineaBase(client, tenantId, id, estado, req.usuario!.id)
       );
-      if (!lineaBase) {
-        res.status(404).json({ message: "Línea base no encontrada" });
+      if (!resultado.ok) {
+        if (resultado.motivo === "no_encontrado") {
+          res.status(404).json({ message: "Línea base no encontrada" });
+          return;
+        }
+        // 409, mismo motivo que cambiarEstado(): dos aprobaciones/
+        // rechazos casi simultáneos ya no se pisan en silencio.
+        res.status(409).json({
+          message: `La línea base ya fue procesada (estado actual: ${resultado.estadoActual})`,
+        });
         return;
       }
       await registrarAuditoria({
@@ -202,7 +220,7 @@ export const IpercController = {
         lineaBaseId: id,
         estado,
       });
-      res.json(lineaBase);
+      res.json(resultado.fila);
     } catch {
       res.status(500).json({ message: "Error al cambiar estado de la línea base" });
     }

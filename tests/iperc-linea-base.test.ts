@@ -117,4 +117,74 @@ describe("IPERC: Línea Base + Continuo/Específico referenciando el catálogo",
     });
     expect(res.status).toBe(400);
   });
+
+  // Antes el UPDATE de cambiarEstadoLineaBase no verificaba el estado
+  // actual: dos aprobaciones/rechazos casi simultáneos (ej. supervisor y
+  // gerente en el mismo IPERC) se pisaban en silencio, ambos con 200.
+  it("una segunda aprobación/rechazo sobre una línea base ya procesada devuelve 409, no la pisa en silencio", async () => {
+    const crear = await agentAdmin.post("/api/erp/iperc/lineas-base").send({
+      proceso_actividad: "Voladura",
+      area_frente: "Frente Norte",
+      items: [
+        {
+          etapa_actividad: "Carga de explosivos",
+          peligro: "Detonación prematura",
+          riesgo: "Fatalidad",
+          probabilidad: 2,
+          severidad: 4,
+          medidas_control: "Protocolo de voladura, distancia de seguridad",
+        },
+      ],
+    });
+    expect(crear.status).toBe(201);
+    const idLineaBase = crear.body.id;
+
+    const primeraAprobacion = await agentAdmin
+      .patch(`/api/erp/iperc/lineas-base/${idLineaBase}/estado`)
+      .send({ estado: "aprobado" });
+    expect(primeraAprobacion.status).toBe(200);
+    expect(primeraAprobacion.body.estado).toBe("aprobado");
+
+    const segundoIntento = await agentAdmin
+      .patch(`/api/erp/iperc/lineas-base/${idLineaBase}/estado`)
+      .send({ estado: "rechazado" });
+    expect(segundoIntento.status).toBe(409);
+    expect(segundoIntento.body.message).toContain("aprobado");
+
+    // El estado real en la base sigue siendo el de la PRIMERA aprobación
+    // -- el segundo intento no debe haber dejado ningún rastro de escritura.
+    const detalle = await agentAdmin.get(`/api/erp/iperc/lineas-base/${idLineaBase}`);
+    expect(detalle.body.estado).toBe("aprobado");
+  });
+
+  it("dos aprobaciones simultáneas sobre la misma línea base: exactamente una gana", async () => {
+    const crear = await agentAdmin.post("/api/erp/iperc/lineas-base").send({
+      proceso_actividad: "Perforación",
+      area_frente: "Frente Este",
+      items: [
+        {
+          etapa_actividad: "Perforación de taladros",
+          peligro: "Proyección de partículas",
+          riesgo: "Lesión ocular",
+          probabilidad: 3,
+          severidad: 2,
+          medidas_control: "Lentes de seguridad, pantalla facial",
+        },
+      ],
+    });
+    expect(crear.status).toBe(201);
+    const idLineaBase = crear.body.id;
+
+    const [respuestaA, respuestaB] = await Promise.all([
+      agentAdmin
+        .patch(`/api/erp/iperc/lineas-base/${idLineaBase}/estado`)
+        .send({ estado: "aprobado" }),
+      agentAdmin
+        .patch(`/api/erp/iperc/lineas-base/${idLineaBase}/estado`)
+        .send({ estado: "rechazado" }),
+    ]);
+
+    const estados = [respuestaA.status, respuestaB.status].sort();
+    expect(estados).toEqual([200, 409]);
+  });
 });
