@@ -17,6 +17,28 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import { app, crearTenantDePrueba, borrarTenantDePrueba } from "./helpers";
 import { pool, withTenant, closeDatabase } from "../src/server/config/database";
+import { runSiPrimero, LOCK_IDS } from "../src/server/shared/utils/advisoryLock";
+
+/** particiones_asegurar_futuras() se llama a través del advisory lock que
+ *  ya usa particionado.worker.ts en producción -- nunca con pool.query()
+ *  directo. Este archivo era, hasta ahora, el único lugar del código que la
+ *  llamaba sin pasar por ahí.
+ *
+ *  Ojo: este lock por sí solo NO evitaba el deadlock real que apareció en
+ *  CI (40P01) -- pg_try_advisory_xact_lock solo serializa dos llamadas al
+ *  MISMO lock entre sí, y es invisible para un INSERT/DELETE común, que
+ *  nunca lo consulta. El arreglo real está en
+ *  migrations/0039_particion_rls_idempotente_en_lock.sql (particion_rls_
+ *  asegurar() ya no toma AccessExclusiveLock en particiones que ya tienen
+ *  RLS activo, que es lo que la exponía a chocar con tráfico normal sobre
+ *  la partición del mes actual). Este wrapper queda igual como higiene: el
+ *  test ejercita el mismo camino que el único caller real, no una llamada
+ *  directa que nadie más usa. */
+async function asegurarParticionesFuturas(mesesAdelante: number) {
+  return runSiPrimero(LOCK_IDS.particionado, (client) =>
+    client.query("SELECT particiones_asegurar_futuras($1)", [mesesAdelante])
+  );
+}
 
 afterAll(async () => {
   await closeDatabase();
@@ -50,12 +72,12 @@ describe("checklists/ipercs son tablas particionadas por RANGE(creado_en)", () =
 
 describe("particiones_asegurar_futuras(): idempotente y crea margen nuevo", () => {
   it("correrla de nuevo con el mismo margen no falla ni duplica nada (CREATE TABLE IF NOT EXISTS)", async () => {
-    await expect(pool.query("SELECT particiones_asegurar_futuras(3)")).resolves.toBeDefined();
-    await expect(pool.query("SELECT particiones_asegurar_futuras(3)")).resolves.toBeDefined();
+    await expect(asegurarParticionesFuturas(3)).resolves.toBeDefined();
+    await expect(asegurarParticionesFuturas(3)).resolves.toBeDefined();
   });
 
   it("pedirle más margen crea la partición nueva, con su propio RLS", async () => {
-    await pool.query("SELECT particiones_asegurar_futuras(9)");
+    await asegurarParticionesFuturas(9);
     const dentroDe9Meses = new Date();
     dentroDe9Meses.setMonth(dentroDe9Meses.getMonth() + 9);
     const nombreEsperado = `checklists_${dentroDe9Meses.toISOString().slice(0, 7).replace("-", "_")}`;
