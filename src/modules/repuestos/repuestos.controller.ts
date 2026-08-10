@@ -4,6 +4,7 @@ import { Request, Response } from "express";
 import { withTenant } from "../../server/config/database";
 import { getTenantId } from "../../server/shared/utils/request";
 import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/utils/pagination";
+import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
 import { RepuestosService } from "./repuestos.service";
 
 export const RepuestosController = {
@@ -32,6 +33,7 @@ export const RepuestosController = {
       const nuevo = await withTenant(tenantId, (client) =>
         RepuestosService.create(client, tenantId, req.body)
       );
+      await publicarEventoTenant(tenantId, "repuestos.creado", { repuestoId: nuevo.id });
       res.status(201).json(nuevo);
     } catch {
       res.status(500).json({ message: "Error al crear repuesto" });
@@ -56,6 +58,7 @@ export const RepuestosController = {
         return;
       }
 
+      await publicarEventoTenant(tenantId, "repuestos.actualizado", { repuestoId: id });
       res.json(actualizado);
     } catch {
       res.status(500).json({ message: "Error al actualizar repuesto" });
@@ -68,8 +71,9 @@ export const RepuestosController = {
   async delete(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
+      const id = Number(req.params.id);
       const eliminado = await withTenant(tenantId, (client) =>
-        RepuestosService.delete(client, tenantId, Number(req.params.id))
+        RepuestosService.delete(client, tenantId, id)
       );
 
       if (!eliminado) {
@@ -77,6 +81,7 @@ export const RepuestosController = {
         return;
       }
 
+      await publicarEventoTenant(tenantId, "repuestos.eliminado", { repuestoId: id });
       res.json({ message: "Eliminado" });
     } catch {
       res.status(500).json({ message: "Error al eliminar" });
@@ -97,6 +102,7 @@ export const RepuestosController = {
       const result = await withTenant(tenantId, (client) =>
         RepuestosService.createBulk(client, tenantId, rows)
       );
+      await publicarEventoTenant(tenantId, "repuestos.carga_masiva", { cantidad: result.length });
       res.status(201).json({ insertados: result.length, data: result });
     } catch {
       res.status(500).json({ message: "Error en importación masiva" });

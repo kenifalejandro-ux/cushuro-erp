@@ -6,6 +6,7 @@ import { logger } from "./config/logger";
 import { getRedis } from "./config/redis";
 import { testDatabaseConnection } from "./config/database";
 import { runMigrations } from "./config/migrate";
+import { cerrarConexionesSSE } from "./shared/utils/sseRegistry";
 
 export async function startServer() {
   // ====================== VALIDACIONES INICIALES ======================
@@ -65,6 +66,11 @@ export async function startServer() {
   // ====================== SHUTDOWN GRACIOSO ======================
   const shutdown = (signal: string) => {
     logger.info({ signal }, "🛑 Señal de apagado recibida. Cerrando servidor...");
+
+    // Un stream SSE se queda abierto indefinidamente a propósito -- sin
+    // cerrarlos acá, server.close() de abajo esperaría para siempre a que
+    // esas conexiones se cierren solas (nunca lo hacen). Ver sseRegistry.ts.
+    cerrarConexionesSSE();
 
     // server.close() espera un callback sync ((err?) => void); el cuerpo
     // async va en una IIFE aparte, marcada con `void` a propósito -- ya

@@ -11,6 +11,7 @@ import {
 } from "../../server/shared/utils/pagination";
 import { contextoAuditoriaModulo } from "../../server/shared/utils/moduleAudit";
 import { registrarAuditoria } from "../../server/services/platformAudit.service";
+import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
 import type {
   CrearPlantillaInput,
   CrearChecklistInput,
@@ -61,6 +62,9 @@ export const ChecklistsController = {
         detalle: { plantillaId: plantilla.id },
         contexto: contextoAuditoriaModulo(req),
       });
+      await publicarEventoTenant(tenantId, "checklists.plantilla_creada", {
+        plantillaId: plantilla.id,
+      });
       res.status(201).json(plantilla);
     } catch {
       res.status(500).json({ message: "Error al crear plantilla" });
@@ -85,6 +89,7 @@ export const ChecklistsController = {
         detalle: { plantillaId: id },
         contexto: contextoAuditoriaModulo(req),
       });
+      await publicarEventoTenant(tenantId, "checklists.plantilla_eliminada", { plantillaId: id });
       res.json({ message: "Eliminada" });
     } catch {
       res.status(500).json({ message: "Error al eliminar plantilla" });
@@ -134,6 +139,10 @@ export const ChecklistsController = {
         detalle: { checklistId: checklist.id, equipoId: data.equipo_id },
         contexto: contextoAuditoriaModulo(req),
       });
+      await publicarEventoTenant(tenantId, "checklists.creado", {
+        checklistId: checklist.id,
+        equipoId: data.equipo_id,
+      });
       res.status(201).json(checklist);
     } catch {
       res.status(500).json({ message: "Error al crear checklist" });
@@ -158,6 +167,7 @@ export const ChecklistsController = {
         detalle: { checklistId: id },
         contexto: contextoAuditoriaModulo(req),
       });
+      await publicarEventoTenant(tenantId, "checklists.eliminado", { checklistId: id });
       res.json({ message: "Eliminado" });
     } catch {
       res.status(500).json({ message: "Error al eliminar checklist" });

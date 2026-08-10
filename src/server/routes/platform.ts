@@ -35,8 +35,16 @@ import {
   liberarIdempotencia,
 } from "../services/platformIdempotency.service";
 import { buscarRespuestaPorClave } from "../services/platformOutbox.service";
+import {
+  reponerEventosPlataforma,
+  suscribirCanal,
+  publicarEventoPlataforma,
+  CANAL_EVENTOS_PLATAFORMA,
+} from "../services/realtimeEvents.service";
+import { manejarConexionSSE } from "../shared/utils/sse";
 import "../services/platformOutbox.worker"; // se activa solo con importarse (setInterval + .unref())
 import "../services/platformAuditRetention.worker"; // ídem — deshabilitado si PLATFORM_AUDIT_RETENTION_DAYS no está seteado
+import "../services/eventosTiempoRealRetention.worker"; // ídem — encendido por default (ver env.eventosTiempoRealRetentionMinutes)
 import "../services/platformBackupRetention.worker"; // ídem — deshabilitado si las dos BACKUP_RETENTION_* no están seteadas
 import "../services/particionado.worker"; // ídem — aprovisiona particiones futuras de checklists/ipercs (migración 0037)
 import "../services/platformBackupDrill.worker"; // ídem — restore drill básico, siempre activo (es de solo lectura)
@@ -468,6 +476,22 @@ export function createPlatformRouter() {
     })
   );
 
+  // Tiempo real del panel de plataforma (cuotas, backups, dominio, etc.)
+  // -- ver realtimeEvents.service.ts. Emiten los endpoints de estado de
+  // tenant de acá para abajo (publicarEventoPlataforma) -- deliberadamente
+  // NO los de sesión/cuenta de Platform Admin (ya cubiertos por
+  // platform_audit_log, no son "visibilidad operativa del negocio").
+  router.get(
+    "/eventos/stream",
+    asyncHandler(async (req, res) => {
+      await manejarConexionSSE(req, res, {
+        canal: CANAL_EVENTOS_PLATAFORMA,
+        reponer: reponerEventosPlataforma,
+        suscribir: suscribirCanal,
+      });
+    })
+  );
+
   // Revoca una sesión de login puntual (por su session_id, visible en la
   // propia auditoría) sin tener que rotar PLATFORM_ADMIN_TOKEN ni
   // desactivar la cuenta entera — pensado para el caso "esta sesión del
@@ -632,6 +656,10 @@ export function createPlatformRouter() {
     asyncHandler(async (req, res, next) => {
       try {
         const backup = await exportarTenantService(req.params.id, contextoDe(req));
+        await publicarEventoPlataforma("tenant.backup_creado", {
+          tenantId: req.params.id,
+          backupId: backup.id,
+        });
         res.status(201).json({ ok: true, backup });
       } catch (err) {
         next(err);
@@ -655,6 +683,10 @@ export function createPlatformRouter() {
           targetTenantId,
           contextoDe(req)
         );
+        await publicarEventoPlataforma("tenant.backup_restaurado", {
+          backupId: req.params.backupId,
+          targetTenantId,
+        });
         res.status(200).json({ ok: true, ...resultado });
       } catch (err) {
         next(err);
@@ -721,6 +753,7 @@ export function createPlatformRouter() {
           contextoDe(req),
           motivo
         );
+        await publicarEventoPlataforma("tenant.plan_cambiado", { tenantId: req.params.id, plan });
         res.status(200).json({ ok: true, ...resultado });
       } catch (err) {
         next(err);
@@ -796,6 +829,12 @@ export function createPlatformRouter() {
           contexto: contextoDe(req),
         });
 
+        await publicarEventoPlataforma("tenant.cuota_actualizada", {
+          tenantId: req.params.id,
+          recurso,
+          limite: nuevoLimite === undefined ? null : nuevoLimite,
+        });
+
         const cuotas = await resumenCuotasTenant(req.params.id);
         res.status(200).json({ ok: true, cuotas });
       } catch (err) {
@@ -832,6 +871,7 @@ export function createPlatformRouter() {
     asyncHandler(async (req, res, next) => {
       try {
         const backup = await exportarPlataformaService(contextoDe(req));
+        await publicarEventoPlataforma("plataforma.backup_creado", { backupId: backup.id });
         res.status(201).json({ ok: true, backup });
       } catch (err) {
         next(err);
@@ -853,6 +893,9 @@ export function createPlatformRouter() {
           req.params.backupId,
           contextoDe(req)
         );
+        await publicarEventoPlataforma("plataforma.backup_restaurado", {
+          backupId: req.params.backupId,
+        });
         res.status(200).json({ ok: true, ...resultado });
       } catch (err) {
         next(err);
@@ -866,7 +909,7 @@ export function createPlatformRouter() {
   // agregando plan — ver tenantOnboardingService.ts). La respuesta ya
   // queda guardada en platform_outbox DENTRO de la misma transacción que
   // crea el tenant, no hace falta escribirla acá.
-  async function crearTenantConIdempotencia<T extends object>(
+  async function crearTenantConIdempotencia<T extends { tenant: { id: string; slug: string } }>(
     req: Request,
     res: Response,
     next: NextFunction,
@@ -887,6 +930,10 @@ export function createPlatformRouter() {
       }
 
       const resultado = await ejecutar(idempotencyKey);
+      await publicarEventoPlataforma("tenant.creado", {
+        tenantId: resultado.tenant.id,
+        slug: resultado.tenant.slug,
+      });
       res.status(201).json({ ok: true, ...resultado });
     } catch (err) {
       if (idempotencyKey) {
@@ -957,6 +1004,10 @@ export function createPlatformRouter() {
           motivo,
           contextoDe(req)
         );
+        await publicarEventoPlataforma("tenant.estado_cambiado", {
+          tenantId: req.params.id,
+          activo,
+        });
         res.status(200).json({ ok: true, tenant });
       } catch (err) {
         next(err);
@@ -989,6 +1040,10 @@ export function createPlatformRouter() {
           dominioPersonalizado,
           contextoDe(req)
         );
+        await publicarEventoPlataforma("tenant.dominio_cambiado", {
+          tenantId: req.params.id,
+          dominioPersonalizado,
+        });
         res.status(200).json({ ok: true, dominio });
       } catch (err) {
         next(err);
@@ -1004,6 +1059,10 @@ export function createPlatformRouter() {
     asyncHandler(async (req, res, next) => {
       try {
         const dominio = await verificarDominioService(req.params.id, contextoDe(req));
+        await publicarEventoPlataforma("tenant.dominio_verificado", {
+          tenantId: req.params.id,
+          estado: dominio.dominioEstado,
+        });
         res.status(200).json({ ok: true, dominio });
       } catch (err) {
         next(err);
@@ -1034,6 +1093,7 @@ export function createPlatformRouter() {
           req.validatedBody as ConfigurarSsoTenantInput,
           contextoDe(req)
         );
+        await publicarEventoPlataforma("tenant.sso_configurado", { tenantId: req.params.id });
         res.status(200).json({ ok: true, sso });
       } catch (err) {
         next(err);
@@ -1062,6 +1122,10 @@ export function createPlatformRouter() {
     asyncHandler(async (req, res, next) => {
       try {
         const token = await generarTokenScimService(req.params.id, contextoDe(req));
+        // El token en sí NUNCA va en el evento -- es un secreto de un solo
+        // uso (ver el comentario de la ruta), el canal de tiempo real no es
+        // el lugar para eso.
+        await publicarEventoPlataforma("tenant.scim_token_generado", { tenantId: req.params.id });
         res.status(200).json({ ok: true, token });
       } catch (err) {
         next(err);
@@ -1074,6 +1138,7 @@ export function createPlatformRouter() {
     asyncHandler(async (req, res, next) => {
       try {
         await revocarTokenScimService(req.params.id, contextoDe(req));
+        await publicarEventoPlataforma("tenant.scim_token_revocado", { tenantId: req.params.id });
         res.status(200).json({ ok: true });
       } catch (err) {
         next(err);
@@ -1104,6 +1169,10 @@ export function createPlatformRouter() {
           configuraciones,
           contextoDe(req)
         );
+        await publicarEventoPlataforma("tenant.modulos_actualizados", {
+          tenantId: req.params.id,
+          configuraciones,
+        });
         res.status(200).json({ ok: true, modulos: resultado });
       } catch (err) {
         next(err);
@@ -1130,6 +1199,10 @@ export function createPlatformRouter() {
           config,
           contextoDe(req)
         );
+        await publicarEventoPlataforma("modulo.global_actualizado", {
+          modulo: req.params.modulo,
+          config,
+        });
         res.status(200).json({ ok: true, ...resultado });
       } catch (err) {
         next(err);
@@ -1161,6 +1234,10 @@ export function createPlatformRouter() {
           req.validatedBody as CrearUsuarioEnTenantInput,
           contextoDe(req)
         );
+        await publicarEventoPlataforma("tenant.usuario_creado", {
+          tenantId: req.params.id,
+          usuarioId: usuario.id,
+        });
         res.status(201).json({ ok: true, usuario });
       } catch (err) {
         next(err);
@@ -1188,6 +1265,11 @@ export function createPlatformRouter() {
           motivo,
           contextoDe(req)
         );
+        await publicarEventoPlataforma("tenant.usuario_estado_cambiado", {
+          tenantId: req.params.tenantId,
+          usuarioId: req.params.usuarioId,
+          activo,
+        });
         res.status(200).json({ ok: true, usuario });
       } catch (err) {
         next(err);
@@ -1222,6 +1304,11 @@ export function createPlatformRouter() {
           modulos,
           contextoDe(req)
         );
+        await publicarEventoPlataforma("tenant.usuario_modulos_actualizados", {
+          tenantId: req.params.tenantId,
+          usuarioId: req.params.usuarioId,
+          modulos,
+        });
         res.status(200).json({ ok: true, modulos: resultado });
       } catch (err) {
         next(err);
