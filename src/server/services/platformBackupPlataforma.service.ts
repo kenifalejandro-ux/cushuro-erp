@@ -59,12 +59,20 @@ interface TablaPlataforma {
   /** Columnas que identifican una fila ya existente, para el ON CONFLICT
    *  del restore aditivo. */
   conflicto: string[];
+  /** Columnas GENERATED de esta tabla — el backup las captura igual (viene
+   *  de un SELECT *, ver exportarPlataformaService), pero Postgres rechaza
+   *  cualquier INSERT que las mencione explícitamente. Sin este filtro el
+   *  restore fallaría con "cannot insert into column ... generated
+   *  column". */
+  columnasGeneradas?: string[];
 }
 
 // Orden de INSERT en el restore: tenants primero, porque todo lo demás la
 // referencia por FK.
 const TABLAS_PLATAFORMA: TablaPlataforma[] = [
-  { nombre: "tenants", conflicto: ["id"] },
+  // activo es GENERATED ALWAYS AS (estado = 'active') STORED desde
+  // migrations/0038_tenant_estado_ciclo_vida.sql.
+  { nombre: "tenants", conflicto: ["id"], columnasGeneradas: ["activo"] },
   { nombre: "platform_admins", conflicto: ["id"] },
   { nombre: "tenant_modulos", conflicto: ["tenant_id", "modulo"] },
   { nombre: "tenant_sso_config", conflicto: ["tenant_id"] },
@@ -241,7 +249,7 @@ async function restaurarTablasPlataforma(
       filasSalteadasPorFk[meta.nombre] = 0;
 
       for (const fila of filas) {
-        const columnas = Object.keys(fila);
+        const columnas = Object.keys(fila).filter((c) => !meta.columnasGeneradas?.includes(c));
         const placeholders = columnas.map((_, i) => `$${i + 1}`).join(", ");
 
         // Ver el comentario de la función sobre por qué esto va en un
