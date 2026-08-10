@@ -126,6 +126,14 @@ export async function borrarTenantDePrueba(tenantId: string) {
     // transacción igual: es lo que hace que el lock de arriba proteja
     // hasta el final, no solo hasta el COMMIT de un bloque separado.
     await client.query("DELETE FROM tenant_modulos WHERE tenant_id = $1", [tenantId]);
+    // facturas/cobros (migración 0041) NO tienen ON DELETE CASCADE a
+    // propósito -- son registro contable, no deben desaparecer solos si
+    // alguna vez se borra un tenant real. En tests sí hay que limpiarlos a
+    // mano, o el DELETE de tenants de abajo falla por FK. facturas antes
+    // que cobros: factura.cobro_id referencia a cobros sin CASCADE tampoco.
+    // suscripciones/metodos_pago sí tienen CASCADE, se limpian solas.
+    await client.query("DELETE FROM facturas WHERE tenant_id = $1", [tenantId]);
+    await client.query("DELETE FROM cobros WHERE tenant_id = $1", [tenantId]);
     await client.query("DELETE FROM tenants WHERE id = $1", [tenantId]);
     await client.query("COMMIT");
   } catch (err) {
