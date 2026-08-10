@@ -66,10 +66,18 @@ export const authMiddleware = asyncHandler(async function authMiddleware(
         .json({ ok: false, message: "Sesión inválida, inicia sesión nuevamente" });
     }
 
+    // Una key de Redis por SESIÓN (no por usuario) -- ver
+    // emitirSesionCompleta() en auth.service.ts. Esto es lo que permite que
+    // un usuario tenga varias sesiones activas a la vez (celular + PC) sin
+    // que loguearse en una cierre la otra: cada una tiene su propio
+    // sessionId y su propia key, así que nunca se pisan entre sí. Un JWT
+    // sin sessionId (emitido antes de este cambio) no matchea ninguna key
+    // real y cae acá abajo como sesión inválida -- se resuelve solo en el
+    // próximo refresh, no hace falta un caso especial.
     const redis = getRedis();
     if (redis) {
       try {
-        const sesionToken = await redis.get(`session:${payload.id}`);
+        const sesionToken = await redis.get(`session:${payload.id}:${payload.sessionId}`);
         if (!sesionToken || sesionToken !== token) {
           return res.status(401).json({ ok: false, message: "Sesión expirada o inválida" });
         }

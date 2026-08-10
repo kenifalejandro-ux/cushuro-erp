@@ -4,10 +4,12 @@
  * no tenga que pegarle a Postgres en cada request con sesión activa. Mismo
  * patrón que rateLimiter.ts: Redis si está disponible, memoria como fallback.
  *
- * Una revocación (logoutService / futuras acciones de admin) tarda como
- * máximo TTL_MS en propagarse a los requests ya en curso con la versión
- * vieja en cache — trade-off aceptado a cambio de no consultar la BD en
- * cada request autenticado.
+ * Una revocación GLOBAL (revocarSesionesService: desactivar usuario, reset
+ * de contraseña, robo de refresh token) tarda como máximo TTL_MS en
+ * propagarse a los requests ya en curso con la versión vieja en cache —
+ * trade-off aceptado a cambio de no consultar la BD en cada request
+ * autenticado. El logout de UNA sesión (logoutService) no toca
+ * token_version -- no pasa por este cache, ver auth.middleware.ts.
  */
 import { getRedis } from "../../config/redis";
 

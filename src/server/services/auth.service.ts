@@ -3,7 +3,7 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
-import { randomBytes, createHash } from "crypto";
+import { randomBytes, randomUUID, createHash } from "crypto";
 import type { Pool, PoolClient } from "pg";
 import { pool, withTenant } from "../config/database";
 import { env, emailConfigured } from "../config/env";
@@ -52,6 +52,14 @@ export interface UsuarioPayload {
    *  authMiddleware): incrementar esa columna revoca todos los JWT emitidos
    *  antes del incremento, sin depender de que Redis esté disponible. */
   tokenVersion: number;
+  /** Identifica esta sesión particular entre las varias que un usuario
+   *  puede tener activas a la vez (un login por dispositivo/navegador) --
+   *  ver emitirSesionCompleta(). Opcional en el tipo porque los
+   *  `UsuarioPayload` que no representan una sesión propia (ej. el que
+   *  devuelve crearUsuarioService, que da de alta una cuenta, no loguea a
+   *  nadie) nunca lo tienen -- pero SIEMPRE está presente en el payload
+   *  real de un JWT ya firmado. */
+  sessionId?: string;
 }
 
 /** Determinístico por (tenant, módulo, usuario): el mismo usuario siempre
@@ -102,10 +110,12 @@ export async function obtenerModulosPermitidos(
     .map((fila) => fila.modulo);
 }
 
-/** Solo para exponer al cliente: nunca se envía tokenVersion en las
- *  respuestas HTTP (login, /me) — es un detalle interno de revocación. */
+/** Solo para exponer al cliente: nunca se envía tokenVersion ni sessionId
+ *  en las respuestas HTTP (login, /me) — son detalles internos de
+ *  revocación/sesión, el cliente no necesita saber su propio sessionId (ya
+ *  viaja, invisible, dentro de la cookie httpOnly). */
 export function aPublico(usuario: UsuarioPayload) {
-  const { tokenVersion: _tokenVersion, ...publico } = usuario;
+  const { tokenVersion: _tokenVersion, sessionId: _sessionId, ...publico } = usuario;
   return publico;
 }
 
@@ -128,14 +138,23 @@ function hashRefreshToken(tokenPlano: string): string {
  *  saber a qué tenant pertenece ANTES de poder abrir una transacción
  *  withTenant() y leer `usuarios` bajo RLS — sin este dato acá, sería
  *  imposible resolver ese punto de partida. refresh_tokens en sí sigue sin
- *  RLS (no es una tabla que el usuario consulte directamente). */
-async function emitirRefreshToken(usuarioId: string, tenantId: string): Promise<string> {
+ *  RLS (no es una tabla que el usuario consulte directamente).
+ *
+ *  sessionId también queda denormalizado (migrations/0040): es lo que
+ *  permite a logoutService() revocar el refresh token de UNA sesión sin
+ *  tocar los de las demás. */
+async function emitirRefreshToken(
+  usuarioId: string,
+  tenantId: string,
+  sessionId: string
+): Promise<string> {
   const tokenPlano = randomBytes(48).toString("hex");
   const expiraEn = new Date(Date.now() + env.sessionTtlSeconds * 1000);
 
   await pool.query(
-    `INSERT INTO refresh_tokens (usuario_id, tenant_id, token_hash, expira_en) VALUES ($1, $2, $3, $4)`,
-    [usuarioId, tenantId, hashRefreshToken(tokenPlano), expiraEn]
+    `INSERT INTO refresh_tokens (usuario_id, tenant_id, token_hash, expira_en, session_id)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [usuarioId, tenantId, hashRefreshToken(tokenPlano), expiraEn, sessionId]
   );
 
   return tokenPlano;
@@ -147,29 +166,45 @@ async function emitirRefreshToken(usuarioId: string, tenantId: string): Promise<
  *  para que tenantSso.service.ts la reuse en el callback OIDC: mismo
  *  criterio de "reutilizar la infraestructura de sesión existente" que ya
  *  aplica googleLoginService — SSO solo cambia CÓMO se resuelve el
- *  `usuario`, nunca cómo se emite la sesión una vez resuelto. */
+ *  `usuario`, nunca cómo se emite la sesión una vez resuelto.
+ *
+ *  Un usuario puede tener varias sesiones activas a la vez (celular + PC,
+ *  por ejemplo) — cada una identificada por su propio `sessionId`, una key
+ *  de Redis separada (`session:<usuarioId>:<sessionId>`), y su propia fila
+ *  en refresh_tokens. `sessionIdExistente` es para refrescarTokenService():
+ *  refrescar el access token EXTIENDE la sesión que ya existía, no crea una
+ *  nueva — sin esto, cada refresh (automático, cada ~30 min mientras el
+ *  usuario sigue activo) generaría una sesión nueva y abandonaría la
+ *  anterior. Sin argumento (un login real) se genera una nueva. */
 export async function emitirSesionCompleta(
-  usuario: UsuarioPayload
+  usuario: UsuarioPayload,
+  sessionIdExistente?: string | null
 ): Promise<{ token: string; usuario: UsuarioPayload; refreshToken: string }> {
-  const token = firmarAccessToken(usuario);
-  const refreshToken = await emitirRefreshToken(usuario.id, usuario.tenantId);
+  const sessionId = sessionIdExistente ?? randomUUID();
+  const usuarioConSesion: UsuarioPayload = { ...usuario, sessionId };
+
+  const token = firmarAccessToken(usuarioConSesion);
+  const refreshToken = await emitirRefreshToken(usuario.id, usuario.tenantId, sessionId);
 
   // Cachea la versión vigente para que el primer request autenticado tras
   // el login no tenga que ir a Postgres a buscarla (ver authMiddleware).
   await setCachedTokenVersion(usuario.id, usuario.tokenVersion);
 
-  // Sesión en Redis: permite invalidar el token activamente en logout,
-  // en vez de depender solo de que el JWT expire por su cuenta.
+  // Sesión en Redis: permite invalidar el token activamente en logout (de
+  // ESTA sesión puntual, ver logoutService) sin depender solo de que el JWT
+  // expire por su cuenta. Una key por sesión, no una sola por usuario —
+  // eso es justamente lo que permite tener varias a la vez sin que se
+  // pisen entre sí.
   const redis = getRedis();
   if (redis) {
     try {
-      await redis.set(`session:${usuario.id}`, token, "EX", env.sessionTtlSeconds);
+      await redis.set(`session:${usuario.id}:${sessionId}`, token, "EX", env.sessionTtlSeconds);
     } catch (err) {
       logger.warn({ err }, "No se pudo guardar la sesión en Redis, continuando solo con JWT");
     }
   }
 
-  return { token, usuario, refreshToken };
+  return { token, usuario: usuarioConSesion, refreshToken };
 }
 
 /** Resuelve el tenant por slug — paso previo obligatorio a cualquier
@@ -333,7 +368,8 @@ export async function refrescarTokenService(
   // leer `usuarios` bajo RLS sin depender de un JOIN que ya no es posible
   // en una sola query.
   const tokenResult = await pool.query(
-    `SELECT usuario_id, tenant_id, expira_en, revocado_en FROM refresh_tokens WHERE token_hash = $1`,
+    `SELECT usuario_id, tenant_id, expira_en, revocado_en, session_id
+     FROM refresh_tokens WHERE token_hash = $1`,
     [hash]
   );
 
@@ -384,28 +420,49 @@ export async function refrescarTokenService(
     tokenVersion: filaUsuario.token_version,
   };
 
-  const token = firmarAccessToken(usuario);
-  const nuevoRefreshToken = await emitirRefreshToken(usuario.id, usuario.tenantId);
-  await setCachedTokenVersion(usuario.id, usuario.tokenVersion);
-
-  const redis = getRedis();
-  if (redis) {
-    try {
-      await redis.set(`session:${usuario.id}`, token, "EX", env.sessionTtlSeconds);
-    } catch (err) {
-      logger.warn({ err }, "No se pudo actualizar la sesión en Redis durante refresh");
-    }
-  }
-
-  return { token, usuario, refreshToken: nuevoRefreshToken };
+  // Reusa emitirSesionCompleta() con el sessionId de la fila que se acaba
+  // de rotar -- refrescar el access token EXTIENDE esta sesión, no crea
+  // una nueva (ver el comentario de emitirSesionCompleta). Sin session_id
+  // (fila emitida antes de migrations/0040) se genera uno nuevo ahí mismo,
+  // sin caso especial: el primer refresh de cada dispositivo después del
+  // deploy simplemente arranca a llevar sessionId de acá en más.
+  return emitirSesionCompleta(usuario, filaToken.session_id);
 }
 
-/** Revoca de una sola vez TODOS los JWT ya emitidos para este usuario
- *  (incrementa token_version en BD) — funciona con o sin Redis. Pensado
- *  para reusarse desde logoutService y desde acciones de admin como
- *  desactivar un usuario. Exige tenantId explícito (no se puede resolver
- *  desde `usuarios` sin saberlo ya, por RLS) — todos los callers ya lo
- *  tienen a mano (JWT del usuario o parámetro de ruta de plataforma). */
+/** Borra TODAS las keys `session:<usuarioId>:*` de Redis -- una por cada
+ *  sesión activa del usuario (celular, PC, lo que tenga abierto). SCAN, no
+ *  KEYS: esto puede correr con cualquier cantidad de keys en el Redis
+ *  entero, y KEYS bloquea el server entero mientras recorre todo el
+ *  keyspace -- SCAN no. No es una ruta caliente (revocación global: logout
+ *  explícito de "todos los dispositivos", desactivar usuario, reset de
+ *  contraseña, robo de refresh token detectado), así que el costo extra de
+ *  iterar con cursor es irrelevante frente a hacerlo de la forma correcta. */
+async function borrarTodasLasSesionesRedis(usuarioId: string): Promise<void> {
+  const redis = getRedis();
+  if (!redis) return;
+
+  try {
+    const claves: string[] = [];
+    const stream = redis.scanStream({ match: `session:${usuarioId}:*`, count: 100 });
+    for await (const lote of stream as AsyncIterable<string[]>) {
+      claves.push(...lote);
+    }
+    if (claves.length > 0) await redis.del(...claves);
+  } catch (err) {
+    logger.warn({ err }, "No se pudieron limpiar las sesiones en Redis durante la revocación");
+  }
+}
+
+/** Revoca de una sola vez TODAS las sesiones activas de este usuario, en
+ *  todos sus dispositivos (incrementa token_version en BD) — funciona con
+ *  o sin Redis. Pensado para acciones que de verdad necesitan cerrar TODO:
+ *  desactivar un usuario, resetear su contraseña, o contener un robo de
+ *  refresh token detectado (ver refrescarTokenService). Para cerrar UNA
+ *  sola sesión (logout normal, un dispositivo), ver logoutService().
+ *
+ *  Exige tenantId explícito (no se puede resolver desde `usuarios` sin
+ *  saberlo ya, por RLS) — todos los callers ya lo tienen a mano (JWT del
+ *  usuario o parámetro de ruta de plataforma). */
 export async function revocarSesionesService(usuarioId: string, tenantId: string): Promise<void> {
   try {
     await withTenant(tenantId, (client) =>
@@ -425,19 +482,39 @@ export async function revocarSesionesService(usuarioId: string, tenantId: string
   }
 
   await invalidateCachedTokenVersion(usuarioId);
+  await borrarTodasLasSesionesRedis(usuarioId);
+}
+
+/** Cierra SOLO la sesión actual (este dispositivo/navegador) -- las demás
+ *  sesiones activas del usuario, si tiene, siguen funcionando. No toca
+ *  token_version (eso derrumbaría TODAS las sesiones, ver
+ *  revocarSesionesService) -- solo la fila de refresh_tokens y la key de
+ *  Redis de esta sesión puntual.
+ *
+ *  sessionId puede faltar (JWT emitido antes de migrations/0040, o algún
+ *  caller futuro sin sesión propia): en ese caso no hay una key puntual
+ *  que borrar, así que no hace nada -- el access token de todos modos
+ *  expira solo en `JWT_EXPIRES` (30 min). */
+export async function logoutService(
+  usuarioId: string,
+  sessionId: string | undefined
+): Promise<void> {
+  if (!sessionId) return;
+
+  await pool.query(
+    `UPDATE refresh_tokens SET revocado_en = now()
+     WHERE usuario_id = $1 AND session_id = $2 AND revocado_en IS NULL`,
+    [usuarioId, sessionId]
+  );
 
   const redis = getRedis();
   if (redis) {
     try {
-      await redis.del(`session:${usuarioId}`);
+      await redis.del(`session:${usuarioId}:${sessionId}`);
     } catch (err) {
       logger.warn({ err }, "No se pudo limpiar la sesión en Redis durante logout");
     }
   }
-}
-
-export async function logoutService(usuarioId: string, tenantId: string): Promise<void> {
-  await revocarSesionesService(usuarioId, tenantId);
 }
 
 export async function crearUsuarioService(

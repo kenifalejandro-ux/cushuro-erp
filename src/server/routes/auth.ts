@@ -253,7 +253,9 @@ authRouter.post(
   authMiddleware,
   asyncHandler(async (req, res, next) => {
     try {
-      await logoutService(req.usuario!.id, req.usuario!.tenantId);
+      // Cierra SOLO esta sesión -- las demás sesiones activas del usuario
+      // (otro dispositivo/navegador) siguen funcionando, ver logoutService().
+      await logoutService(req.usuario!.id, req.usuario!.sessionId);
       limpiarCookiesSesion(res);
       res.status(200).json({ ok: true, message: "Sesión cerrada correctamente" });
     } catch (err) {

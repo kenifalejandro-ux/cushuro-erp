@@ -2,10 +2,12 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import { app, crearTenantDePrueba, borrarTenantDePrueba, extraerCookie } from "./helpers";
 import { closeDatabase, withTenant } from "../src/server/config/database";
+import { env } from "../src/server/config/env";
 
 describe("auth", () => {
   let tenantId: string;
   let tenantSlug: string;
+  let usuarioId: string;
   let email: string;
   const password = "ClaveDePrueba123";
 
@@ -13,6 +15,7 @@ describe("auth", () => {
     const creado = await crearTenantDePrueba(password);
     tenantId = creado.tenant.id;
     tenantSlug = creado.tenant.slug;
+    usuarioId = creado.usuario.id;
     email = creado.usuario.email;
   });
 
@@ -102,5 +105,67 @@ describe("auth", () => {
     // el reuso disparó la revocación de TODA la sesión, no solo del token viejo.
     const refrescoTrasReuso = await agent.post("/api/auth/refresh");
     expect(refrescoTrasReuso.status).toBe(401);
+  });
+
+  it("un usuario puede tener dos sesiones activas a la vez -- loguearse en una no cierra la otra", async () => {
+    const agenteCelular = request.agent(app);
+    const agentePc = request.agent(app);
+
+    const loginCelular = await agenteCelular
+      .post("/api/auth/login")
+      .send({ tenantSlug, email, password });
+    expect(loginCelular.status).toBe(200);
+    expect((await agenteCelular.get("/api/auth/me")).status).toBe(200);
+
+    // Segundo login del MISMO usuario, otro jar de cookies (otro
+    // "dispositivo") -- antes de suavizar la sesión única, esto pisaba la
+    // sesión del celular en Redis y la tumbaba.
+    const loginPc = await agentePc.post("/api/auth/login").send({ tenantSlug, email, password });
+    expect(loginPc.status).toBe(200);
+    expect((await agentePc.get("/api/auth/me")).status).toBe(200);
+
+    // La sesión del celular sigue viva después del login de la PC.
+    expect((await agenteCelular.get("/api/auth/me")).status).toBe(200);
+  });
+
+  it("logout de una sesión no cierra las demás sesiones activas del mismo usuario", async () => {
+    const agenteCelular = request.agent(app);
+    const agentePc = request.agent(app);
+
+    await agenteCelular.post("/api/auth/login").send({ tenantSlug, email, password });
+    await agentePc.post("/api/auth/login").send({ tenantSlug, email, password });
+
+    const logoutCelular = await agenteCelular.post("/api/auth/logout");
+    expect(logoutCelular.status).toBe(200);
+
+    expect((await agenteCelular.get("/api/auth/me")).status).toBe(401);
+    // La PC nunca pidió logout -- su sesión sigue intacta.
+    expect((await agentePc.get("/api/auth/me")).status).toBe(200);
+  });
+
+  it("desactivar el usuario desde plataforma sí cierra TODAS sus sesiones activas", async () => {
+    const agenteCelular = request.agent(app);
+    const agentePc = request.agent(app);
+
+    await agenteCelular.post("/api/auth/login").send({ tenantSlug, email, password });
+    await agentePc.post("/api/auth/login").send({ tenantSlug, email, password });
+
+    try {
+      const desactivar = await request(app)
+        .patch(`/api/platform/tenants/${tenantId}/usuarios/${usuarioId}/estado`)
+        .set("Authorization", `Bearer ${env.platformAdminToken}`)
+        .send({ activo: false });
+      expect(desactivar.status).toBe(200);
+
+      // revocarSesionesService() -- a diferencia de logoutService() -- tumba
+      // TODAS las sesiones del usuario, no solo una.
+      expect((await agenteCelular.get("/api/auth/me")).status).toBe(401);
+      expect((await agentePc.get("/api/auth/me")).status).toBe(401);
+    } finally {
+      await request(app)
+        .patch(`/api/platform/tenants/${tenantId}/usuarios/${usuarioId}/estado`)
+        .set("Authorization", `Bearer ${env.platformAdminToken}`)
+        .send({ activo: true });
+    }
   });
 });
