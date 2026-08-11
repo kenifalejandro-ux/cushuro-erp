@@ -7,6 +7,7 @@ import "./config/sentry";
 
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { registerSW } from "virtual:pwa-register";
 
 import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -20,6 +21,12 @@ import "./styles/index.css"; // si lo necesitas
 
 // Opcional: si vas a usar íconos (Lucide, Heroicons, etc.)
 // import './lib/icons';
+
+// Registra el Service Worker generado por vite-plugin-pwa (solo precache del
+// app shell en esta fase — ver vite.config.js). No-op en `vite dev`, porque
+// devOptions no está habilitado ahí: solo hace algo real contra el build de
+// `vite build`/`vite preview` o producción.
+registerSW({ immediate: true });
 
 const rootElement = document.getElementById("root");
 
