@@ -154,7 +154,8 @@ function paramsDeCifradoServidor() {
 export async function subirObjeto(
   key: string,
   cuerpo: Readable,
-  metadata: Record<string, string> = {}
+  metadata: Record<string, string> = {},
+  contentType: string = "application/octet-stream"
 ): Promise<{ bytes: number }> {
   let bytes = 0;
   cuerpo.on("data", (chunk: Buffer) => {
@@ -167,7 +168,7 @@ export async function subirObjeto(
       Bucket: env.s3BucketName,
       Key: key,
       Body: cuerpo,
-      ContentType: "application/octet-stream",
+      ContentType: contentType,
       Metadata: metadata,
       ...paramsDeCifradoServidor(),
     },

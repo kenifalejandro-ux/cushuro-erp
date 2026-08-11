@@ -240,6 +240,15 @@ export const env = {
     process.env.BACKUP_RETENTION_CHECK_INTERVAL_MS,
     24 * 60 * 60_000
   ),
+  // --- ARCHIVOS DE DOCUMENTOS (módulo Documentos: PDF/imagen adjunto) ---
+  // "local" (default) o "s3". Independiente de BACKUP_STORAGE_DRIVER a
+  // propósito: son dos contenidos distintos (uno interno de plataforma,
+  // otro visible para el propio tenant) que pueden migrar a S3 en momentos
+  // distintos. Con driver "s3" reusa el mismo bucket/credenciales S3_* de
+  // arriba (backups), bajo el prefijo "documentos/" en vez de "backups/" —
+  // no hace falta un bucket ni credenciales aparte.
+  documentosStorageDriver: (process.env.DOCUMENTOS_STORAGE_DRIVER || "local").toLowerCase(),
+  documentosDir: process.env.DOCUMENTOS_DIR || path.resolve(rootDir, "documentos_archivos"),
   // Restore drill (platformBackupDrill.worker.ts): a diferencia de la
   // retención, esto es de solo lectura (nunca borra ni modifica nada), así
   // que no hay una decisión de negocio que tomar para activarlo — corre

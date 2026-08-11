@@ -269,6 +269,19 @@ export async function restaurarTablas(
 
   for (const meta of TABLAS_TENANT) {
     const filas = backup.tablas[meta.nombre] ?? [];
+
+    // Tablas que apuntan a algo fuera de Postgres (storage_key → un objeto
+    // en R2/disco): restaurarlas sobre el mismo tenant es correcto, pero
+    // clonarlas le daría al tenant destino punteros a los archivos del
+    // ORIGEN — ver `omitirAlClonar` en modules/types.ts. Se cuenta como 0
+    // restauradas y no como "ausente del backup": el backup SÍ las trae,
+    // este restore en particular decidió no escribirlas.
+    if (remapearIds && meta.omitirAlClonar) {
+      tablasRestauradas[meta.nombre] = 0;
+      remapPorTabla[meta.nombre] = new Map();
+      continue;
+    }
+
     tablasRestauradas[meta.nombre] = filas.length;
     const remapDeEstaTabla = new Map<unknown, unknown>();
     remapPorTabla[meta.nombre] = remapDeEstaTabla;

@@ -13,7 +13,27 @@ export type DocumentoPayload = {
   estado?: string;
 };
 
+export type DocumentoVersionPayload = {
+  storage_driver: "local" | "s3";
+  storage_key: string;
+  mime_type: string;
+  tamano_bytes: number;
+  nombre_original: string;
+  subido_por: string | null;
+};
+
 export const DocumentosRepository = {
+  // ============================================================
+  // 📄 GET /documentos/:id
+  // ============================================================
+  async findById(client: PoolClient, tenantId: string, id: number) {
+    const result = await client.query("SELECT * FROM documentos WHERE id = $1 AND tenant_id = $2", [
+      id,
+      tenantId,
+    ]);
+    return result.rows[0] ?? null;
+  },
+
   // ============================================================
   // 📄 GET /documentos
   // LISTAR DOCUMENTOS (del tenant activo, paginado)
@@ -134,5 +154,73 @@ export const DocumentosRepository = {
     );
 
     return result.rows[0];
+  },
+
+  // ============================================================
+  // 📎 ARCHIVO ADJUNTO (documentos_versiones, ver migración 0043)
+  // ============================================================
+
+  async insertVersion(
+    client: PoolClient,
+    tenantId: string,
+    documentoId: number,
+    data: DocumentoVersionPayload
+  ) {
+    const result = await client.query(
+      `
+      INSERT INTO documentos_versiones
+      (tenant_id, documento_id, storage_driver, storage_key, mime_type, tamano_bytes, nombre_original, subido_por)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING *
+    `,
+      [
+        tenantId,
+        documentoId,
+        data.storage_driver,
+        data.storage_key,
+        data.mime_type,
+        data.tamano_bytes,
+        data.nombre_original,
+        data.subido_por,
+      ]
+    );
+    return result.rows[0];
+  },
+
+  async findVersiones(client: PoolClient, tenantId: string, documentoId: number) {
+    const result = await client.query(
+      `SELECT id, mime_type, tamano_bytes, nombre_original, subido_por, subido_en
+       FROM documentos_versiones
+       WHERE tenant_id = $1 AND documento_id = $2
+       ORDER BY subido_en DESC`,
+      [tenantId, documentoId]
+    );
+    return result.rows;
+  },
+
+  /** Ubicación en el storage de TODAS las versiones de un documento --
+   *  para poder borrar los archivos después de borrar el documento (si no,
+   *  el ON DELETE CASCADE se lleva las filas y los archivos quedan
+   *  huérfanos en R2/disco, ocupando espacio sin que nada los referencie).
+   *  Uso interno, nunca se devuelve al cliente. */
+  async findStorageDeVersiones(client: PoolClient, tenantId: string, documentoId: number) {
+    const result = await client.query<{ storage_driver: "local" | "s3"; storage_key: string }>(
+      `SELECT storage_driver, storage_key FROM documentos_versiones
+       WHERE tenant_id = $1 AND documento_id = $2`,
+      [tenantId, documentoId]
+    );
+    return result.rows;
+  },
+
+  /** Trae la versión completa (incluida storage_key/driver, que las otras
+   *  queries de arriba no exponen) -- solo para uso interno al armar la
+   *  descarga, nunca se devuelve tal cual al cliente. */
+  async findVersion(client: PoolClient, tenantId: string, documentoId: number, versionId: number) {
+    const result = await client.query(
+      `SELECT * FROM documentos_versiones
+       WHERE id = $1 AND documento_id = $2 AND tenant_id = $3`,
+      [versionId, documentoId, tenantId]
+    );
+    return result.rows[0] ?? null;
   },
 };

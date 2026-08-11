@@ -203,10 +203,17 @@ const { closeDatabase } = await import("../src/server/config/database");
 const TENANT_ID = "11111111-2222-4333-8444-555555555555";
 
 /** El driver de escritura y el bucket se leen de `env` en cada llamada, así
- *  que alcanza con mutarlo — no hace falta recargar los módulos. */
+ *  que alcanza con mutarlo — no hace falta recargar los módulos.
+ *
+ *  El SSE se fija acá y NO se hereda de .env: un entorno que lo tenga
+ *  vacío a propósito (Cloudflare R2 rechaza ese header, ver .env.example)
+ *  haría fallar el test de "pide cifrado del lado del servidor", que es
+ *  sobre la lógica del código, no sobre la config de la máquina que lo
+ *  corre. */
 function activarS3() {
   env.backupStorageDriver = "s3";
   env.s3BucketName = "mincore-backups-test";
+  env.s3ServerSideEncryption = "AES256";
   resetearClienteS3();
 }
 
