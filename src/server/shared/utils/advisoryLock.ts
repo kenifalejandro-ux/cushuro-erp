@@ -56,6 +56,7 @@ export const LOCK_IDS = {
   backupDrill: 483924,
   backupWriteDrill: 483925,
   eventosTiempoRealRetention: 483926,
+  idempotencyKeysRetention: 483927,
 } as const;
 
 /** Corre `fn(client)` solo si logra tomar el lock `lockId`, dentro de una

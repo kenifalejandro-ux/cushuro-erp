@@ -12,6 +12,7 @@ import { registerSW } from "virtual:pwa-register";
 import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AuthProvider } from "./context/AuthContext";
+import { iniciarSincronizacionOffline } from "./offline/offlineSync";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import PlatformApp from "./platform/PlatformApp";
 
@@ -22,11 +23,18 @@ import "./styles/index.css"; // si lo necesitas
 // Opcional: si vas a usar íconos (Lucide, Heroicons, etc.)
 // import './lib/icons';
 
-// Registra el Service Worker generado por vite-plugin-pwa (solo precache del
-// app shell en esta fase — ver vite.config.js). No-op en `vite dev`, porque
+// Registra el Service Worker generado por vite-plugin-pwa (app shell +
+// catálogos de Checklists — ver vite.config.js). No-op en `vite dev`, porque
 // devOptions no está habilitado ahí: solo hace algo real contra el build de
 // `vite build`/`vite preview` o producción.
 registerSW({ immediate: true });
+
+// Arranca el monitoreo de conexión y drena la cola de escrituras pendientes
+// al recuperar la señal. Fuera de React a propósito: la cola tiene que
+// sincronizar aunque el operario esté parado en una pantalla que no sea la
+// del módulo que encoló, y no depende de ningún componente montado. A
+// diferencia del SW, esto SÍ funciona en `vite dev`.
+iniciarSincronizacionOffline();
 
 const rootElement = document.getElementById("root");
 

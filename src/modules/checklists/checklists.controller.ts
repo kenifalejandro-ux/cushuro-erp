@@ -129,18 +129,34 @@ export const ChecklistsController = {
     try {
       const tenantId = getTenantId(req);
       const data = req.validatedBody as CrearChecklistInput;
-      const checklist = await withTenant(tenantId, (client) =>
+      const { fila: checklist, creado } = await withTenant(tenantId, (client) =>
         ChecklistsService.crear(client, tenantId, req.usuario!.id, data)
       );
+
+      // Reintento de un envío que ya se había guardado (la respuesta
+      // original se perdió en la red). No se audita ni se publica el evento
+      // de nuevo: eso ya pasó la primera vez, y repetirlo le mostraría a
+      // los demás usuarios un checklist "nuevo" que no existe. 200 y no
+      // 201 porque esta llamada no creó nada — pero sí es un éxito, así que
+      // la cola offline del dispositivo puede darlo por sincronizado.
+      if (!creado) {
+        res
+          .status(200)
+          .json(
+            checklist ?? { message: "Este checklist ya se había registrado y luego se eliminó" }
+          );
+        return;
+      }
+
       await registrarAuditoria({
         accion: "checklists.crear",
         tenantId,
         usuarioId: req.usuario!.id,
-        detalle: { checklistId: checklist.id, equipoId: data.equipo_id },
+        detalle: { checklistId: checklist!.id, equipoId: data.equipo_id },
         contexto: contextoAuditoriaModulo(req),
       });
       await publicarEventoTenant(tenantId, "checklists.creado", {
-        checklistId: checklist.id,
+        checklistId: checklist!.id,
         equipoId: data.equipo_id,
       });
       res.status(201).json(checklist);

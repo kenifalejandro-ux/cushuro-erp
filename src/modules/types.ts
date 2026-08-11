@@ -76,4 +76,23 @@ export interface ModuloDefinicion {
    *  tenant_cuotas (migración 0033). Subirlo para todos = cambiar este
    *  número y desplegar. */
   cuota?: { tabla: string; porDefecto: number };
+  /** Qué escrituras de este módulo se pueden reintentar sin duplicar, y
+   *  por lo tanto son elegibles para la cola offline del cliente (ver
+   *  client/src/offline/). Omitirlo = el módulo no participa del offline:
+   *  sus escrituras fallan como siempre cuando no hay red.
+   *
+   *  Es explícito y no automático a propósito. Una escritura solo califica
+   *  si el servicio que la atiende pasa por idempotentInsert() con el
+   *  `cliente_uuid` del body — encolar cualquier POST a ciegas haría que un
+   *  reintento cree duplicados, que es justo lo contrario de lo que se
+   *  busca. `ruta` es relativa al montaje del módulo (routes/index.ts monta
+   *  cada uno bajo /api/erp/<id>), igual que en su archivo de rutas.
+   *
+   *  Este bloque es el ÚNICO lugar que hay que tocar para sumar un módulo
+   *  al offline — el motor del cliente lo lee del registry, no tiene
+   *  ninguna lista propia. Ver el checklist de "Nuevo Módulo" en
+   *  docs/adr/0002-contrato-de-modulo.md. */
+  offline?: {
+    escrituras: { metodo: "POST" | "PUT" | "PATCH"; ruta: string }[];
+  };
 }

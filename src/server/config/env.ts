@@ -192,6 +192,17 @@ export const env = {
     process.env.EVENTOS_TIEMPO_REAL_RETENTION_CHECK_INTERVAL_MS,
     5 * 60_000
   ),
+  // Limpieza de idempotency_keys (migración 0044). Encendida por default,
+  // mismo criterio que la retención de eventos: no es una decisión de
+  // compliance, es que la tabla no debe crecer sin techo. CUÁNTO vive cada
+  // clave NO se configura acá — lo decide expires_at, que se fija fila por
+  // fila al insertarla (72h por default en la migración). Este worker solo
+  // barre lo que ya venció, así que subir o bajar la ventana no requiere
+  // tocar el worker ni reiniciar nada.
+  idempotencyKeysRetentionCheckIntervalMs: readNumber(
+    process.env.IDEMPOTENCY_KEYS_RETENTION_CHECK_INTERVAL_MS,
+    60 * 60_000
+  ),
   // Backups de tenant (platformBackup.service.ts) — filesystem local por
   // default. El storage queda detrás de platformBackupStorage.ts a
   // propósito, para que pasar a S3-compatible el día que haga falta sea

@@ -9,6 +9,10 @@ import { requireModulo } from "../shared/middlewares/modulo.middleware";
 import { requireCuota } from "../shared/middlewares/cuota.middleware";
 import erpRateLimiter from "../middleware/erpRateLimiter";
 import { tenantMetricsMiddleware } from "../shared/middlewares/tenantMetrics.middleware";
+// Se activa solo con importarse (setInterval + .unref()). Va acá y no en
+// las rutas de plataforma porque quien LLENA idempotency_keys son los
+// módulos de negocio que se montan abajo (migración 0044).
+import "../services/idempotencyKeysRetention.worker";
 
 export function createApiRouter() {
   const router = Router();
