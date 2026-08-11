@@ -429,6 +429,105 @@ describe("restaurarBackupService / POST /backups/:id/restaurar", () => {
     expect(Number(equiposOrigen.rows[0].total)).toBe(1);
   });
 
+  // ── documentos_versiones: la tabla que apunta FUERA de Postgres ────────
+  //
+  // El archivo (PDF/imagen) vive en R2/disco, no en el backup. Lo que se
+  // respalda es la fila que lo referencia por storage_key, y eso hace que
+  // los dos caminos de restore tengan que comportarse DISTINTO — ver
+  // `omitirAlClonar` en modules/types.ts.
+
+  it("restaura documentos_versiones sobre el MISMO tenant, con su storage_key intacta", async () => {
+    const { tenant, usuario } = await nuevoTenant();
+    const keyOriginal = await withTenant(tenant.id, async (client) => {
+      const doc = await client.query(
+        `INSERT INTO documentos (tenant_id, nombre_documento) VALUES ($1, 'Licencia') RETURNING id`,
+        [tenant.id]
+      );
+      const version = await client.query(
+        `INSERT INTO documentos_versiones
+           (tenant_id, documento_id, storage_driver, storage_key, mime_type, tamano_bytes, nombre_original, subido_por)
+         VALUES ($1, $2, 'local', $3, 'application/pdf', 100, 'licencia.pdf', $4) RETURNING storage_key`,
+        [tenant.id, doc.rows[0].id, `documentos/tenants/${tenant.id}/1/archivo.pdf`, usuario.id]
+      );
+      return version.rows[0].storage_key;
+    });
+
+    const backup = await request(app)
+      .post(`/api/platform/tenants/${tenant.id}/backups`)
+      .set("Authorization", BEARER);
+
+    // Se pierden las filas (el archivo en el storage NO se toca: es
+    // justo el escenario que el restore tiene que poder deshacer).
+    await withTenant(tenant.id, (client) =>
+      client.query(`DELETE FROM documentos WHERE tenant_id = $1`, [tenant.id])
+    );
+
+    const restaurar = await request(app)
+      .post(`/api/platform/backups/${backup.body.backup.id}/restaurar`)
+      .set("Authorization", BEARER)
+      .send({ targetTenantId: tenant.id, confirmar: true });
+
+    expect(restaurar.status).toBe(200);
+    expect(restaurar.body.tablasRestauradas.documentos_versiones).toBe(1);
+
+    const versiones = await withTenant(tenant.id, (client) =>
+      client.query(`SELECT storage_key FROM documentos_versiones WHERE tenant_id = $1`, [tenant.id])
+    );
+    expect(versiones.rows).toHaveLength(1);
+    // La key tiene que volver EXACTAMENTE igual: apunta a un archivo que
+    // sigue existiendo en el storage bajo el prefijo de este tenant.
+    expect(versiones.rows[0].storage_key).toBe(keyOriginal);
+  });
+
+  it("al CLONAR omite documentos_versiones: el destino no hereda punteros a archivos del origen", async () => {
+    const { tenant: origen, usuario } = await nuevoTenant();
+    await withTenant(origen.id, async (client) => {
+      const doc = await client.query(
+        `INSERT INTO documentos (tenant_id, nombre_documento) VALUES ($1, 'Licencia') RETURNING id`,
+        [origen.id]
+      );
+      await client.query(
+        `INSERT INTO documentos_versiones
+           (tenant_id, documento_id, storage_driver, storage_key, mime_type, tamano_bytes, nombre_original, subido_por)
+         VALUES ($1, $2, 'local', $3, 'application/pdf', 100, 'licencia.pdf', $4)`,
+        [origen.id, doc.rows[0].id, `documentos/tenants/${origen.id}/1/archivo.pdf`, usuario.id]
+      );
+    });
+
+    const backup = await request(app)
+      .post(`/api/platform/tenants/${origen.id}/backups`)
+      .set("Authorization", BEARER);
+
+    const { tenant: destino } = await nuevoTenant();
+    const restaurar = await request(app)
+      .post(`/api/platform/backups/${backup.body.backup.id}/restaurar`)
+      .set("Authorization", BEARER)
+      .send({ targetTenantId: destino.id, confirmar: true });
+
+    expect(restaurar.status).toBe(200);
+    // El documento sí se clona; su archivo adjunto no.
+    expect(restaurar.body.tablasRestauradas.documentos).toBe(1);
+    expect(restaurar.body.tablasRestauradas.documentos_versiones).toBe(0);
+
+    const versionesDestino = await withTenant(destino.id, (client) =>
+      client.query(`SELECT storage_key FROM documentos_versiones WHERE tenant_id = $1`, [
+        destino.id,
+      ])
+    );
+    // Cero filas, y en particular NINGUNA apuntando al prefijo del origen:
+    // si esto falla, un usuario del clon puede descargar el PDF del otro
+    // cliente (RLS no lo detiene, la fila le pertenece de verdad).
+    expect(versionesDestino.rows).toHaveLength(0);
+
+    // El origen conserva la suya.
+    const versionesOrigen = await withTenant(origen.id, (client) =>
+      client.query(`SELECT count(*) AS total FROM documentos_versiones WHERE tenant_id = $1`, [
+        origen.id,
+      ])
+    );
+    expect(Number(versionesOrigen.rows[0].total)).toBe(1);
+  });
+
   it("da 400 sin confirmar:true", async () => {
     const { tenant } = await nuevoTenant();
     const backup = await request(app)

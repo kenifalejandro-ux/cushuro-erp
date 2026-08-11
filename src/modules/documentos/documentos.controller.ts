@@ -5,6 +5,7 @@ import { withTenant } from "../../server/config/database";
 import { getTenantId } from "../../server/shared/utils/request";
 import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/utils/pagination";
 import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
+import { sanearNombreArchivo } from "../../server/services/documentStorage";
 import { DocumentosService } from "./documentos.service";
 
 export const DocumentosController = {
@@ -61,9 +62,10 @@ export const DocumentosController = {
     try {
       const tenantId = getTenantId(req);
       const id = Number(req.params.id);
-      const eliminado = await withTenant(tenantId, (client) =>
-        DocumentosService.delete(client, tenantId, id)
-      );
+      // Sin withTenant() acá: el service abre su propia transacción corta y
+      // después borra los archivos del storage, que es trabajo de red que no
+      // debe correr con una conexión de Postgres tomada.
+      const eliminado = await DocumentosService.delete(tenantId, id);
 
       if (!eliminado) {
         res.status(404).json({ error: "Documento no encontrado" });
@@ -103,6 +105,92 @@ export const DocumentosController = {
       res.json(data);
     } catch {
       res.status(500).json({ error: "Error en KPIs" });
+    }
+  },
+
+  // 📎 SUBIR ARCHIVO (nueva versión) -- req.file lo deja documentos.upload.ts
+  async subirVersion(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const documentoId = Number(req.params.id);
+      const archivo = req.file!;
+
+      const data = await DocumentosService.subirVersion(
+        tenantId,
+        documentoId,
+        {
+          buffer: archivo.buffer,
+          mimeType: archivo.mimetype,
+          nombreOriginal: archivo.originalname,
+        },
+        req.usuario!.id
+      );
+
+      if (!data) {
+        res.status(404).json({ error: "Documento no encontrado" });
+        return;
+      }
+
+      await publicarEventoTenant(tenantId, "documentos.version_subida", {
+        documentoId,
+        versionId: data.id,
+      });
+      res.status(201).json(data);
+    } catch {
+      res.status(500).json({ error: "Error al subir el archivo" });
+    }
+  },
+
+  // 📎 LISTAR VERSIONES
+  async listarVersiones(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const documentoId = Number(req.params.id);
+      const data = await withTenant(tenantId, (client) =>
+        DocumentosService.listarVersiones(client, tenantId, documentoId)
+      );
+
+      if (!data) {
+        res.status(404).json({ error: "Documento no encontrado" });
+        return;
+      }
+
+      res.json(data);
+    } catch {
+      res.status(500).json({ error: "Error al listar versiones" });
+    }
+  },
+
+  // 📎 DESCARGAR VERSIÓN -- redirect (driver s3) o stream directo (driver local)
+  async descargarVersion(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const documentoId = Number(req.params.id);
+      const versionId = Number(req.params.versionId);
+
+      const resultado = await withTenant(tenantId, (client) =>
+        DocumentosService.obtenerDescargaVersion(client, tenantId, documentoId, versionId)
+      );
+
+      if (!resultado) {
+        res.status(404).json({ error: "Versión no encontrada" });
+        return;
+      }
+
+      const { descarga, nombreOriginal, mimeType } = resultado;
+      if (descarga.tipo === "redirect") {
+        res.redirect(302, descarga.url);
+        return;
+      }
+
+      res.setHeader("Content-Type", mimeType);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${sanearNombreArchivo(nombreOriginal)}"`
+      );
+      res.send(descarga.contenido);
+    } catch {
+      res.status(500).json({ error: "Error al descargar el archivo" });
     }
   },
 };

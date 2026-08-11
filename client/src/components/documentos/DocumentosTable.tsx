@@ -12,6 +12,23 @@ interface Documento {
   estado_alerta: "VENCIDO" | "POR VENCER" | "VIGENTE";
 }
 
+interface DocumentoVersion {
+  id: number;
+  nombre_original: string;
+  mime_type: string;
+  tamano_bytes: number;
+  subido_en: string;
+}
+
+const MIME_TYPES_PERMITIDOS = ["application/pdf", "image/jpeg", "image/png"];
+const TAMANO_MAXIMO_BYTES = 10 * 1024 * 1024;
+
+function formatearTamano(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export default function DocumentosTable() {
   const [docs, setDocs] = useState<Documento[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,6 +41,13 @@ export default function DocumentosTable() {
 
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+
+  // 📎 ARCHIVO ADJUNTO (versiones)
+  const [docArchivoId, setDocArchivoId] = useState<number | null>(null);
+  const [versiones, setVersiones] = useState<DocumentoVersion[]>([]);
+  const [cargandoVersiones, setCargandoVersiones] = useState(false);
+  const [subiendoArchivo, setSubiendoArchivo] = useState(false);
+  const [errorArchivo, setErrorArchivo] = useState<string | null>(null);
 
   const load = useCallback(
     (paginaAConsultar: number = page) => {
@@ -101,6 +125,68 @@ export default function DocumentosTable() {
     } catch {
       alert("Error de conexión con el backend.");
     }
+  };
+
+  // 📎 ARCHIVO ADJUNTO
+  const cargarVersiones = useCallback(async (documentoId: number) => {
+    setCargandoVersiones(true);
+    try {
+      const res = await apiFetch(`/api/erp/documentos/${documentoId}/versiones`);
+      const body = await res.json();
+      setVersiones(res.ok && Array.isArray(body) ? body : []);
+    } catch {
+      setVersiones([]);
+    } finally {
+      setCargandoVersiones(false);
+    }
+  }, []);
+
+  const abrirArchivo = (documentoId: number) => {
+    setDocArchivoId(documentoId);
+    setErrorArchivo(null);
+    cargarVersiones(documentoId);
+  };
+
+  const subirArchivo = async (file: File) => {
+    if (docArchivoId === null) return;
+
+    if (!MIME_TYPES_PERMITIDOS.includes(file.type)) {
+      setErrorArchivo("Solo se acepta PDF, JPG o PNG.");
+      return;
+    }
+    if (file.size > TAMANO_MAXIMO_BYTES) {
+      setErrorArchivo("El archivo supera el máximo permitido de 10 MB.");
+      return;
+    }
+
+    setErrorArchivo(null);
+    setSubiendoArchivo(true);
+
+    const formData = new FormData();
+    formData.append("archivo", file);
+
+    try {
+      const res = await apiFetch(`/api/erp/documentos/${docArchivoId}/versiones`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        setErrorArchivo("No se pudo subir el archivo.");
+        return;
+      }
+
+      await cargarVersiones(docArchivoId);
+    } catch {
+      setErrorArchivo("Error de conexión con el backend.");
+    } finally {
+      setSubiendoArchivo(false);
+    }
+  };
+
+  const descargarVersion = (versionId: number) => {
+    if (docArchivoId === null) return;
+    window.open(`/api/erp/documentos/${docArchivoId}/versiones/${versionId}/descarga`, "_blank");
   };
 
   // 📦 EXCEL
@@ -214,6 +300,71 @@ export default function DocumentosTable() {
         </div>
       )}
 
+      {/* MODAL ARCHIVO ADJUNTO (versiones) */}
+      {docArchivoId !== null && (
+        <div className="fixed inset-0 bg-zinc-800/50 flex items-center justify-center">
+          <div className="bg-white w-[520px] max-h-[80vh] p-6 rounded-xl space-y-4 flex flex-col">
+            <h2 className="text-lg font-semibold">Archivo del documento</h2>
+
+            <label className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium rounded-lg cursor-pointer text-center w-fit">
+              {subiendoArchivo ? "Subiendo..." : "Subir nueva versión"}
+              <input
+                type="file"
+                hidden
+                accept="application/pdf,image/jpeg,image/png"
+                disabled={subiendoArchivo}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) subirArchivo(file);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+
+            {errorArchivo && <p className="text-sm text-red-600">{errorArchivo}</p>}
+
+            <div className="overflow-y-auto space-y-2 flex-1">
+              {cargandoVersiones ? (
+                <p className="text-sm text-slate-400">Cargando versiones...</p>
+              ) : versiones.length > 0 ? (
+                versiones.map((v) => (
+                  <div
+                    key={v.id}
+                    className="flex items-center justify-between border border-slate-200 rounded-lg px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm text-slate-900 truncate">{v.nombre_original}</p>
+                      <p className="text-xs text-slate-400">
+                        {formatearTamano(v.tamano_bytes)} ·{" "}
+                        {new Date(v.subido_en).toLocaleString("es-PE")}
+                      </p>
+                    </div>
+                    <button
+                      className="text-blue-600 text-sm shrink-0 ml-3"
+                      onClick={() => descargarVersion(v.id)}
+                    >
+                      Descargar
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-slate-400">Todavía no se subió ningún archivo.</p>
+              )}
+            </div>
+
+            <button
+              className="text-gray-500 text-sm"
+              onClick={() => {
+                setDocArchivoId(null);
+                setVersiones([]);
+              }}
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Alert Banner */}
       {(docs.some((d) => d.estado_alerta === "VENCIDO") ||
         docs.some((d) => d.estado_alerta === "POR VENCER")) && (
@@ -300,6 +451,10 @@ export default function DocumentosTable() {
                     {/* ACCIONES ORDENADAS */}
                     <td className="px-6 py-4">
                       <div className="flex justify-end gap-2">
+                        <button className="text-slate-600" onClick={() => abrirArchivo(doc.id)}>
+                          Archivo
+                        </button>
+
                         <button
                           className="text-blue-600"
                           onClick={() => {

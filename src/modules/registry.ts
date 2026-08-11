@@ -55,7 +55,24 @@ export const MODULOS: ModuloDefinicion[] = [
     icono: "📄",
     version: "v1",
     router: documentosRoutes,
-    tablas: [{ nombre: "documentos", pk: "serial" }],
+    tablas: [
+      { nombre: "documentos", pk: "serial" },
+      // El archivo adjunto en sí (PDF/imagen) NO viaja en el backup — vive
+      // en R2/disco, aparte de Postgres. Lo que se respalda acá es la fila
+      // que lo referencia, que es justo lo que hace falta para que una
+      // restauración sobre el MISMO tenant vuelva a enlazar los archivos
+      // (que nunca se movieron del storage) con sus documentos.
+      //
+      // `omitirAlClonar` NO es opcional acá: sin él, clonar a otro tenant
+      // le daría al destino filas con storage_key apuntando a los archivos
+      // del tenant origen. Ver el comentario largo en modules/types.ts.
+      {
+        nombre: "documentos_versiones",
+        pk: "serial",
+        fks: { documento_id: "documentos", subido_por: "usuarios" },
+        omitirAlClonar: true,
+      },
+    ],
     raices: ["documentos"],
     cuota: { tabla: "documentos", porDefecto: 20_000 },
   },

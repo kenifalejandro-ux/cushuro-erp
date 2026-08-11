@@ -7,6 +7,10 @@ export default defineConfig({
     testTimeout: 15000,
     hookTimeout: 15000,
     globalSetup: ["tests/global-setup.redis.ts"],
+    // Fuerza los drivers de storage a "local" en toda la suite -- ver el
+    // comentario del archivo: sin esto, una máquina con R2 configurado
+    // (lo normal para quien opera producción) escribe en el bucket real.
+    setupFiles: ["tests/setup.storage.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "lcov"],

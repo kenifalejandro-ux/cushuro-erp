@@ -3,6 +3,7 @@
 import { Router } from "express";
 import { requireRole } from "../../server/shared/middlewares/roles.middleware";
 import { asyncHandler } from "../../server/shared/utils/asyncHandler";
+import { subirArchivoDocumento } from "./documentos.upload";
 import { DocumentosController } from "./documentos.controller";
 
 const router = Router();
@@ -18,6 +19,19 @@ router.post(
   "/bulk",
   requireRole("admin", "operador"),
   asyncHandler(DocumentosController.bulkCreate)
+);
+
+// 📎 ARCHIVO ADJUNTO (versionado)
+router.post(
+  "/:id/versiones",
+  requireRole("admin", "operador"),
+  subirArchivoDocumento,
+  asyncHandler(DocumentosController.subirVersion)
+);
+router.get("/:id/versiones", asyncHandler(DocumentosController.listarVersiones));
+router.get(
+  "/:id/versiones/:versionId/descarga",
+  asyncHandler(DocumentosController.descargarVersion)
 );
 
 export default router;

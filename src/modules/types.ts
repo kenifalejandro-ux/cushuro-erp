@@ -19,6 +19,25 @@ export interface TablaBackupMeta {
    *  solo el propio) — solo hace falta cuando se restaura con remapeo de
    *  ids (clonar a otro tenant): { columnaFK: tablaReferenciada }. */
   fks?: Record<string, string>;
+  /** La tabla se restaura al MISMO tenant (recuperación ante desastre)
+   *  pero se SALTEA al clonar hacia otro tenant.
+   *
+   *  Es para tablas que guardan un puntero a algo que vive fuera de
+   *  Postgres (hoy: documentos_versiones.storage_key → un objeto en
+   *  R2/disco). Restaurar sobre el mismo tenant es seguro porque la key
+   *  sigue apuntando al archivo correcto, que nunca se movió. Clonar NO lo
+   *  es: restaurarTablas() reescribe `tenant_id` pero copia el resto de
+   *  las columnas tal cual, así que el tenant destino terminaría con filas
+   *  legítimamente suyas cuyo storage_key apunta al archivo del tenant
+   *  ORIGEN — y RLS no lo detiene, porque la fila le pertenece de verdad.
+   *  Un usuario del clon pidiendo la descarga se bajaría el documento del
+   *  otro cliente.
+   *
+   *  Sacar este flag exige, primero, copiar los objetos en el storage y
+   *  reescribir las keys durante el clonado — que no es gratis: el restore
+   *  corre dentro de una transacción que el write-drill hace rollback, y
+   *  una copia en S3 no se rollbackea con ella. */
+  omitirAlClonar?: boolean;
 }
 
 export interface ModuloDefinicion {
