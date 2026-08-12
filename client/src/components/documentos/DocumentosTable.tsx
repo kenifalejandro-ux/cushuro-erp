@@ -42,6 +42,17 @@ export default function DocumentosTable() {
   // clics que el sistema ve como dos acciones separadas.
   const [guardando, setGuardando] = useState(false);
 
+  // Bloquear el botón achica la ventana, pero no la cierra: si los dos taps
+  // entran antes del re-render, un crypto.randomUUID() dentro del submit
+  // manda DOS claves distintas y el servidor las ve como dos documentos
+  // legítimamente distintos. Fijar el uuid al ABRIR el modal es lo que hace
+  // que los dos envíos compartan clave y la idempotencia los una.
+  //
+  // Se regenera en cada apertura: si no, el segundo documento legítimo
+  // reusaría la clave del primero y el servidor devolvería aquel en
+  // silencio — se perdería un registro, peor que el duplicado.
+  const [clienteUuid, setClienteUuid] = useState("");
+
   // 🟡 MODAL CONTROL
   const [openModal, setOpenModal] = useState(false);
 
@@ -134,11 +145,10 @@ export default function DocumentosTable() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          // Se genera SIEMPRE, haya señal o no en este instante: protege
-          // tanto el caso offline como el de una respuesta que se pierde de
-          // vuelta después de que el servidor ya guardó (ver
-          // client/src/offline/ y checklists, que usa el mismo patrón).
-          cliente_uuid: crypto.randomUUID(),
+          // Viene del estado (se fijó al abrir el modal), NO de un
+          // crypto.randomUUID() acá adentro — ver el comentario donde se
+          // declara clienteUuid.
+          cliente_uuid: clienteUuid,
           ...form,
         }),
       });
@@ -237,6 +247,7 @@ export default function DocumentosTable() {
   };
 
   const subirArchivo = async (file: File) => {
+    if (subiendoArchivo) return;
     if (docArchivoId === null) return;
 
     if (!MIME_TYPES_PERMITIDOS.includes(file.type)) {
@@ -253,10 +264,18 @@ export default function DocumentosTable() {
 
     const formData = new FormData();
     formData.append("archivo", file);
-    // Mismo motivo que en createDoc(): se genera SIEMPRE, haya señal o no
-    // en este instante -- protege tanto el caso offline como el de una
-    // respuesta que se pierde después de que el servidor ya guardó (ver
-    // client/src/offline/, Caso B de ADR-0002 §8).
+    // Acá SÍ se genera por invocación, a diferencia de createDoc() -- y es
+    // deliberado, no un olvido. Esta función se dispara desde el onChange
+    // de un input de archivo, que emite un evento por selección: un doble
+    // tap abre el selector dos veces, no manda dos veces. Atar el uuid a
+    // "el modal abierto" haría que subir DOS versiones distintas del mismo
+    // documento sin cerrar el panel se deduplicara contra sí mismo, y la
+    // segunda se perdería en silencio -- justo lo contrario de lo que se
+    // busca en un historial de versiones.
+    //
+    // Sigue protegiendo lo que tiene que proteger: el reintento de la cola
+    // offline reusa esta misma entrada (con su uuid ya fijo), así que una
+    // respuesta perdida no duplica la versión.
     formData.append("cliente_uuid", crypto.randomUUID());
 
     try {
@@ -332,6 +351,7 @@ export default function DocumentosTable() {
             onClick={() => {
               setForm({});
               setEditId(null);
+              setClienteUuid(crypto.randomUUID());
               setOpenModal(true);
             }}
             className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium rounded-lg transition-colors duration-200"

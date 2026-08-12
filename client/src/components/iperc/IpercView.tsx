@@ -188,6 +188,19 @@ export default function IpercView() {
 
   const [modalIpercAbierto, setModalIpercAbierto] = useState(false);
   const [modalLineaBaseAbierto, setModalLineaBaseAbierto] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+
+  // El cliente_uuid se fija al ABRIR el modal, no al apretar el botón.
+  // Generarlo en el submit hacía que un doble tap mandara DOS uuid
+  // distintos, y el servidor no puede distinguir eso de dos IPERC
+  // legítimos del mismo frente — creaba dos registros reales. Ver el
+  // comentario equivalente en ChecklistsView.tsx.
+  const [clienteUuid, setClienteUuid] = useState("");
+
+  const abrirModalIperc = () => {
+    setClienteUuid(crypto.randomUUID());
+    setModalIpercAbierto(true);
+  };
 
   const [formIperc, setFormIperc] = useState({
     tipo: "continuo" as "continuo" | "especifico",
@@ -267,50 +280,56 @@ export default function IpercView() {
   // ── IPERC ─────────────────────────────────────────────────────────────
   const handleCrearIperc = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await apiFetch("/api/erp/iperc", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        // Se genera SIEMPRE, haya señal o no: protege también la respuesta
-        // que se pierde de vuelta después de que el servidor ya guardó
-        // (puede pasar con la señal perfecta al apretar el botón). Es el
-        // mismo valor que viaja en la cola si hay que reintentar (ver
-        // client/src/offline/), nunca se regenera.
-        cliente_uuid: crypto.randomUUID(),
-        tipo: formIperc.tipo,
-        area_frente: formIperc.area_frente,
-        turno: formIperc.turno || undefined,
-        equipo_id: formIperc.equipo_id ? Number(formIperc.equipo_id) : undefined,
-        tarea_especifica: formIperc.tipo === "especifico" ? formIperc.tarea_especifica : undefined,
-        items: itemsIperc,
-      }),
-    });
-    if (res.ok) {
-      setModalIpercAbierto(false);
-      setFormIperc({
-        tipo: "continuo",
-        area_frente: "",
-        turno: "",
-        equipo_id: "",
-        tarea_especifica: "",
+    if (guardando) return;
+
+    setGuardando(true);
+    try {
+      const res = await apiFetch("/api/erp/iperc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // Viene del estado (se fijó al abrir el modal), NO de un
+          // crypto.randomUUID() acá adentro — ver el comentario donde se
+          // declara clienteUuid.
+          cliente_uuid: clienteUuid,
+          tipo: formIperc.tipo,
+          area_frente: formIperc.area_frente,
+          turno: formIperc.turno || undefined,
+          equipo_id: formIperc.equipo_id ? Number(formIperc.equipo_id) : undefined,
+          tarea_especifica:
+            formIperc.tipo === "especifico" ? formIperc.tarea_especifica : undefined,
+          items: itemsIperc,
+        }),
       });
-      setItemsIperc([{ ...ITEM_VACIO }]);
+      if (res.ok) {
+        setModalIpercAbierto(false);
+        setFormIperc({
+          tipo: "continuo",
+          area_frente: "",
+          turno: "",
+          equipo_id: "",
+          tarea_especifica: "",
+        });
+        setItemsIperc([{ ...ITEM_VACIO }]);
 
-      // 202 = no había red y quedó en la cola del dispositivo (ver
-      // apiFetch). No se recarga el listado: sin señal el GET también
-      // falla, y el IPERC todavía no existe del lado del servidor.
-      if (res.status === 202) {
-        alert(
-          "Sin conexión: el IPERC quedó guardado en este equipo y se enviará solo cuando vuelva la señal."
-        );
-        return;
+        // 202 = no había red y quedó en la cola del dispositivo (ver
+        // apiFetch). No se recarga el listado: sin señal el GET también
+        // falla, y el IPERC todavía no existe del lado del servidor.
+        if (res.status === 202) {
+          alert(
+            "Sin conexión: el IPERC quedó guardado en este equipo y se enviará solo cuando vuelva la señal."
+          );
+          return;
+        }
+
+        setHistorialCursorIpercs([]);
+        cargarIpercs();
+      } else {
+        const body = await res.json().catch(() => ({}));
+        alert(body.message || "Error al crear el IPERC.");
       }
-
-      setHistorialCursorIpercs([]);
-      cargarIpercs();
-    } else {
-      const body = await res.json().catch(() => ({}));
-      alert(body.message || "Error al crear el IPERC.");
+    } finally {
+      setGuardando(false);
     }
   };
 
@@ -338,22 +357,31 @@ export default function IpercView() {
   // ── Línea Base ────────────────────────────────────────────────────────
   const handleCrearLineaBase = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await apiFetch("/api/erp/iperc/lineas-base", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        proceso_actividad: formLineaBase.proceso_actividad,
-        area_frente: formLineaBase.area_frente || undefined,
-        items: itemsLineaBase,
-      }),
-    });
-    if (res.ok) {
-      setModalLineaBaseAbierto(false);
-      setFormLineaBase({ proceso_actividad: "", area_frente: "" });
-      setItemsLineaBase([{ ...ITEM_VACIO }]);
-      cargarLineasBase();
-    } else {
-      alert("Error al crear la línea base.");
+    if (guardando) return;
+    // Las líneas base NO pasan por idempotentInsert (son catálogo de
+    // oficina, no van a la cola offline), así que el bloqueo del botón es
+    // la única defensa contra el doble clic acá.
+    setGuardando(true);
+    try {
+      const res = await apiFetch("/api/erp/iperc/lineas-base", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          proceso_actividad: formLineaBase.proceso_actividad,
+          area_frente: formLineaBase.area_frente || undefined,
+          items: itemsLineaBase,
+        }),
+      });
+      if (res.ok) {
+        setModalLineaBaseAbierto(false);
+        setFormLineaBase({ proceso_actividad: "", area_frente: "" });
+        setItemsLineaBase([{ ...ITEM_VACIO }]);
+        cargarLineasBase();
+      } else {
+        alert("Error al crear la línea base.");
+      }
+    } finally {
+      setGuardando(false);
     }
   };
 
@@ -405,7 +433,7 @@ export default function IpercView() {
         <>
           <div className="flex justify-end mb-6">
             <button
-              onClick={() => setModalIpercAbierto(true)}
+              onClick={abrirModalIperc}
               className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl transition-all"
             >
               + Nuevo IPERC
@@ -660,9 +688,10 @@ export default function IpercView() {
 
               <button
                 type="submit"
-                className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4"
+                disabled={guardando}
+                className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4 disabled:opacity-40"
               >
-                Registrar IPERC
+                {guardando ? "Registrando..." : "Registrar IPERC"}
               </button>
             </form>
           </div>
@@ -715,9 +744,10 @@ export default function IpercView() {
 
               <button
                 type="submit"
-                className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4"
+                disabled={guardando}
+                className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4 disabled:opacity-40"
               >
-                Crear Línea Base
+                {guardando ? "Creando..." : "Crear Línea Base"}
               </button>
             </form>
           </div>

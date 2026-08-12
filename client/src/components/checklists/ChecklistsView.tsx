@@ -70,6 +70,25 @@ export default function ChecklistsView() {
   const [estadosItems, setEstadosItems] = useState<
     Record<number, { estado: ItemEstado; observacion: string }>
   >({});
+  const [guardando, setGuardando] = useState(false);
+
+  // El cliente_uuid se fija al ABRIR el modal, no al apretar "Registrar".
+  // Generarlo en el submit hacía que un doble tap en la tablet mandara DOS
+  // uuid distintos, y el servidor no tiene forma de distinguir eso de dos
+  // inspecciones legítimas del mismo equipo (que es justo lo que la
+  // idempotencia debe permitir) — creaba dos checklists reales. Con el uuid
+  // atado a "este formulario que el operario abrió una vez", los dos envíos
+  // llevan la misma clave y el servidor deduplica.
+  //
+  // Se regenera en cada apertura: si no, el segundo checklist legítimo del
+  // turno reusaría la clave del primero y el servidor devolvería aquel en
+  // silencio — se perdería un registro, que es peor que el duplicado.
+  const [clienteUuid, setClienteUuid] = useState("");
+
+  const abrirModalChecklist = () => {
+    setClienteUuid(crypto.randomUUID());
+    setModalChecklistAbierto(true);
+  };
 
   const cargarChecklists = async (cursor: number | null = null) => {
     const params = new URLSearchParams({ pageSize: "50" });
@@ -144,6 +163,7 @@ export default function ChecklistsView() {
   // ── Plantillas ────────────────────────────────────────────────────────
   const handleCrearPlantilla = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (guardando) return;
     const items = formPlantilla.items
       .map((d, i) => ({ descripcion: d, orden: i }))
       .filter((it) => it.descripcion.trim());
@@ -151,21 +171,30 @@ export default function ChecklistsView() {
       alert("La plantilla necesita al menos un ítem.");
       return;
     }
-    const res = await apiFetch("/api/erp/checklists/plantillas", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        nombre: formPlantilla.nombre,
-        tipo_equipo: formPlantilla.tipo_equipo || undefined,
-        items,
-      }),
-    });
-    if (res.ok) {
-      setModalPlantillaAbierto(false);
-      setFormPlantilla({ nombre: "", tipo_equipo: "", items: [""] });
-      cargarPlantillas();
-    } else {
-      alert("Error al crear la plantilla.");
+    // Las plantillas NO pasan por idempotentInsert (no son offline: son
+    // configuración de oficina), así que acá el bloqueo del botón es la
+    // ÚNICA defensa contra el doble clic. De ahí que no alcance con
+    // considerarlo cosmético.
+    setGuardando(true);
+    try {
+      const res = await apiFetch("/api/erp/checklists/plantillas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nombre: formPlantilla.nombre,
+          tipo_equipo: formPlantilla.tipo_equipo || undefined,
+          items,
+        }),
+      });
+      if (res.ok) {
+        setModalPlantillaAbierto(false);
+        setFormPlantilla({ nombre: "", tipo_equipo: "", items: [""] });
+        cargarPlantillas();
+      } else {
+        alert("Error al crear la plantilla.");
+      }
+    } finally {
+      setGuardando(false);
     }
   };
 
@@ -203,6 +232,7 @@ export default function ChecklistsView() {
 
   const handleCrearChecklist = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (guardando) return;
     if (!plantillaSeleccionada || !formChecklist.equipo_id) return;
 
     const items = plantillaSeleccionada.items.map((it) => ({
@@ -211,43 +241,54 @@ export default function ChecklistsView() {
       observacion: estadosItems[it.id]?.observacion || undefined,
     }));
 
-    const res = await apiFetch("/api/erp/checklists", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        // Se genera SIEMPRE, haya señal o no en este instante: lo que
-        // protege no es solo el caso offline, sino el de la respuesta que
-        // se pierde de vuelta después de que el servidor ya guardó. Ese
-        // puede pasar con la señal perfecta al apretar el botón. Es el
-        // mismo valor que después viaja en la cola si hay que reintentar
-        // (ver client/src/offline/), nunca se regenera.
-        cliente_uuid: crypto.randomUUID(),
-        equipo_id: Number(formChecklist.equipo_id),
-        plantilla_id: Number(formChecklist.plantilla_id),
-        turno: formChecklist.turno || undefined,
-        observaciones_generales: formChecklist.observaciones_generales || undefined,
-        items,
-      }),
-    });
-    if (res.ok) {
-      setModalChecklistAbierto(false);
-      setFormChecklist({ equipo_id: "", plantilla_id: "", turno: "", observaciones_generales: "" });
-      setPlantillaSeleccionada(null);
+    setGuardando(true);
+    try {
+      const res = await apiFetch("/api/erp/checklists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // Viene del estado (se fijó al abrir el modal), NO de un
+          // crypto.randomUUID() acá adentro: eso hacía que cada submit
+          // llevara una clave nueva y un doble tap creara dos checklists.
+          // Ver el comentario donde se declara clienteUuid.
+          cliente_uuid: clienteUuid,
+          equipo_id: Number(formChecklist.equipo_id),
+          plantilla_id: Number(formChecklist.plantilla_id),
+          turno: formChecklist.turno || undefined,
+          observaciones_generales: formChecklist.observaciones_generales || undefined,
+          items,
+        }),
+      });
+      if (res.ok) {
+        setModalChecklistAbierto(false);
+        setFormChecklist({
+          equipo_id: "",
+          plantilla_id: "",
+          turno: "",
+          observaciones_generales: "",
+        });
+        setPlantillaSeleccionada(null);
 
-      // 202 = no había red y quedó en la cola del dispositivo (ver
-      // apiFetch). No se recarga el listado: sin señal el GET también
-      // falla, y el checklist todavía no existe del lado del servidor.
-      if (res.status === 202) {
-        alert(
-          "Sin conexión: el checklist quedó guardado en este equipo y se enviará solo cuando vuelva la señal."
-        );
-        return;
+        // 202 = no había red y quedó en la cola del dispositivo (ver
+        // apiFetch). No se recarga el listado: sin señal el GET también
+        // falla, y el checklist todavía no existe del lado del servidor.
+        if (res.status === 202) {
+          alert(
+            "Sin conexión: el checklist quedó guardado en este equipo y se enviará solo cuando vuelva la señal."
+          );
+          return;
+        }
+
+        setHistorialCursorChecklists([]);
+        cargarChecklists();
+      } else {
+        alert("Error al crear el checklist.");
       }
-
-      setHistorialCursorChecklists([]);
-      cargarChecklists();
-    } else {
-      alert("Error al crear el checklist.");
+    } finally {
+      // En finally y no al final del try: si apiFetch tira (sin red y con
+      // una ruta que no se encola), sin esto el botón quedaba trabado para
+      // siempre y el operario tenía que recargar la app.
+      setGuardando(false);
     }
   };
 
@@ -296,7 +337,7 @@ export default function ChecklistsView() {
                   alert("Primero crea una plantilla.");
                   return;
                 }
-                setModalChecklistAbierto(true);
+                abrirModalChecklist();
               }}
               className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl transition-all"
             >
@@ -507,9 +548,10 @@ export default function ChecklistsView() {
               </div>
               <button
                 type="submit"
-                className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4"
+                disabled={guardando}
+                className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4 disabled:opacity-40"
               >
-                Crear Plantilla
+                {guardando ? "Creando..." : "Crear Plantilla"}
               </button>
             </form>
           </div>
@@ -650,10 +692,10 @@ export default function ChecklistsView() {
 
               <button
                 type="submit"
-                disabled={!plantillaSeleccionada}
+                disabled={!plantillaSeleccionada || guardando}
                 className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4 disabled:opacity-40"
               >
-                Registrar Checklist
+                {guardando ? "Registrando..." : "Registrar Checklist"}
               </button>
             </form>
           </div>
