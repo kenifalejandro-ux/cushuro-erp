@@ -2,8 +2,10 @@
 
 import type { PoolClient } from "pg";
 import type { Paginacion } from "../../server/shared/utils/pagination";
+import type { CrearDocumentoInput } from "../../server/schemas/documentos.schema";
 import { withTenant } from "../../server/config/database";
 import { logger } from "../../server/config/logger";
+import { idempotentInsert } from "../../server/shared/utils/idempotentInsert";
 import {
   borrarArchivoDocumento,
   construirKeyDocumento,
@@ -17,8 +19,36 @@ export const DocumentosService = {
     return DocumentosRepository.findAll(client, tenantId, paginacion);
   },
 
-  create(client: PoolClient, tenantId: string, data: DocumentoPayload) {
-    return DocumentosRepository.create(client, tenantId, data);
+  verificarDuplicado(
+    client: PoolClient,
+    tenantId: string,
+    nombreDocumento: string,
+    fechaVencimiento: string
+  ) {
+    return DocumentosRepository.findDuplicado(client, tenantId, nombreDocumento, fechaVencimiento);
+  },
+
+  /** Devuelve `creado: false` cuando este documento ya se había creado con
+   *  el mismo `cliente_uuid` -- el reintento de un envío cuya respuesta se
+   *  perdió (ver idempotentInsert.ts). El controller usa ese flag para no
+   *  publicar el evento de nuevo. Sin `cliente_uuid` en el body, se
+   *  comporta igual que antes: siempre crea. */
+  create(client: PoolClient, tenantId: string, data: CrearDocumentoInput) {
+    return idempotentInsert({
+      client,
+      tenantId,
+      modulo: "documentos",
+      clienteUuid: data.cliente_uuid,
+      insertar: async () => {
+        const fila = await DocumentosRepository.create(client, tenantId, {
+          nombre_documento: data.nombre_documento,
+          responsable: data.responsable ?? null,
+          fecha_vencimiento: data.fecha_vencimiento,
+        });
+        return { id: fila.id as number, fila };
+      },
+      recuperar: (filaId) => DocumentosRepository.findById(client, tenantId, filaId),
+    });
   },
 
   update(client: PoolClient, tenantId: string, id: number, data: DocumentoPayload) {
@@ -81,12 +111,23 @@ export const DocumentosService = {
    *  para el INSERT -- mismo criterio que platformBackup.service.ts con
    *  guardarBackup(). Si el documento no existe, no se sube nada (`null`,
    *  mismo criterio de "no encontrado" que update()/delete() de este mismo
-   *  archivo). */
+   *  archivo).
+   *
+   *  `clienteUuid` participa de offline (Caso B, ver ADR-0002 §8): un
+   *  reintento con el mismo valor no crea una segunda fila. SÍ vuelve a
+   *  subir el archivo al storage antes de que idempotentInsert() detecte
+   *  el duplicado -- la subida pasa primero a propósito (no tiene sentido
+   *  bloquear Postgres esperando R2), así que no hay forma barata de saber
+   *  "esto ya se subió" sin subir primero. Un reintento (raro: la señal se
+   *  corta justo después de que el servidor ya guardó) deja un archivo
+   *  huérfano en el storage -- mismo criterio de "el huérfano es aceptable"
+   *  que ya usa delete() más abajo en este archivo. */
   async subirVersion(
     tenantId: string,
     documentoId: number,
     archivo: { buffer: Buffer; mimeType: string; nombreOriginal: string },
-    subidoPor: string
+    subidoPor: string,
+    clienteUuid?: string
   ) {
     const documento = await withTenant(tenantId, (client) =>
       DocumentosRepository.findById(client, tenantId, documentoId)
@@ -99,13 +140,24 @@ export const DocumentosService = {
     const { driver, bytes } = await guardarArchivoDocumento(key, archivo.buffer, archivo.mimeType);
 
     return withTenant(tenantId, (client) =>
-      DocumentosRepository.insertVersion(client, tenantId, documentoId, {
-        storage_driver: driver,
-        storage_key: key,
-        mime_type: archivo.mimeType,
-        tamano_bytes: bytes,
-        nombre_original: archivo.nombreOriginal,
-        subido_por: subidoPor,
+      idempotentInsert({
+        client,
+        tenantId,
+        modulo: "documentos",
+        clienteUuid,
+        insertar: async () => {
+          const fila = await DocumentosRepository.insertVersion(client, tenantId, documentoId, {
+            storage_driver: driver,
+            storage_key: key,
+            mime_type: archivo.mimeType,
+            tamano_bytes: bytes,
+            nombre_original: archivo.nombreOriginal,
+            subido_por: subidoPor,
+          });
+          return { id: fila.id as number, fila };
+        },
+        recuperar: (filaId) =>
+          DocumentosRepository.findVersion(client, tenantId, documentoId, filaId),
       })
     );
   },

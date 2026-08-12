@@ -15,7 +15,7 @@
 // archivo.
 
 import { reportarResultadoDeRed } from "../offline/connectivity";
-import { encolar } from "../offline/offlineQueue";
+import { encolar, type CampoFormData } from "../offline/offlineQueue";
 import { moduloParaEncolar } from "../offline/rutasOffline";
 import { usuarioActivo } from "../offline/sesionOffline";
 
@@ -139,7 +139,14 @@ export async function apiFetch(input: string, init?: RequestInit): Promise<Respo
       moduloId,
       url: input,
       metodo: (init?.method ?? "POST").toUpperCase(),
-      body: typeof init?.body === "string" ? init.body : JSON.stringify(init?.body ?? {}),
+      // FormData (subir un archivo, ver Caso B en ADR-0002 §8) NO se
+      // serializa como JSON -- un File adentro no sobrevive un
+      // JSON.stringify. Se guarda como lista de campos explícita en su
+      // lugar (ver formDataAEntradas), y offlineSync.ts reconstruye el
+      // FormData real al reenviar.
+      ...(init?.body instanceof FormData
+        ? { formData: formDataAEntradas(init.body) }
+        : { body: typeof init?.body === "string" ? init.body : JSON.stringify(init?.body ?? {}) }),
       creadoEn: Date.now(),
       intentos: 0,
     });
@@ -147,10 +154,14 @@ export async function apiFetch(input: string, init?: RequestInit): Promise<Respo
   }
 }
 
-/** El uuid viaja dentro del body JSON que armó la vista — no en un header
- *  aparte — para que sea el MISMO valor que el servidor persiste, sin
- *  posibilidad de que se desincronicen. */
+/** El uuid viaja dentro del body (JSON o FormData) que armó la vista — no
+ *  en un header aparte — para que sea el MISMO valor que el servidor
+ *  persiste, sin posibilidad de que se desincronicen. */
 function leerClienteUuid(body: BodyInit | null | undefined): string | null {
+  if (body instanceof FormData) {
+    const valor = body.get("cliente_uuid");
+    return typeof valor === "string" ? valor : null;
+  }
   if (typeof body !== "string") return null;
   try {
     const parseado: unknown = JSON.parse(body);
@@ -159,7 +170,21 @@ function leerClienteUuid(body: BodyInit | null | undefined): string | null {
       return typeof valor === "string" ? valor : null;
     }
   } catch {
-    // No era JSON (FormData serializada, texto plano): no es encolable.
+    // No era JSON ni FormData, ej. texto plano: no es encolable.
   }
   return null;
+}
+
+// forEach() en vez de .entries() -- lib.dom.iterable no está en el
+// tsconfig del cliente, y no vale la pena sumarla solo por esto.
+function formDataAEntradas(formData: FormData): CampoFormData[] {
+  const entradas: CampoFormData[] = [];
+  formData.forEach((valor, campo) => {
+    entradas.push(
+      valor instanceof File
+        ? { campo, archivo: valor, nombreArchivo: valor.name }
+        : { campo, valor }
+    );
+  });
+  return entradas;
 }

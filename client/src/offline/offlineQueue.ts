@@ -24,11 +24,21 @@ const DB_NOMBRE = "mincore-offline";
 const DB_VERSION = 1;
 const STORE = "cola";
 
+/** Un campo de un FormData tal como lo reconstruye offlineSync.ts al
+ *  reenviar (ver Caso B, ADR-0002 §8: archivo adjunto de Documentos). Un
+ *  `FormData` real no es serializable a JSON de forma trivial (los
+ *  `File`/`Blob` que contiene no sobreviven un `JSON.stringify`), así que
+ *  se guarda como un array de entradas explícitas en vez del objeto
+ *  `FormData` tal cual. */
+export type CampoFormData =
+  { campo: string; valor: string } | { campo: string; archivo: Blob; nombreArchivo: string };
+
 export interface EntradaCola {
   /** El uuid que generó el dispositivo (crypto.randomUUID()) al armar la
    *  request. Es también la clave primaria del store: reencolar el mismo
    *  envío lo pisa en vez de duplicarlo, y es el mismo valor que viaja en
-   *  el body como `cliente_uuid` para que el servidor lo deduplique. */
+   *  el body (o en `formData`) como `cliente_uuid` para que el servidor lo
+   *  deduplique. */
   clienteUuid: string;
   /** Quién la creó. El servidor toma el autor del JWT de quien sincroniza,
    *  no del body — así que sin esto, en una tablet compartida, la cola de
@@ -39,8 +49,15 @@ export interface EntradaCola {
   url: string;
   metodo: string;
   /** Ya serializado — el body original puede tener tipos que IndexedDB no
-   *  clona bien; guardarlo como string lo hace inmune a eso. */
-  body: string;
+   *  clona bien; guardarlo como string lo hace inmune a eso. Ausente
+   *  cuando esta entrada es un archivo adjunto (ver `formData`): las dos
+   *  formas son mutuamente excluyentes. */
+  body?: string;
+  /** Presente solo cuando la request original mandaba `FormData` (subir un
+   *  archivo). IndexedDB clona `Blob` nativamente (structured clone), así
+   *  que el archivo entero viaja tal cual dentro de esta entrada, sin
+   *  pasar por base64. */
+  formData?: CampoFormData[];
   creadoEn: number;
   intentos: number;
   ultimoError?: string;

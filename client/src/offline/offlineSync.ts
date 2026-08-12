@@ -36,7 +36,20 @@ const MAX_INTENTOS = 10;
 
 let drenandoAhora = false;
 
-type OyenteResultado = (resultado: { sincronizadas: number; fallidas: number }) => void;
+/** Una entrada que se descartó DEFINITIVAMENTE (no se va a reintentar más).
+ *  Sin esto, "fallidas" era solo un número: nadie podía decir NI el
+ *  operario NI un admin qué se perdió ni de qué módulo era -- el badge de
+ *  pendientes bajaba igual que si hubiera sincronizado. Ver EstadoOffline.tsx. */
+export interface EntradaDescartada {
+  moduloId: string;
+  error: string;
+}
+
+type OyenteResultado = (resultado: {
+  sincronizadas: number;
+  fallidas: number;
+  descartadas: EntradaDescartada[];
+}) => void;
 const oyentes = new Set<OyenteResultado>();
 
 /** Para que la vista pueda recargar su listado justo después de que la
@@ -59,19 +72,46 @@ function esErrorPermanente(status: number): boolean {
   return status >= 400 && status < 500 && status !== 401 && status !== 408 && status !== 429;
 }
 
-async function enviarEntrada(entrada: EntradaCola): Promise<"ok" | "reintentar" | "descartar"> {
+/** Arma el `RequestInit` a reenviar. Un archivo adjunto (`formData`, ver
+ *  Caso B en ADR-0002 §8) reconstruye el `FormData` real y NO fija
+ *  `Content-Type` a mano -- fetch() arma el boundary del multipart solo, y
+ *  ponerlo nosotros sin ese boundary rompería el parseo en el servidor. */
+function initDeEntrada(entrada: EntradaCola): RequestInit {
+  if (entrada.formData) {
+    const formData = new FormData();
+    for (const campo of entrada.formData) {
+      if ("archivo" in campo) {
+        formData.append(campo.campo, campo.archivo, campo.nombreArchivo);
+      } else {
+        formData.append(campo.campo, campo.valor);
+      }
+    }
+    return { method: entrada.metodo, body: formData };
+  }
+  return {
+    method: entrada.metodo,
+    headers: { "Content-Type": "application/json" },
+    body: entrada.body,
+  };
+}
+
+interface ResultadoEnvio {
+  resultado: "ok" | "reintentar" | "descartar";
+  /** Solo presente cuando resultado === "descartar" -- para que el
+   *  operario (o quien revise después) sepa POR QUÉ se perdió, no solo que
+   *  se perdió. */
+  detalle?: string;
+}
+
+async function enviarEntrada(entrada: EntradaCola): Promise<ResultadoEnvio> {
   let respuesta: Response;
   try {
-    respuesta = await enviarSinCola(entrada.url, {
-      method: entrada.metodo,
-      headers: { "Content-Type": "application/json" },
-      body: entrada.body,
-    });
+    respuesta = await enviarSinCola(entrada.url, initDeEntrada(entrada));
   } catch {
     // Falló por red otra vez: NO cuenta como intento (si no, unas horas de
     // mala señal agotarían MAX_INTENTOS y se perdería trabajo real).
     reportarResultadoDeRed(false);
-    return "reintentar";
+    return { resultado: "reintentar" };
   }
 
   reportarResultadoDeRed(true);
@@ -79,12 +119,16 @@ async function enviarEntrada(entrada: EntradaCola): Promise<"ok" | "reintentar" 
   // 2xx incluye el 200 que devuelve el servidor cuando esta entrada YA se
   // había guardado y esto era el reintento de una respuesta perdida — que
   // es exactamente un éxito desde el punto de vista de la cola.
-  if (respuesta.ok) return "ok";
+  if (respuesta.ok) return { resultado: "ok" };
 
-  if (esErrorPermanente(respuesta.status)) return "descartar";
+  if (esErrorPermanente(respuesta.status)) {
+    return { resultado: "descartar", detalle: `HTTP ${respuesta.status}` };
+  }
 
   await registrarIntentoFallido(entrada, `HTTP ${respuesta.status}`);
-  return entrada.intentos + 1 >= MAX_INTENTOS ? "descartar" : "reintentar";
+  return entrada.intentos + 1 >= MAX_INTENTOS
+    ? { resultado: "descartar", detalle: `HTTP ${respuesta.status} (máximo de reintentos)` }
+    : { resultado: "reintentar" };
 }
 
 export async function drenar(): Promise<{ sincronizadas: number; fallidas: number }> {
@@ -96,15 +140,17 @@ export async function drenar(): Promise<{ sincronizadas: number; fallidas: numbe
 
   let sincronizadas = 0;
   let fallidas = 0;
+  const descartadas: EntradaDescartada[] = [];
   try {
     for (const entrada of await listarPendientes()) {
-      const resultado = await enviarEntrada(entrada);
+      const { resultado, detalle } = await enviarEntrada(entrada);
       if (resultado === "ok") {
         await quitarDeLaCola(entrada.clienteUuid);
         sincronizadas++;
       } else if (resultado === "descartar") {
         await quitarDeLaCola(entrada.clienteUuid);
         fallidas++;
+        descartadas.push({ moduloId: entrada.moduloId, error: detalle ?? "Error desconocido" });
       } else {
         // Se cortó la red de nuevo (o el servidor está caído): frenar acá
         // y dejar el resto para la próxima. Seguir intentando las que
@@ -117,7 +163,7 @@ export async function drenar(): Promise<{ sincronizadas: number; fallidas: numbe
   }
 
   if (sincronizadas > 0 || fallidas > 0) {
-    for (const oyente of oyentes) oyente({ sincronizadas, fallidas });
+    for (const oyente of oyentes) oyente({ sincronizadas, fallidas, descartadas });
   }
   return { sincronizadas, fallidas };
 }

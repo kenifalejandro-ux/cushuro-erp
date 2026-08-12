@@ -35,6 +35,12 @@ export default function DocumentosTable() {
 
   const [form, setForm] = useState<any>({});
   const [editId, setEditId] = useState<number | null>(null);
+  // Deshabilita "Guardar"/"Actualizar" mientras la request está en curso --
+  // sin esto, un doble clic (o doble tap en una tablet con pantalla lenta
+  // en campo) genera dos cliente_uuid distintos y crea dos documentos
+  // reales: la idempotencia protege reintentos de la MISMA acción, no dos
+  // clics que el sistema ve como dos acciones separadas.
+  const [guardando, setGuardando] = useState(false);
 
   // 🟡 MODAL CONTROL
   const [openModal, setOpenModal] = useState(false);
@@ -83,29 +89,112 @@ export default function DocumentosTable() {
 
   // ➕ CREAR
   const createDoc = async () => {
-    await apiFetch("/api/erp/documentos", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
+    if (guardando) return;
 
-    setForm({});
-    setOpenModal(false);
-    load();
+    // Chequeo ANTES de encolar/enviar, no solo confiar en el 400 del
+    // servidor: si esto se llena SIN red, apiFetch nunca llega a validar
+    // nada -- encolaría igual y recién al sincronizar (quién sabe cuándo)
+    // el servidor lo rechazaría. Frenarlo acá evita generar una entrada
+    // que va a terminar descartada sin que el operario se entere a tiempo.
+    if (!form.nombre_documento?.trim() || !form.fecha_vencimiento) {
+      alert("Completá el nombre del documento y la fecha de vencimiento antes de guardar.");
+      return;
+    }
+
+    setGuardando(true);
+    try {
+      // Aviso de posible duplicado (mismo nombre + misma fecha de
+      // vencimiento -- una renovación normal tiene el mismo nombre pero
+      // OTRA fecha, así que no dispara esto). Best-effort a propósito: es
+      // una consulta de LECTURA aparte, nunca pasa por la cola offline, así
+      // que sin red simplemente no se puede avisar -- se sigue con la
+      // creación normal, que si hace falta, se encola como siempre.
+      if (form.nombre_documento && form.fecha_vencimiento) {
+        try {
+          const chequeo = await apiFetch(
+            `/api/erp/documentos/duplicado?nombre=${encodeURIComponent(form.nombre_documento)}&fecha=${encodeURIComponent(form.fecha_vencimiento)}`
+          );
+          if (chequeo.ok) {
+            const { duplicado } = await chequeo.json();
+            if (
+              duplicado &&
+              !window.confirm(
+                `Ya existe un documento "${form.nombre_documento}" con la misma fecha de vencimiento. ¿Guardar de todos modos?`
+              )
+            ) {
+              return;
+            }
+          }
+        } catch {
+          // Sin red u otro error en el chequeo: no bloquea la creación.
+        }
+      }
+
+      const res = await apiFetch("/api/erp/documentos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // Se genera SIEMPRE, haya señal o no en este instante: protege
+          // tanto el caso offline como el de una respuesta que se pierde de
+          // vuelta después de que el servidor ya guardó (ver
+          // client/src/offline/ y checklists, que usa el mismo patrón).
+          cliente_uuid: crypto.randomUUID(),
+          ...form,
+        }),
+      });
+
+      // 202 = no había red y quedó en la cola del dispositivo (ver
+      // apiFetch). No se recarga el listado: sin señal el GET también
+      // falla, y el documento todavía no existe del lado del servidor.
+      if (res.status === 202) {
+        setForm({});
+        setOpenModal(false);
+        alert(
+          "Sin conexión: el documento quedó guardado en este equipo y se enviará solo cuando vuelva la señal."
+        );
+        return;
+      }
+
+      // El schema Zod de POST / puede rechazar el envío (ej. sin fecha de
+      // vencimiento) -- antes de esto Documentos no validaba nada, así que
+      // esto nunca pasaba. El modal se queda abierto con lo ya tipeado en
+      // vez de limpiarse como si hubiera guardado: cerrarlo acá le mostraría
+      // al operario un "listo" falso para algo que el servidor rechazó.
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        const detalle = Array.isArray(body?.errors)
+          ? body.errors.map((e: { message: string }) => e.message).join(", ")
+          : null;
+        alert(detalle ?? "No se pudo guardar el documento.");
+        return;
+      }
+
+      setForm({});
+      setOpenModal(false);
+      load();
+    } finally {
+      setGuardando(false);
+    }
   };
 
   // ✏️ EDITAR
   const updateDoc = async () => {
-    await apiFetch(`/api/erp/documentos/${editId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
+    if (guardando) return;
+    setGuardando(true);
+    try {
+      await apiFetch(`/api/erp/documentos/${editId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
 
-    setEditId(null);
-    setForm({});
-    setOpenModal(false);
-    load();
+      setEditId(null);
+      setForm({});
+      setOpenModal(false);
+      load();
+    } finally {
+      setGuardando(false);
+    }
   };
 
   // 🗑️ DELETE
@@ -164,12 +253,25 @@ export default function DocumentosTable() {
 
     const formData = new FormData();
     formData.append("archivo", file);
+    // Mismo motivo que en createDoc(): se genera SIEMPRE, haya señal o no
+    // en este instante -- protege tanto el caso offline como el de una
+    // respuesta que se pierde después de que el servidor ya guardó (ver
+    // client/src/offline/, Caso B de ADR-0002 §8).
+    formData.append("cliente_uuid", crypto.randomUUID());
 
     try {
       const res = await apiFetch(`/api/erp/documentos/${docArchivoId}/versiones`, {
         method: "POST",
         body: formData,
       });
+
+      if (res.status === 202) {
+        setErrorArchivo(null);
+        alert(
+          "Sin conexión: el archivo quedó guardado en este equipo y se enviará solo cuando vuelva la señal."
+        );
+        return;
+      }
 
       if (!res.ok) {
         setErrorArchivo("No se pudo subir el archivo.");
@@ -283,12 +385,20 @@ export default function DocumentosTable() {
 
             <div className="flex gap-2">
               {editId ? (
-                <button className="bg-blue-600 text-white px-4 py-2 rounded" onClick={updateDoc}>
-                  Actualizar
+                <button
+                  className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50"
+                  onClick={updateDoc}
+                  disabled={guardando}
+                >
+                  {guardando ? "Actualizando..." : "Actualizar"}
                 </button>
               ) : (
-                <button className="bg-green-600 text-white px-4 py-2 rounded" onClick={createDoc}>
-                  Guardar
+                <button
+                  className="bg-green-600 text-white px-4 py-2 rounded disabled:opacity-50"
+                  onClick={createDoc}
+                  disabled={guardando}
+                >
+                  {guardando ? "Guardando..." : "Guardar"}
                 </button>
               )}
 

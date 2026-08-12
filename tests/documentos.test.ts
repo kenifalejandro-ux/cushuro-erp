@@ -1,10 +1,10 @@
 /** tests/documentos.test.ts
  *
- * Sin schema de validación (ver documentos.repository.ts: req.body pasa
- * directo a la query, sin validate()) -- estos tests no cubren rechazo de
- * campos inválidos porque el módulo mismo no lo hace; cubren la regla de
- * negocio real (estado_alerta calculado por fecha_vencimiento), CRUD,
- * bulk, y permisos por rol.
+ * `PUT /:id` y `POST /bulk` siguen sin schema de validación (req.body pasa
+ * directo a la query) -- solo `POST /` valida con Zod (ver
+ * documentos.schema.ts, sumado junto con offline). Estos tests cubren la
+ * regla de negocio real (estado_alerta calculado por fecha_vencimiento),
+ * CRUD, bulk, permisos por rol, y el aviso de posible duplicado.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
@@ -173,6 +173,96 @@ describe("documentos: CRUD, estado_alerta y permisos por rol", () => {
 
     const intentoBorrar = await agentOperador.delete(`/api/erp/documentos/${creado.body.id}`);
     expect(intentoBorrar.status).toBe(403);
+  });
+});
+
+describe("documentos: aviso de posible duplicado", () => {
+  let tenantId: string;
+  const password = "ClaveDePrueba123";
+  const agentAdmin = request.agent(app);
+
+  beforeAll(async () => {
+    const creado = await crearTenantDePrueba(password);
+    tenantId = creado.tenant.id;
+    await agentAdmin
+      .post("/api/auth/login")
+      .send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
+  });
+
+  afterAll(async () => {
+    await borrarTenantDePrueba(tenantId);
+  });
+
+  it("avisa cuando ya existe un documento con el mismo nombre Y la misma fecha", async () => {
+    const fecha = fechaEn(45);
+    await agentAdmin.post("/api/erp/documentos").send({
+      nombre_documento: "SOAT camión 12",
+      responsable: "Carlos",
+      fecha_vencimiento: fecha,
+    });
+
+    const chequeo = await agentAdmin.get(
+      `/api/erp/documentos/duplicado?nombre=${encodeURIComponent("SOAT camión 12")}&fecha=${fecha}`
+    );
+    expect(chequeo.status).toBe(200);
+    expect(chequeo.body.duplicado).toBe(true);
+    expect(chequeo.body.documento.nombre_documento).toBe("SOAT camión 12");
+  });
+
+  it("NO avisa en una renovación normal: mismo nombre, fecha DISTINTA", async () => {
+    await agentAdmin.post("/api/erp/documentos").send({
+      nombre_documento: "SOAT camión 15",
+      responsable: "Carlos",
+      fecha_vencimiento: fechaEn(-10), // vencido, típico antes de renovar
+    });
+
+    const chequeo = await agentAdmin.get(
+      `/api/erp/documentos/duplicado?nombre=${encodeURIComponent("SOAT camión 15")}&fecha=${fechaEn(365)}`
+    );
+    expect(chequeo.status).toBe(200);
+    expect(chequeo.body.duplicado).toBe(false);
+  });
+
+  it("el match de nombre ignora mayúsculas y espacios extra", async () => {
+    const fecha = fechaEn(50);
+    await agentAdmin.post("/api/erp/documentos").send({
+      nombre_documento: "Licencia Minera",
+      responsable: "Carlos",
+      fecha_vencimiento: fecha,
+    });
+
+    const chequeo = await agentAdmin.get(
+      `/api/erp/documentos/duplicado?nombre=${encodeURIComponent("  licencia minera  ")}&fecha=${fecha}`
+    );
+    expect(chequeo.body.duplicado).toBe(true);
+  });
+
+  it("sin nombre o sin fecha responde duplicado:false en vez de error", async () => {
+    const res = await agentAdmin.get("/api/erp/documentos/duplicado?nombre=algo");
+    expect(res.status).toBe(200);
+    expect(res.body.duplicado).toBe(false);
+  });
+
+  it("no confunde documentos de otro tenant", async () => {
+    const otro = await crearTenantDePrueba(password);
+    const agentOtro = request.agent(app);
+    await agentOtro
+      .post("/api/auth/login")
+      .send({ tenantSlug: otro.tenant.slug, email: otro.usuario.email, password });
+
+    const fecha = fechaEn(70);
+    await agentOtro.post("/api/erp/documentos").send({
+      nombre_documento: "Documento de otro tenant",
+      responsable: "X",
+      fecha_vencimiento: fecha,
+    });
+
+    const chequeo = await agentAdmin.get(
+      `/api/erp/documentos/duplicado?nombre=${encodeURIComponent("Documento de otro tenant")}&fecha=${fecha}`
+    );
+    expect(chequeo.body.duplicado).toBe(false);
+
+    await borrarTenantDePrueba(otro.tenant.id);
   });
 });
 
