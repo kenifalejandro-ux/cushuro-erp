@@ -16,6 +16,12 @@ export const crearPlantillaSchema = z.object({
 export type CrearPlantillaInput = z.infer<typeof crearPlantillaSchema>;
 
 export const crearChecklistSchema = z.object({
+  // Lo genera el dispositivo con crypto.randomUUID() al apretar
+  // "Registrar", online u offline (ver client/src/offline/). Opcional a
+  // propósito: sin él, la creación se comporta exactamente como siempre —
+  // ningún cliente viejo se rompe. Con él, un reintento del mismo envío no
+  // duplica (ver idempotentInsert.ts).
+  cliente_uuid: z.string().uuid().optional(),
   equipo_id: z.number().int().positive(),
   plantilla_id: z.number().int().positive(),
   turno: z.string().trim().max(20).optional(),

@@ -123,6 +123,15 @@ export const MODULOS: ModuloDefinicion[] = [
     // son configuración (unas pocas por tenant), los llenados crecen a
     // razón de uno por equipo por turno.
     cuota: { tabla: "checklists", porDefecto: 200_000 },
+    // Llenar un checklist es EL flujo de campo: pasa en la cancha, con el
+    // equipo delante y muchas veces sin señal. Califica para la cola
+    // porque ChecklistsService.crear pasa por idempotentInsert() — un
+    // reintento con el mismo cliente_uuid no duplica (migración 0044).
+    //
+    // Las plantillas NO están acá a propósito: son configuración, se
+    // arman desde la oficina con red, y un DELETE encolado a ciegas es
+    // justo el tipo de operación que no debe reintentarse sola.
+    offline: { escrituras: [{ metodo: "POST", ruta: "/" }] },
   },
   {
     id: "iperc",

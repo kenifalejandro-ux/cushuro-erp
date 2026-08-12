@@ -7,6 +7,17 @@
 //
 // Toda llamada a /api/erp/* debe pasar por apiFetch en vez de fetch()
 // directo.
+//
+// apiFetch es además el único punto donde se decide qué se encola cuando no
+// hay red (ver client/src/offline/): es el embudo por el que ya pasa toda
+// llamada al ERP, así que no hace falta que cada vista sepa nada del
+// offline. Qué rutas califican lo declara el registry de módulos, no este
+// archivo.
+
+import { reportarResultadoDeRed } from "../offline/connectivity";
+import { encolar } from "../offline/offlineQueue";
+import { moduloParaEncolar } from "../offline/rutasOffline";
+import { usuarioActivo } from "../offline/sesionOffline";
 
 let refrescoEnCurso: Promise<boolean> | null = null;
 let onSesionExpirada: (() => void) | null = null;
@@ -60,7 +71,14 @@ async function refrescarAccessToken(): Promise<boolean> {
 
 const SIN_REINTENTO = ["/api/auth/login", "/api/auth/refresh", "/api/auth/logout"];
 
-export async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+/** El camino de siempre: manda la request y, ante un 401, refresca el
+ *  token y reintenta una vez. NO toca la cola offline — si falla por red,
+ *  tira.
+ *
+ *  Lo usa offlineSync.ts al drenar la cola: si esas requests pasaran por
+ *  apiFetch, un fallo de red las volvería a encolar (ya están en la cola) y
+ *  el drenaje se perseguiría la cola a sí mismo. */
+export async function enviarSinCola(input: string, init?: RequestInit): Promise<Response> {
   const respuesta = await fetch(input, { credentials: "include", ...init });
 
   if (respuesta.status !== 401 || SIN_REINTENTO.some((ruta) => input.startsWith(ruta))) {
@@ -74,4 +92,74 @@ export async function apiFetch(input: string, init?: RequestInit): Promise<Respo
   }
 
   return fetch(input, { credentials: "include", ...init });
+}
+
+/** Respuesta sintética para el que llamó cuando la escritura quedó
+ *  encolada. 202 Accepted es literalmente el código para "lo recibí, lo voy
+ *  a procesar más tarde" — y al ser 2xx, `res.ok` es true, así que una
+ *  vista que solo mira `res.ok` cierra su modal y no le muestra un error al
+ *  operario por algo que NO se perdió.
+ *
+ *  Una vista que quiera distinguirlo (para decir "se sincronizará al
+ *  volver la señal") mira el status 202 o el flag del body. */
+function respuestaEncolada(clienteUuid: string): Response {
+  return new Response(JSON.stringify({ pendienteDeSincronizar: true, cliente_uuid: clienteUuid }), {
+    status: 202,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+export async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    const respuesta = await enviarSinCola(input, init);
+    // Llegó respuesta del servidor (aunque sea un 500): hay red.
+    reportarResultadoDeRed(true);
+    return respuesta;
+  } catch (err) {
+    // fetch() SOLO tira por fallo de red (DNS, sin ruta, conexión cortada,
+    // CORS). Un 4xx/5xx llega como Response y sale por el return de
+    // arriba, no por acá. Esa es toda la distinción que hace falta entre
+    // "no se pudo mandar" (encolar) y "el servidor lo rechazó" (mostrar el
+    // error, no reintentar para siempre).
+    reportarResultadoDeRed(false);
+
+    const moduloId = moduloParaEncolar(input, init?.method ?? "GET");
+    if (!moduloId) throw err;
+
+    // Sin cliente_uuid en el body no hay forma de que el servidor
+    // deduplique el reintento, así que encolarlo arriesgaría duplicar.
+    // Mejor que falle acá y se vea, que aceptar algo que puede corromper
+    // datos más tarde.
+    const clienteUuid = leerClienteUuid(init?.body);
+    if (!clienteUuid) throw err;
+
+    await encolar({
+      clienteUuid,
+      usuarioId: usuarioActivo(),
+      moduloId,
+      url: input,
+      metodo: (init?.method ?? "POST").toUpperCase(),
+      body: typeof init?.body === "string" ? init.body : JSON.stringify(init?.body ?? {}),
+      creadoEn: Date.now(),
+      intentos: 0,
+    });
+    return respuestaEncolada(clienteUuid);
+  }
+}
+
+/** El uuid viaja dentro del body JSON que armó la vista — no en un header
+ *  aparte — para que sea el MISMO valor que el servidor persiste, sin
+ *  posibilidad de que se desincronicen. */
+function leerClienteUuid(body: BodyInit | null | undefined): string | null {
+  if (typeof body !== "string") return null;
+  try {
+    const parseado: unknown = JSON.parse(body);
+    if (parseado && typeof parseado === "object" && "cliente_uuid" in parseado) {
+      const valor = (parseado as { cliente_uuid: unknown }).cliente_uuid;
+      return typeof valor === "string" ? valor : null;
+    }
+  } catch {
+    // No era JSON (FormData serializada, texto plano): no es encolable.
+  }
+  return null;
 }

@@ -6,6 +6,7 @@ import type {
   CrearPlantillaInput,
   CrearChecklistInput,
 } from "../../server/schemas/checklists.schema";
+import { idempotentInsert } from "../../server/shared/utils/idempotentInsert";
 import { ChecklistsRepository } from "./checklists.repository";
 
 export const ChecklistsService = {
@@ -33,8 +34,26 @@ export const ChecklistsService = {
     return ChecklistsRepository.findById(client, tenantId, id);
   },
 
+  /** Devuelve `creado: false` cuando el checklist ya se había creado con
+   *  este mismo `cliente_uuid` — o sea, cuando esto es el reintento de un
+   *  envío cuya respuesta se perdió. El controller usa ese flag para no
+   *  auditar ni publicar el evento dos veces. Sin `cliente_uuid` en el
+   *  body, se comporta igual que antes: siempre crea. */
   crear(client: PoolClient, tenantId: string, usuarioId: string, data: CrearChecklistInput) {
-    return ChecklistsRepository.crear(client, tenantId, usuarioId, data);
+    return idempotentInsert({
+      client,
+      tenantId,
+      modulo: "checklists",
+      clienteUuid: data.cliente_uuid,
+      insertar: async () => {
+        const fila = await ChecklistsRepository.crear(client, tenantId, usuarioId, data);
+        return { id: fila.id as number, fila };
+      },
+      // findById devuelve un superset de lo que devuelve crear() (suma
+      // placa_codigo y usuario_nombre por los JOIN) — así el reintento
+      // nunca responde con MENOS datos que el intento original.
+      recuperar: (filaId) => ChecklistsRepository.findById(client, tenantId, filaId),
+    });
   },
 
   eliminar(client: PoolClient, tenantId: string, id: number) {

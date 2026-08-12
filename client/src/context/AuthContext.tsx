@@ -3,6 +3,8 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 
 import { identificarUsuarioSentry } from "../config/sentry";
+import { drenar } from "../offline/offlineSync";
+import { limpiarCacheDeDatos, registrarUsuarioActivo } from "../offline/sesionOffline";
 import { registrarSesionExpirada } from "../services/apiClient";
 import { getMeApi, logoutApi, type UsuarioPayload } from "../services/authApi";
 
@@ -39,6 +41,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     identificarUsuarioSentry(usuario);
   }, [usuario]);
 
+  // La cola offline y el caché de catálogos viven en el dispositivo (por
+  // origen), no en la sesión — en una tablet compartida en planta hay que
+  // decirles de quién es lo guardado. Acá y no en login() por el mismo
+  // motivo que el efecto de Sentry: también corre cuando la sesión se
+  // restaura sola al abrir la app. Ver offline/sesionOffline.ts.
+  useEffect(() => {
+    registrarUsuarioActivo(usuario?.id ?? null);
+    // Y drenar lo que este usuario haya dejado pendiente. Hace falta un
+    // disparo acá además del listener de "online": el caso típico es el
+    // operario que llenó checklists sin señal, cerró la app, y la vuelve a
+    // abrir ya con red — ahí nunca hubo transición offline→online que
+    // disparar, y sin esto sus checklists se quedarían en el dispositivo
+    // esperando a que la conexión se corte y vuelva.
+    if (usuario) void drenar();
+  }, [usuario]);
+
   // apiFetch llama acá cuando un 401 no se pudo resolver con /api/auth/refresh
   // (refresh token vencido, revocado, o inexistente) — cualquier pantalla que
   // esté abierta debe volver a mostrar el login, no quedarse pegada mostrando
@@ -61,6 +79,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // sesión de todas formas se limpia del lado del cliente
     }
+    // Los catálogos cacheados (equipos, plantillas) son de ESTE tenant: si
+    // en el mismo dispositivo entra alguien de otro, el service worker se
+    // los serviría igual. RLS blinda la base, no el caché del navegador.
+    // La cola NO se borra a propósito — puede tener trabajo sin sincronizar
+    // (ver offline/sesionOffline.ts).
+    await limpiarCacheDeDatos();
     setUsuario(null);
   }, []);
 

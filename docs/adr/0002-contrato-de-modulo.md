@@ -100,7 +100,35 @@ Otros dos gaps encontrados durante el diagnóstico:
 
 **Métrica mínima que un módulo debe exponer**: ninguna adicional — el tráfico/errores/recursos-creados de `tenantMetricsMiddleware` ya es automático por diseño de middleware, no algo que cada módulo tenga que declarar.
 
-### 8. Checklist de "Nuevo Módulo"
+### 8. Offline-first (opcional por módulo)
+
+Agregado después de la primera versión de este ADR, al construir el offline de Checklists (migración `0044`). Un módulo cuyas escrituras pasen **en campo** (donde la señal no es confiable) puede declararse elegible para la cola offline del cliente. Es **opcional y explícito**: un módulo que no lo declare se comporta como siempre — sus escrituras fallan si no hay red.
+
+**El motor es genérico; el módulo solo declara.** `client/src/offline/` (cola en IndexedDB, detección de conexión, drenaje al reconectar) no tiene ninguna lista de rutas propia: lee `offline.escrituras` del registry. Sumar un módulo es agregar ese bloque en los dos registries, nada más — mismo criterio que `tablas` o `cuota`.
+
+**Requisito no negociable para declarar una ruta:** el servicio que la atiende tiene que pasar por `idempotentInsert()` (`src/server/shared/utils/idempotentInsert.ts`), y su schema Zod aceptar `cliente_uuid` opcional. Encolar una escritura que NO sea idempotente es peor que no tener offline: el reintento crea un duplicado en silencio. Por eso la declaración es por ruta y no "todo POST de este módulo".
+
+**Cómo funciona la idempotencia, en una línea:** el dispositivo genera un `crypto.randomUUID()` al momento de guardar (online u offline), viaja como `cliente_uuid` en el body, y el servidor lo reserva en `idempotency_keys` dentro de la MISMA transacción que crea la fila. Un reintento con esa clave devuelve `200` con la fila que ya existía en vez de crear otra. La tabla es aparte y no una columna con `UNIQUE` porque `checklists`/`ipercs` están particionadas y Postgres exige la columna de partición en todo índice único — ver el comentario largo de `migrations/0044_idempotency_keys.sql`.
+
+**Qué NO calificar**, con el criterio que se usó en Checklists:
+
+- **Lecturas (GET)**: no se encolan nunca. Lo que hace falta para llenar un formulario sin red se resuelve cacheando catálogos en el service worker (`runtimeCaching` en `client/vite.config.js`), no en la cola.
+- **DELETE**: reintentar un borrado puede eliminar algo que se recreó entre medio.
+- **Configuración** (plantillas, líneas base, catálogos): se administra desde la oficina con red. Solo califica el trabajo de campo.
+
+**Aislamiento en dispositivo compartido** (tablet de planta, el caso normal): IndexedDB y el caché del service worker son **por origen**, no por sesión. Cada entrada de la cola se estampa con su `usuarioId` y solo se drena bajo esa sesión (si no, el servidor firmaría el checklist con el usuario que sincronizó, no con el que lo llenó), y los catálogos cacheados se borran al cerrar sesión (RLS blinda la base, no el caché del navegador). Ver `client/src/offline/sesionOffline.ts`.
+
+**Pasos concretos** (además del checklist de abajo):
+
+1. Migración: nada — `idempotency_keys` ya existe y es genérica. Solo hay que asegurarse de que el `id` del módulo esté en el enum `modulo_erp` (ya lo exige el paso 1 del checklist).
+2. Schema Zod: `cliente_uuid: z.string().uuid().optional()`.
+3. Servicio: envolver la creación en `idempotentInsert({ client, tenantId, modulo, clienteUuid, insertar, recuperar })`. El `client` debe venir de un `withTenant()` — la garantía depende de que la clave y la fila commiteen juntas.
+4. Controller: si `creado === false`, responder `200` con la fila existente y **no** volver a llamar `registrarAuditoria` ni `publicarEventoTenant` (ya se hizo en el intento original).
+5. Declarar las escrituras en los dos lados: `offline: { escrituras: [...] }` en `src/modules/registry.ts`, y una entrada en `ESCRITURAS_OFFLINE` de `client/src/modules/offlineRegistry.ts`. (Del lado del cliente vive en un `.ts` aparte y no dentro de `registry.tsx`: ese archivo es JSX, y tanto el motor offline como el test que compara ambos lados corren donde no hay JSX configurado.)
+6. La vista genera `cliente_uuid: crypto.randomUUID()` al armar el body, y trata el `202` de `apiFetch` como "guardado, pendiente de enviar".
+7. `npx vitest run tests/offline-registry.test.ts` — falla si los dos registries divergen.
+
+### 9. Checklist de "Nuevo Módulo"
 
 1. Migración `NNNN_<nombre>.sql`: tablas con `tenant_id NOT NULL REFERENCES tenants(id)` (header e hijas), índices, bloque RLS (`ENABLE` + `FORCE ROW LEVEL SECURITY` + policy `tenant_isolation` — copiar el bloque `DO $$` de `migrations/0006` o `0007`), y `ALTER TYPE modulo_erp ADD VALUE '<id>'`.
 2. `src/modules/<id>/`: `routes.ts` + `controller.ts` + `service.ts` + `repository.ts`, siguiendo el patrón de un módulo existente (ej. `equipos/`).
@@ -108,6 +136,7 @@ Otros dos gaps encontrados durante el diagnóstico:
 4. Agregar el módulo a `src/modules/registry.ts`: `id` (igual al valor del enum del paso 1), `label`, `icono`, `version`, `router`, `tablas` (orden seguro de INSERT, con `fks` si referencia tablas de otro módulo), `raices` (subconjunto que necesita DELETE explícito al vaciar un tenant).
 5. Agregar el módulo a `client/src/modules/registry.tsx`: mismo `id`, `label`, `icono`, `componente: lazy(() => import(...))`.
 6. Construir la pantalla en `client/src/components/<id>/`.
+   6b. **Si el módulo se usa en campo** (señal no confiable): seguir los pasos de la sección 8 para declararlo offline. Opcional — omitirlo deja el módulo funcionando normal, solo que sus escrituras exigen red.
 7. Correr `npm run migrate`, luego `npx vitest run tests/module-registry.test.ts tests/rls-coverage.test.ts` — deben pasar antes de tocar nada más. Después, la suite completa.
 8. `npm run build` en `client/` y confirmar que el módulo nuevo generó su propio chunk (code-splitting).
 9. Smoke test manual: login, el módulo aparece en el Sidebar, CRUD básico funciona, sin errores en consola.
@@ -123,6 +152,7 @@ Otros dos gaps encontrados durante el diagnóstico:
 - Que toda tabla con `tenant_id` tenga RLS completo, salvo allowlist explícita — `tests/rls-coverage.test.ts`.
 - Que `raices` de un módulo sea subconjunto de `tablas` — mismo test de arriba.
 - Que las rutas de un módulo respeten `requireModulo` — estructural, viven dentro del loop de `routes/index.ts`, no hay forma de montarlas sin pasar por ahí.
+- Que la declaración `offline` del registry del backend y la del cliente coincidan exactamente — `tests/offline-registry.test.ts`. Es el único punto de duplicación deliberado que sí se testea, porque divergir acá no rompe nada visible: el cliente encolaría una ruta que el servidor no atiende con `idempotentInsert()` y el reintento duplicaría en silencio.
 
 **Dejado como convención (nada lo hace cumplir automáticamente):**
 
@@ -137,4 +167,5 @@ Otros dos gaps encontrados durante el diagnóstico:
 - **No se generó el enum `modulo_erp` dinámicamente desde el registry** — sigue siendo una migración manual por módulo nuevo, a propósito (ver Decisión 1).
 - **No se compartió un único archivo de registry entre backend y cliente** — son dos builds de Vite/tsx separados; forzar un import cruzado (`client/` importando de `src/modules/registry.ts`, que a su vez importa Express/pg) habría sido más complejidad que el problema que resuelve, para un set de 7 módulos.
 - **Las pantallas de Checklists e IPERC son mínimas, no el flujo completo**: cubren listar, crear (plantilla/línea base/checklist/IPERC con ítems manuales) y aprobar/rechazar/eliminar. No cubren editar una plantilla o línea base existente, ni el flujo de "referenciar un ítem ya aprobado de la línea base" al crear un IPERC específico (el backend ya lo soporta vía `linea_base_item_id`, la UI no lo expone todavía) — se dejó así para no inflar el alcance de esta ronda; el backend no tiene ninguna limitación pendiente, es trabajo de UI puro cuando alguien lo necesite.
+- **El offline solo está declarado para Checklists** (sección 8). IPERC y Combustible son los siguientes candidatos naturales — el motor ya es genérico, les falta pasar sus servicios por `idempotentInsert()` y declararse en los registries. Combustible además necesita antes un cambio de modelo (hoy `PUT /:id/nivel` sobreescribe un valor absoluto; sincronizar tarde una lectura vieja pisaría una más nueva, que no es un duplicado sino corrupción silenciosa — hay que pasarlo a histórico de lecturas primero).
 - **No se versiona el comportamiento por `version`** — sigue siendo metadata informativa (igual que antes de este ADR), no algo que el código lea para branchear lógica.

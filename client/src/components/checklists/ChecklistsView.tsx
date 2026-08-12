@@ -1,6 +1,7 @@
 // client/src/components/checklists/ChecklistsView.tsx
 import { useState, useEffect, useCallback } from "react";
 
+import { suscribirseASincronizacion } from "../../offline/offlineSync";
 import { apiFetch } from "../../services/apiClient";
 
 interface Plantilla {
@@ -110,7 +111,13 @@ export default function ChecklistsView() {
 
   const cargarTodo = useCallback(async () => {
     setLoading(true);
-    await Promise.all([cargarChecklists(), cargarPlantillas(), cargarEquipos()]);
+    // allSettled y no all: sin señal, estos GET fallan por red. Con
+    // Promise.all una sola falla cortaba la función antes del
+    // setLoading(false) y la pantalla quedaba clavada en "Cargando..."
+    // para siempre. Acá cada carga falla por su cuenta y las que el
+    // service worker sí tenga cacheadas (equipos, plantillas — ver
+    // vite.config.js) igual llenan el formulario para poder trabajar.
+    await Promise.allSettled([cargarChecklists(), cargarPlantillas(), cargarEquipos()]);
     setLoading(false);
   }, []);
 
@@ -120,6 +127,19 @@ export default function ChecklistsView() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     cargarTodo();
   }, [cargarTodo]);
+
+  // Cuando la cola offline termina de drenar, los checklists que se
+  // llenaron sin señal ya existen del lado del servidor — recargar es lo
+  // que hace que aparezcan en el listado sin que el operario tenga que
+  // refrescar a mano.
+  useEffect(() => {
+    return suscribirseASincronizacion(({ sincronizadas }) => {
+      if (sincronizadas > 0) {
+        setHistorialCursorChecklists([]);
+        cargarChecklists();
+      }
+    });
+  }, []);
 
   // ── Plantillas ────────────────────────────────────────────────────────
   const handleCrearPlantilla = async (e: React.FormEvent) => {
@@ -163,12 +183,22 @@ export default function ChecklistsView() {
       setPlantillaSeleccionada(null);
       return;
     }
-    const res = await apiFetch(`/api/erp/checklists/plantillas/${plantillaId}`);
-    const plantilla = await res.json();
-    setPlantillaSeleccionada(plantilla);
-    const iniciales: Record<number, { estado: ItemEstado; observacion: string }> = {};
-    for (const item of plantilla.items) iniciales[item.id] = { estado: "bien", observacion: "" };
-    setEstadosItems(iniciales);
+    try {
+      const res = await apiFetch(`/api/erp/checklists/plantillas/${plantillaId}`);
+      const plantilla = await res.json();
+      setPlantillaSeleccionada(plantilla);
+      const iniciales: Record<number, { estado: ItemEstado; observacion: string }> = {};
+      for (const item of plantilla.items) iniciales[item.id] = { estado: "bien", observacion: "" };
+      setEstadosItems(iniciales);
+    } catch {
+      // Sin señal y sin esta plantilla en el caché del service worker: no
+      // se pueden mostrar los ítems, así que no hay checklist que llenar.
+      // Se avisa en vez de dejar el modal a medias sin explicación.
+      setPlantillaSeleccionada(null);
+      alert(
+        "No se pudo cargar esta plantilla sin conexión. Abrila una vez con señal para poder usarla en campo."
+      );
+    }
   };
 
   const handleCrearChecklist = async (e: React.FormEvent) => {
@@ -185,6 +215,13 @@ export default function ChecklistsView() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        // Se genera SIEMPRE, haya señal o no en este instante: lo que
+        // protege no es solo el caso offline, sino el de la respuesta que
+        // se pierde de vuelta después de que el servidor ya guardó. Ese
+        // puede pasar con la señal perfecta al apretar el botón. Es el
+        // mismo valor que después viaja en la cola si hay que reintentar
+        // (ver client/src/offline/), nunca se regenera.
+        cliente_uuid: crypto.randomUUID(),
         equipo_id: Number(formChecklist.equipo_id),
         plantilla_id: Number(formChecklist.plantilla_id),
         turno: formChecklist.turno || undefined,
@@ -196,6 +233,17 @@ export default function ChecklistsView() {
       setModalChecklistAbierto(false);
       setFormChecklist({ equipo_id: "", plantilla_id: "", turno: "", observaciones_generales: "" });
       setPlantillaSeleccionada(null);
+
+      // 202 = no había red y quedó en la cola del dispositivo (ver
+      // apiFetch). No se recarga el listado: sin señal el GET también
+      // falla, y el checklist todavía no existe del lado del servidor.
+      if (res.status === 202) {
+        alert(
+          "Sin conexión: el checklist quedó guardado en este equipo y se enviará solo cuando vuelva la señal."
+        );
+        return;
+      }
+
       setHistorialCursorChecklists([]);
       cargarChecklists();
     } else {
@@ -487,8 +535,17 @@ export default function ChecklistsView() {
             <form onSubmit={handleCrearChecklist} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase">Equipo</label>
+                  {/* htmlFor + id, no un <label> suelto al lado: sin la
+                      asociación explícita un lector de pantalla anuncia el
+                      select sin nombre. Mismo patrón que LoginPage.tsx. */}
+                  <label
+                    htmlFor="checklist-equipo"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Equipo
+                  </label>
                   <select
+                    id="checklist-equipo"
                     required
                     className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
                     value={formChecklist.equipo_id}
@@ -505,8 +562,14 @@ export default function ChecklistsView() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase">Plantilla</label>
+                  <label
+                    htmlFor="checklist-plantilla"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Plantilla
+                  </label>
                   <select
+                    id="checklist-plantilla"
                     required
                     className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
                     value={formChecklist.plantilla_id}
@@ -522,10 +585,14 @@ export default function ChecklistsView() {
                 </div>
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">
+                <label
+                  htmlFor="checklist-turno"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
                   Turno (opcional)
                 </label>
                 <input
+                  id="checklist-turno"
                   type="text"
                   className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
                   value={formChecklist.turno}
@@ -565,10 +632,14 @@ export default function ChecklistsView() {
               )}
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">
+                <label
+                  htmlFor="checklist-observaciones"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
                   Observaciones generales (opcional)
                 </label>
                 <textarea
+                  id="checklist-observaciones"
                   className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
                   value={formChecklist.observaciones_generales}
                   onChange={(e) =>

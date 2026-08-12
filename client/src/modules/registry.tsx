@@ -17,6 +17,11 @@
 // habilitado y lo abre — ver App.tsx (<Suspense>).
 import { lazy, type LazyExoticComponent, type ComponentType } from "react";
 
+// Qué escrituras de cada módulo participan de la cola offline se declara en
+// ./offlineRegistry.ts, no acá: este archivo es .tsx (React.lazy) y tanto el
+// motor de client/src/offline/ como el test que compara ambos registries
+// corren donde no hay JSX. Ver el comentario de ese archivo.
+
 export interface ModuloCliente {
   id: string;
   label: string;

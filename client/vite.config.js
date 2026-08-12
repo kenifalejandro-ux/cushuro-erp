@@ -60,14 +60,54 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // Alcance de esta fase (Grupo 1): solo el app shell. Nada de
-        // /api/* entra al precache ni a ninguna regla de runtime caching
-        // — ni catálogos, ni nada — eso es Grupo 2. navigateFallback es
-        // lo único que podría interceptar una URL no precacheada al
-        // navegar offline, así que se excluye /api explícitamente aunque
-        // Workbox solo lo aplica a navegaciones de documento, no a los
-        // fetch() de apiClient.ts.
+        // navigateFallback es lo único que podría interceptar una URL no
+        // precacheada al navegar offline, así que se excluye /api
+        // explícitamente aunque Workbox solo lo aplica a navegaciones de
+        // documento, no a los fetch() de apiClient.ts.
         navigateFallbackDenylist: [/^\/api\//],
+        // ── Catálogos para poder llenar un checklist sin señal ──────────
+        //
+        // Sin esto, el motor offline sirve de poco: el operario puede
+        // guardar el checklist en la cola, pero no puede ARMARLO — los
+        // selectores de equipo y plantilla salen vacíos porque sus GET
+        // fallan. Estas son las tres lecturas que necesita el formulario.
+        //
+        // NetworkFirst y no StaleWhileRevalidate: con red, siempre gana el
+        // dato fresco (un equipo dado de baja no debe seguir apareciendo
+        // porque quedó en caché). El caché es la red de contención para
+        // cuando no hay señal, no la fuente preferida.
+        //
+        // Alcance deliberadamente angosto: SOLO estos tres GET de catálogo.
+        // No hay ninguna regla que toque /api/auth/* (nunca cachear
+        // sesión), /api/eventos/stream (una entrada de caché rompe el SSE)
+        // ni el listado de checklists llenados (dato vivo, no catálogo).
+        // Todo lo demás sigue yendo a la red sin intermediarios.
+        //
+        // El nombre del caché arranca con "erp-catalogos" porque
+        // offline/sesionOffline.ts lo borra por prefijo al cerrar sesión:
+        // el caché es por ORIGEN, así que en una tablet compartida los
+        // equipos de un tenant se le servirían al siguiente que entre.
+        runtimeCaching: [
+          {
+            urlPattern: ({ url, request }) =>
+              request.method === "GET" &&
+              (url.pathname === "/api/erp/equipos" ||
+                /^\/api\/erp\/checklists\/plantillas(\/\d+)?$/.test(url.pathname)),
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "erp-catalogos-v1",
+              // Sin esto, offline el fetch queda colgado hasta el timeout
+              // del sistema operativo antes de caer al caché — con señal
+              // intermitente eso es una espera larga con la pantalla
+              // vacía.
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              // Solo respuestas OK: cachear un 401/403 dejaría al operario
+              // viendo "sin permiso" en modo offline hasta que expire.
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+        ],
       },
     }),
   ],
