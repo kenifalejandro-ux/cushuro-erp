@@ -3,6 +3,7 @@
 import type { PoolClient } from "pg";
 import type { Paginacion, CursorPaginacion } from "../../server/shared/utils/pagination";
 import type { CrearIpercInput, CrearLineaBaseInput } from "../../server/schemas/iperc.schema";
+import { idempotentInsert } from "../../server/shared/utils/idempotentInsert";
 import { IpercRepository } from "./iperc.repository";
 
 export const IpercService = {
@@ -14,8 +15,23 @@ export const IpercService = {
     return IpercRepository.findById(client, tenantId, id);
   },
 
+  /** Devuelve `creado: false` cuando este IPERC ya se había creado con el
+   *  mismo `cliente_uuid` -- el reintento de un envío cuya respuesta se
+   *  perdió. El controller usa ese flag para no auditar ni publicar el
+   *  evento dos veces. Sin `cliente_uuid` en el body, se comporta igual
+   *  que antes: siempre crea. */
   crear(client: PoolClient, tenantId: string, usuarioId: string, data: CrearIpercInput) {
-    return IpercRepository.crear(client, tenantId, usuarioId, data);
+    return idempotentInsert({
+      client,
+      tenantId,
+      modulo: "iperc",
+      clienteUuid: data.cliente_uuid,
+      insertar: async () => {
+        const fila = await IpercRepository.crear(client, tenantId, usuarioId, data);
+        return { id: fila.id as number, fila };
+      },
+      recuperar: (filaId) => IpercRepository.findById(client, tenantId, filaId),
+    });
   },
 
   cambiarEstado(

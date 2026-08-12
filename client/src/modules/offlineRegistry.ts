@@ -42,4 +42,11 @@ export const ESCRITURAS_OFFLINE: Record<string, EscrituraOffline[]> = {
   // desde la oficina con red, y un DELETE encolado a ciegas es justo el
   // tipo de operación que no debe reintentarse sola.
   checklists: [{ metodo: "POST", ruta: "/" }],
+
+  // Solo crear el IPERC. Las líneas base son catálogo de oficina (mismo
+  // criterio que las plantillas de checklists), y aprobar/rechazar NO debe
+  // encolarse nunca: son transiciones de estado, no creaciones, y el 409
+  // anti-carrera del backend haría que un reintento tardío se descarte
+  // igual.
+  iperc: [{ metodo: "POST", ruta: "/" }],
 };

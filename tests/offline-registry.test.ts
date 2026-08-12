@@ -47,6 +47,10 @@ describe("qué se encola y qué no", () => {
     expect(moduloParaEncolar("/api/erp/checklists", "POST")).toBe("checklists");
   });
 
+  it("encola el POST de crear IPERC", () => {
+    expect(moduloParaEncolar("/api/erp/iperc", "POST")).toBe("iperc");
+  });
+
   it("ignora el query string y la barra final", () => {
     expect(moduloParaEncolar("/api/erp/checklists/", "POST")).toBe("checklists");
     expect(moduloParaEncolar("/api/erp/checklists?pageSize=50", "POST")).toBe("checklists");
@@ -66,11 +70,21 @@ describe("qué se encola y qué no", () => {
   });
 
   it("NO encola módulos que todavía no declararon offline", () => {
-    // Hasta que IPERC y Combustible pasen por idempotentInsert(), encolar
-    // sus escrituras duplicaría en el reintento.
-    expect(moduloParaEncolar("/api/erp/iperc", "POST")).toBeNull();
+    // Hasta que Combustible pase por idempotentInsert(), encolar sus
+    // escrituras duplicaría en el reintento.
     expect(moduloParaEncolar("/api/erp/combustible", "POST")).toBeNull();
     expect(moduloParaEncolar("/api/erp/equipos", "POST")).toBeNull();
+  });
+
+  it("NO encola aprobar/rechazar un IPERC ni crear una línea base", () => {
+    // Las transiciones de estado no califican: el 409 anti-carrera del
+    // backend (ver fix_race_condition_iperc_estado) haría que un reintento
+    // tardío se descarte igual, y aprobar con datos de hace horas no es lo
+    // mismo que crear un registro. Las líneas base son catálogo de
+    // oficina, mismo criterio que las plantillas de checklists.
+    expect(moduloParaEncolar("/api/erp/iperc/5/estado", "PATCH")).toBeNull();
+    expect(moduloParaEncolar("/api/erp/iperc/lineas-base/5/estado", "PATCH")).toBeNull();
+    expect(moduloParaEncolar("/api/erp/iperc/lineas-base", "POST")).toBeNull();
   });
 
   it("NO encola nada de autenticación", () => {

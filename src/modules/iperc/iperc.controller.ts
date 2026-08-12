@@ -54,17 +54,30 @@ export const IpercController = {
     try {
       const tenantId = getTenantId(req);
       const data = req.validatedBody as CrearIpercInput;
-      const iperc = await withTenant(tenantId, (client) =>
+      const { fila: iperc, creado } = await withTenant(tenantId, (client) =>
         IpercService.crear(client, tenantId, req.usuario!.id, data)
       );
+
+      // Reintento de un envío que ya se había guardado (la respuesta
+      // original se perdió en la red). No se audita ni se publica el
+      // evento de nuevo -- eso ya pasó la primera vez. 200 y no 201 porque
+      // esta llamada no creó nada, pero sí es un éxito para la cola offline
+      // del dispositivo.
+      if (!creado) {
+        res
+          .status(200)
+          .json(iperc ?? { message: "Este IPERC ya se había registrado y luego se eliminó" });
+        return;
+      }
+
       await registrarAuditoria({
         accion: "iperc.crear",
         tenantId,
         usuarioId: req.usuario!.id,
-        detalle: { ipercId: iperc.id, tipo: data.tipo },
+        detalle: { ipercId: iperc!.id, tipo: data.tipo },
         contexto: contextoAuditoriaModulo(req),
       });
-      await publicarEventoTenant(tenantId, "iperc.creado", { ipercId: iperc.id, tipo: data.tipo });
+      await publicarEventoTenant(tenantId, "iperc.creado", { ipercId: iperc!.id, tipo: data.tipo });
       res.status(201).json(iperc);
     } catch (err) {
       if (err instanceof Error && err.message.includes("no existe en este tenant")) {

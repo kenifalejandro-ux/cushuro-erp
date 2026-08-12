@@ -173,6 +173,10 @@ export const MODULOS: ModuloDefinicion[] = [
     // Ídem: se cuentan los IPERC, no las líneas base (que son el catálogo
     // de riesgos aprobado, deliberadamente acotado).
     cuota: { tabla: "ipercs", porDefecto: 200_000 },
+    // Solo la creación del IPERC califica para offline -- ver ADR-0002 §8.
+    // Aprobar/rechazar y crear línea base quedan fuera a propósito (esos
+    // NO deben encolarse: ver fix_race_condition_iperc_estado).
+    offline: { escrituras: [{ metodo: "POST", ruta: "/" }] },
   },
 ];
 

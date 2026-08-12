@@ -47,6 +47,12 @@ const itemIpercSchema = z
 
 export const crearIpercSchema = z
   .object({
+    // Lo genera el dispositivo con crypto.randomUUID() al apretar
+    // "Registrar IPERC", online u offline (ver client/src/offline/).
+    // Opcional a propósito: sin él, la creación se comporta exactamente
+    // como siempre. Con él, un reintento del mismo envío no duplica (ver
+    // idempotentInsert.ts).
+    cliente_uuid: z.string().uuid().optional(),
     tipo: z.enum(["continuo", "especifico"]).default("continuo"),
     area_frente: z.string().trim().min(1, "Área/frente requerido").max(200),
     turno: z.string().trim().max(20).optional(),
