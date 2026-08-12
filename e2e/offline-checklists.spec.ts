@@ -98,10 +98,15 @@ test("un checklist llenado sin red se guarda en el equipo y se sincroniza solo a
   // ── Vuelve la red ────────────────────────────────────────────────────
   await context.setOffline(false);
 
-  // El drenaje lo dispara el evento "online" del navegador. Se espera a que
-  // el checklist aparezca en el listado: es la prueba de que la cola se
-  // vació contra el servidor de verdad, no solo de que el badge cambió.
-  await expect(page.getByRole("cell", { name: marca })).toBeVisible({ timeout: 30_000 });
+  // El drenaje lo dispara el evento "online" del navegador o, si ese evento
+  // no llega (cada navegador lo implementa distinto, y en campo puede no
+  // dispararse nunca con señal intermitente), el reintento periódico de
+  // offlineSync.ts — de ahí el timeout holgado, que cubre más de un ciclo.
+  //
+  // Se espera a que el checklist aparezca en el LISTADO: es la prueba de que
+  // la cola se vació contra el servidor de verdad, no solo de que el badge
+  // cambió de estado.
+  await expect(page.getByRole("cell", { name: marca })).toBeVisible({ timeout: 45_000 });
 
   // Y lo que más importa: UNA sola fila. Si la cola hubiera reintentado sin
   // idempotencia (o si el 202 se hubiera contado como creación), acá

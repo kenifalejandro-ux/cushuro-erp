@@ -535,8 +535,17 @@ export default function ChecklistsView() {
             <form onSubmit={handleCrearChecklist} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase">Equipo</label>
+                  {/* htmlFor + id, no un <label> suelto al lado: sin la
+                      asociación explícita un lector de pantalla anuncia el
+                      select sin nombre. Mismo patrón que LoginPage.tsx. */}
+                  <label
+                    htmlFor="checklist-equipo"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Equipo
+                  </label>
                   <select
+                    id="checklist-equipo"
                     required
                     className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
                     value={formChecklist.equipo_id}
@@ -553,8 +562,14 @@ export default function ChecklistsView() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase">Plantilla</label>
+                  <label
+                    htmlFor="checklist-plantilla"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Plantilla
+                  </label>
                   <select
+                    id="checklist-plantilla"
                     required
                     className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
                     value={formChecklist.plantilla_id}
@@ -570,10 +585,14 @@ export default function ChecklistsView() {
                 </div>
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">
+                <label
+                  htmlFor="checklist-turno"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
                   Turno (opcional)
                 </label>
                 <input
+                  id="checklist-turno"
                   type="text"
                   className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
                   value={formChecklist.turno}
@@ -613,10 +632,14 @@ export default function ChecklistsView() {
               )}
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">
+                <label
+                  htmlFor="checklist-observaciones"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
                   Observaciones generales (opcional)
                 </label>
                 <textarea
+                  id="checklist-observaciones"
                   className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
                   value={formChecklist.observaciones_generales}
                   onChange={(e) =>

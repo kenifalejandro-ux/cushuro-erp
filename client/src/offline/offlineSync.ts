@@ -22,6 +22,7 @@ import {
   listarPendientes,
   quitarDeLaCola,
   registrarIntentoFallido,
+  suscribirseACola,
   type EntradaCola,
 } from "./offlineQueue";
 import { enviarSinCola } from "../services/apiClient";
@@ -121,11 +122,48 @@ export async function drenar(): Promise<{ sincronizadas: number; fallidas: numbe
   return { sincronizadas, fallidas };
 }
 
+/** Cada cuánto se vuelve a probar cuando hay cola pendiente. No es un
+ *  latido permanente: el temporizador solo existe mientras haya algo sin
+ *  sincronizar, y el probe es un GET diminuto a /api/health. */
+const REINTENTO_MS = 15_000;
+
+let temporizador: ReturnType<typeof setInterval> | null = null;
+
+function detenerReintentos(): void {
+  if (temporizador === null) return;
+  clearInterval(temporizador);
+  temporizador = null;
+}
+
+/** El evento "online" del navegador NO alcanza como único disparador, y no
+ *  es una precaución teórica: avisa cuando aparece una interfaz de red, que
+ *  en una planta con señal intermitente (o detrás de un portal cautivo) no
+ *  es lo mismo que tener salida real — puede no dispararse nunca aunque la
+ *  conexión vuelva, o dispararse cuando todavía no sirve. Mientras quede
+ *  algo en la cola, se reintenta por las suyas confirmando con el probe. */
+function ajustarReintentos(pendientes: number): void {
+  if (pendientes === 0) {
+    detenerReintentos();
+    return;
+  }
+  if (temporizador !== null) return;
+
+  temporizador = setInterval(() => {
+    void hayConexionReal().then((online) => {
+      reportarResultadoDeRed(online);
+      if (online) void drenar();
+    });
+  }, REINTENTO_MS);
+}
+
 /** Se llama una vez, desde main.tsx. */
 export function iniciarSincronizacionOffline(): void {
   iniciarMonitoreoDeConexion(() => {
     void drenar();
   });
+
+  // Enciende/apaga el reintento periódico según haya o no cola pendiente.
+  suscribirseACola(ajustarReintentos);
 
   // Al arrancar la app puede haber cola de una sesión anterior (el operario
   // cerró la app sin señal y la vuelve a abrir ya con red). El evento
