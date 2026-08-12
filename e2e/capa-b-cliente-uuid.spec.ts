@@ -59,6 +59,26 @@ const admin = {
 
 const RUTA_CREACION = "/api/erp/checklists";
 
+/** El service worker de la app hace `skipWaiting()` + `clientsClaim()` (ver
+ *  el sw.js generado), así que toma control de la página apenas se activa,
+ *  sin necesidad de recargar. A partir de ahí los `fetch()` salen mediados
+ *  por él — y Playwright NO intercepta igual esas requests en todos los
+ *  motores: en WebKit, `page.route` deja de verlas.
+ *
+ *  Se manifestó exactamente así: este spec pasó en Chromium y Firefox y
+ *  falló solo en WebKit, sin capturar NINGUNA request. Es también el único
+ *  de los tres specs de checklists que usa `page.route`.
+ *
+ *  Bloquear el SW acá no debilita nada: lo que este spec prueba es el ciclo
+ *  de vida del `cliente_uuid` en el formulario, que no tiene nada que ver
+ *  con el SW. El comportamiento CON service worker activo lo cubre
+ *  offline-checklists.spec.ts, que es donde sí importa.
+ *
+ *  Verificado que no rompe el arranque: el registro de vite-plugin-pwa
+ *  envuelve `new Workbox(...)` en un `.catch()` y hace `if (!wb) return`,
+ *  así que una registración fallida no tira ni deja la app a medias. */
+test.use({ serviceWorkers: "block" });
+
 test("el cliente_uuid está atado al formulario abierto, no al clic", async ({ page }) => {
   const marca = `UUID-${randomBytes(3).toString("hex").toUpperCase()}`;
 
@@ -94,8 +114,21 @@ test("el cliente_uuid está atado al formulario abierto, no al clic", async ({ p
       return;
     }
 
-    const body = req.postDataJSON() as { cliente_uuid?: string };
-    if (body?.cliente_uuid) uuidsEnviados.push(body.cliente_uuid);
+    // El parseo va en try/catch y ANTES del fulfill, pero sin poder
+    // impedirlo: si `postDataJSON()` tirara (pasa si el motor no expone el
+    // body como se espera), el handler moriría sin responder, la request
+    // quedaría colgada para siempre y el síntoma sería idéntico al de no
+    // capturar nada. Mejor registrar lo que se pueda y responder igual.
+    try {
+      const body = req.postDataJSON() as { cliente_uuid?: string } | null;
+      if (body?.cliente_uuid) uuidsEnviados.push(body.cliente_uuid);
+    } catch {
+      const crudo = req.postData();
+      if (crudo) {
+        const match = /"cliente_uuid"\s*:\s*"([^"]+)"/.exec(crudo);
+        if (match) uuidsEnviados.push(match[1]);
+      }
+    }
 
     // 500 y no continue(): mantiene el modal abierto para poder submitear
     // de nuevo sobre la misma instancia del formulario, y de paso no
