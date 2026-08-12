@@ -1,7 +1,8 @@
 /**client/src/components/combustible/CombustiblePanel */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
+import { suscribirseASincronizacion } from "../../offline/offlineSync";
 import { apiFetch } from "../../services/apiClient";
 import CountUp from "../dashboard/CountUp";
 
@@ -14,28 +15,105 @@ interface Tanque {
   fecha_actualizacion: string;
 }
 
+function formatearFecha(iso: string): string {
+  return new Date(iso).toLocaleString("es-PE", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** Formato que espera un <input type="datetime-local">: sin zona horaria,
+ *  con la hora LOCAL del dispositivo (no UTC) -- así "ahora" en el input
+ *  coincide con el reloj real del operario en campo. */
+function ahoraParaInputLocal(): string {
+  const ahora = new Date();
+  ahora.setMinutes(ahora.getMinutes() - ahora.getTimezoneOffset());
+  return ahora.toISOString().slice(0, 16);
+}
+
 export default function CombustiblePanel() {
   const [tanque, setTanque] = useState<Tanque | null>(null);
   const [barWidth, setBarWidth] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [modalAbierto, setModalAbierto] = useState(false);
+  const [nivel, setNivel] = useState("");
+  const [leidoEn, setLeidoEn] = useState(ahoraParaInputLocal());
+  const [enviando, setEnviando] = useState(false);
 
-  {
-    /** lo quitamos temporal para usar mocks */
-  }
-  useEffect(() => {
-    apiFetch("/api/erp/combustible")
-      .then((res) => res.json())
-      .then((data) => {
-        const t = data[0];
-        setTanque(t);
-        setBarWidth(Number(t.porcentaje));
-        setLoading(false);
-      })
-      .catch((error) => {
-        console.error("Error cargando combustible:", error);
-        setLoading(false);
-      });
+  const cargarTanque = useCallback(async () => {
+    const res = await apiFetch("/api/erp/combustible");
+    const data = await res.json();
+    const t = data[0] ?? null;
+    setTanque(t);
+    setBarWidth(t ? Number(t.porcentaje) : 0);
   }, []);
+
+  useEffect(() => {
+    // Patrón estándar de carga al montar (setLoading(true) -> fetch ->
+    // setLoading(false)), usado en toda la app -- ver IpercView.tsx.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    cargarTanque().finally(() => setLoading(false));
+  }, [cargarTanque]);
+
+  // Cuando la cola offline termina de drenar, la lectura que se cargó sin
+  // señal ya existe del lado del servidor -- recargar es lo que hace que
+  // nivel_actual se ponga al día sin que el operario tenga que refrescar.
+  useEffect(() => {
+    return suscribirseASincronizacion(({ sincronizadas }) => {
+      if (sincronizadas > 0) cargarTanque();
+    });
+  }, [cargarTanque]);
+
+  const abrirModal = () => {
+    setNivel("");
+    setLeidoEn(ahoraParaInputLocal());
+    setModalAbierto(true);
+  };
+
+  const handleRegistrarLectura = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tanque) return;
+    setEnviando(true);
+    try {
+      const res = await apiFetch("/api/erp/combustible/lecturas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // Se genera SIEMPRE, haya señal o no -- mismo criterio que
+          // IpercView.tsx: protege también la respuesta que se pierde de
+          // vuelta después de que el servidor ya guardó.
+          cliente_uuid: crypto.randomUUID(),
+          combustible_id: tanque.id,
+          nivel: Number(nivel),
+          leido_en: new Date(leidoEn).toISOString(),
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert(body.error || "Error al registrar la lectura.");
+        return;
+      }
+
+      setModalAbierto(false);
+
+      // 202 = no había red y quedó en la cola del dispositivo (ver
+      // apiFetch). No se recarga: sin señal el GET también falla, y la
+      // lectura todavía no existe del lado del servidor.
+      if (res.status === 202) {
+        alert(
+          "Sin conexión: la lectura quedó guardada en este equipo y se enviará sola cuando vuelva la señal."
+        );
+        return;
+      }
+
+      await cargarTanque();
+    } finally {
+      setEnviando(false);
+    }
+  };
 
   if (loading) {
     return <div className="p-10">Cargando combustible...</div>;
@@ -55,7 +133,10 @@ export default function CombustiblePanel() {
           </h1>
           <p className="text-slate-500 text-sm font-light">Monitoreo en tiempo real de tanques</p>
         </div>
-        <button className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium rounded-lg transition-colors duration-200">
+        <button
+          onClick={abrirModal}
+          className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium rounded-lg transition-colors duration-200"
+        >
           Actualizar Nivel
         </button>
       </div>
@@ -68,11 +149,15 @@ export default function CombustiblePanel() {
             <div className="flex items-start justify-between">
               <div className="space-y-1">
                 <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">
-                  Tanque Principal
+                  {tanque.tanque_nombre}
                 </p>
                 <div className="flex items-baseline gap-2 mt-2">
-                  <p className="text-4xl font-light text-slate-900">6,500</p>
-                  <span className="text-slate-400 text-sm font-light">/ 10,000 L</span>
+                  <p className="text-4xl font-light text-slate-900">
+                    {Number(tanque.nivel_actual).toLocaleString("es-PE")}
+                  </p>
+                  <span className="text-slate-400 text-sm font-light">
+                    / {Number(tanque.capacidad_total).toLocaleString("es-PE")} L
+                  </span>
                 </div>
               </div>
               <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
@@ -97,16 +182,14 @@ export default function CombustiblePanel() {
               </div>
             </div>
 
-            {/* Info adicional */}
-            <div className="grid grid-cols-2 gap-6 pt-6 border-t border-slate-100">
-              <div className="space-y-1">
-                <p className="text-xs text-slate-400 font-light">Consumo diario</p>
-                <p className="text-2xl font-light text-slate-900">350 L</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs text-slate-400 font-light">Autonomía</p>
-                <p className="text-2xl font-light text-slate-900">18 días</p>
-              </div>
+            {/* Última lectura -- reemplaza los mocks de consumo/autonomía:
+                no hay ningún cálculo real de consumo diario o autonomía
+                todavía, mostrarlo sería inventar un dato. */}
+            <div className="pt-6 border-t border-slate-100">
+              <p className="text-xs text-slate-400 font-light">Última lectura registrada</p>
+              <p className="text-lg font-light text-slate-900">
+                {formatearFecha(tanque.fecha_actualizacion)}
+              </p>
             </div>
           </div>
         </div>
@@ -124,6 +207,66 @@ export default function CombustiblePanel() {
           </div>
         </div>
       </div>
+
+      {/* Modal: registrar lectura */}
+      {modalAbierto && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl">
+            <div className="p-6 border-b flex justify-between items-center">
+              <h3 className="text-xl font-bold">Actualizar Nivel</h3>
+              <button
+                onClick={() => setModalAbierto(false)}
+                className="text-slate-400 hover:text-slate-900 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            <form onSubmit={handleRegistrarLectura} className="p-6 space-y-4">
+              <div className="space-y-1">
+                <label
+                  htmlFor="combustible-nivel"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Nivel (litros)
+                </label>
+                <input
+                  id="combustible-nivel"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  required
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none"
+                  value={nivel}
+                  onChange={(e) => setNivel(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <label
+                  htmlFor="combustible-leido-en"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Fecha y hora de la lectura
+                </label>
+                <input
+                  id="combustible-leido-en"
+                  type="datetime-local"
+                  required
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none"
+                  value={leidoEn}
+                  onChange={(e) => setLeidoEn(e.target.value)}
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={enviando}
+                className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4 disabled:opacity-50"
+              >
+                {enviando ? "Registrando..." : "Registrar lectura"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

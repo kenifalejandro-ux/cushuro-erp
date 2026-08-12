@@ -45,9 +45,27 @@ export const MODULOS: ModuloDefinicion[] = [
     icono: "⛽",
     version: "v1",
     router: combustibleRoutes,
-    tablas: [{ nombre: "combustible", pk: "serial" }],
+    tablas: [
+      { nombre: "combustible", pk: "serial" },
+      {
+        nombre: "combustible_lecturas",
+        pk: "serial",
+        fks: { combustible_id: "combustible", usuario_id: "usuarios" },
+      },
+    ],
+    // combustible_lecturas cascadea desde su padre (ON DELETE CASCADE, ver
+    // migrations/0045) -- no necesita DELETE propio.
     raices: ["combustible"],
-    cuota: { tabla: "combustible", porDefecto: 100_000 },
+    // Se cuenta el histórico de LECTURAS, no los tanques: los tanques son
+    // configuración (unos pocos por tenant, se cargan directo en la base),
+    // las lecturas crecen con cada carga en campo -- mismo criterio que
+    // checklists (llenados, no plantillas) e iperc (creaciones, no líneas
+    // base).
+    cuota: { tabla: "combustible_lecturas", porDefecto: 100_000 },
+    // Solo registrar una lectura califica para offline -- ver ADR-0002 §8.
+    // combustible_id viaja en el body porque rutasOffline.ts solo matchea
+    // rutas literales, sin parámetros de URL.
+    offline: { escrituras: [{ metodo: "POST", ruta: "/lecturas" }] },
   },
   {
     id: "documentos",

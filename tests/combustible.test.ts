@@ -86,6 +86,29 @@ describe("combustible: lectura, actualización de nivel y reglas de negocio", ()
     expect(res.status).toBe(404);
   });
 
+  it("PUT /:id/nivel deja rastro en el historial, no solo sobreescribe nivel_actual", async () => {
+    const antes = await withTenant(tenantId, (client) =>
+      client.query(
+        `SELECT COUNT(*)::int AS total FROM combustible_lecturas WHERE combustible_id = $1`,
+        [tanqueId]
+      )
+    );
+
+    const res = await agentAdmin
+      .put(`/api/erp/combustible/${tanqueId}/nivel`)
+      .send({ nivel_actual: 900 });
+    expect(res.status).toBe(200);
+    expect(Number(res.body.nivel_actual)).toBe(900);
+
+    const despues = await withTenant(tenantId, (client) =>
+      client.query(
+        `SELECT COUNT(*)::int AS total FROM combustible_lecturas WHERE combustible_id = $1`,
+        [tanqueId]
+      )
+    );
+    expect(despues.rows[0].total).toBe(antes.rows[0].total + 1);
+  });
+
   it("un usuario con rol 'lectura' no puede actualizar el nivel (403), pero sí puede leer", async () => {
     const email = `lectura-combustible-${Date.now()}@test.local`;
     await withTenant(tenantId, (client) =>

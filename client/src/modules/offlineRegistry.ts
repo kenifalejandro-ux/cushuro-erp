@@ -49,4 +49,9 @@ export const ESCRITURAS_OFFLINE: Record<string, EscrituraOffline[]> = {
   // anti-carrera del backend haría que un reintento tardío se descarte
   // igual.
   iperc: [{ metodo: "POST", ruta: "/" }],
+
+  // Solo registrar una lectura de tanque. `/lecturas`, NO `/:id/nivel` --
+  // el motor offline (rutasOffline.ts) solo matchea rutas literales, sin
+  // parámetros de URL, así que combustible_id viaja en el body.
+  combustible: [{ metodo: "POST", ruta: "/lecturas" }],
 };

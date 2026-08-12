@@ -69,10 +69,17 @@ describe("qué se encola y qué no", () => {
     expect(moduloParaEncolar("/api/erp/checklists/plantillas", "POST")).toBeNull();
   });
 
+  it("encola el POST de registrar una lectura de combustible", () => {
+    expect(moduloParaEncolar("/api/erp/combustible/lecturas", "POST")).toBe("combustible");
+  });
+
+  it("NO encola el PUT /:id/nivel legacy: rutasOffline.ts no matchea parámetros de URL", () => {
+    // combustible_id viaja en el body del endpoint nuevo justo para evitar
+    // esto -- el motor offline solo compara rutas literales.
+    expect(moduloParaEncolar("/api/erp/combustible/7/nivel", "PUT")).toBeNull();
+  });
+
   it("NO encola módulos que todavía no declararon offline", () => {
-    // Hasta que Combustible pase por idempotentInsert(), encolar sus
-    // escrituras duplicaría en el reintento.
-    expect(moduloParaEncolar("/api/erp/combustible", "POST")).toBeNull();
     expect(moduloParaEncolar("/api/erp/equipos", "POST")).toBeNull();
   });
 
