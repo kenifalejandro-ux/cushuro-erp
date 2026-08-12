@@ -42,6 +42,14 @@ export default function CombustiblePanel() {
   const [leidoEn, setLeidoEn] = useState(ahoraParaInputLocal());
   const [enviando, setEnviando] = useState(false);
 
+  // El cliente_uuid se fija al ABRIR el modal, no al apretar el botón.
+  // `enviando` bloquea el botón, pero eso solo achica la ventana: si los
+  // dos taps entran antes del re-render, generar el uuid en el submit
+  // mandaba DOS claves distintas y el servidor creaba dos lecturas. Con el
+  // uuid atado a la apertura del formulario, la deduplicación del servidor
+  // cierra el hueco de verdad. Ver el mismo comentario en ChecklistsView.
+  const [clienteUuid, setClienteUuid] = useState("");
+
   const cargarTanque = useCallback(async () => {
     const res = await apiFetch("/api/erp/combustible");
     const data = await res.json();
@@ -69,11 +77,17 @@ export default function CombustiblePanel() {
   const abrirModal = () => {
     setNivel("");
     setLeidoEn(ahoraParaInputLocal());
+    // Se regenera en cada apertura: si no, la segunda lectura legítima del
+    // turno reusaría la clave de la primera y el servidor devolvería
+    // aquella en silencio — se perdería una lectura, que es peor que el
+    // duplicado que estamos evitando.
+    setClienteUuid(crypto.randomUUID());
     setModalAbierto(true);
   };
 
   const handleRegistrarLectura = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (enviando) return;
     if (!tanque) return;
     setEnviando(true);
     try {
@@ -81,10 +95,10 @@ export default function CombustiblePanel() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          // Se genera SIEMPRE, haya señal o no -- mismo criterio que
-          // IpercView.tsx: protege también la respuesta que se pierde de
-          // vuelta después de que el servidor ya guardó.
-          cliente_uuid: crypto.randomUUID(),
+          // Viene del estado (se fijó al abrir el modal), NO de un
+          // crypto.randomUUID() acá adentro -- ver el comentario donde se
+          // declara clienteUuid.
+          cliente_uuid: clienteUuid,
           combustible_id: tanque.id,
           nivel: Number(nivel),
           leido_en: new Date(leidoEn).toISOString(),
