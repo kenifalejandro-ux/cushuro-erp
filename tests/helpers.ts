@@ -31,6 +31,50 @@ export async function redisDisponible(): Promise<boolean> {
   return false;
 }
 
+/** Reintenta `obtener()` hasta que `cumple()` diga que sí, o hasta agotar
+ *  el timeout. Es el reemplazo correcto de un `setTimeout` fijo cuando se
+ *  espera algo que la app escribe de forma ASÍNCRONA y sin await.
+ *
+ *  El caso que motivó esto (ver tenant-health.test.ts y
+ *  observability.test.ts): `tenantMetricsMiddleware` registra la métrica
+ *  con fire-and-forget dentro de `res.on("finish")` —a propósito, para no
+ *  sumarle latencia al request real— así que cuando supertest devuelve la
+ *  respuesta, la fila en `tenant_metricas_horarias` todavía puede no
+ *  existir. Los tests dormían 200 ms fijos y consultaban: aislado siempre
+ *  alcanzaba, pero en la suite completa (47 archivos compitiendo por pool
+ *  y CPU) fallaban al azar con "expected 0 to be greater than 0". Tres
+ *  veces en dos meses, en dos archivos distintos.
+ *
+ *  Un sleep fijo obliga a elegir entre lento y frágil: subirlo a 2 s haría
+ *  la suite más lenta SIEMPRE para cubrir el peor caso. Este poll devuelve
+ *  apenas la condición se cumple (normalmente el primer intento) y solo
+ *  espera de verdad cuando hace falta.
+ *
+ *  Al agotarse el timeout tira con el último valor visto — sin eso, el
+ *  fallo diría "esperaba algo" sin decir qué había en su lugar, que es
+ *  justo lo que hacía costoso diagnosticar el flaky original. */
+export async function esperarHasta<T>(
+  obtener: () => Promise<T>,
+  cumple: (valor: T) => boolean,
+  descripcion: string,
+  opciones: { timeoutMs?: number; intervaloMs?: number } = {}
+): Promise<T> {
+  const { timeoutMs = 5000, intervaloMs = 50 } = opciones;
+  const limite = Date.now() + timeoutMs;
+
+  let ultimo = await obtener();
+  while (!cumple(ultimo)) {
+    if (Date.now() >= limite) {
+      throw new Error(
+        `Timeout de ${timeoutMs}ms esperando: ${descripcion}. Último valor visto: ${JSON.stringify(ultimo)}`
+      );
+    }
+    await new Promise((r) => setTimeout(r, intervaloMs));
+    ultimo = await obtener();
+  }
+  return ultimo;
+}
+
 /** Saca el valor crudo de una cookie de un array de headers Set-Cookie —
  *  para simular en un test que alguien reusa un refresh token viejo desde
  *  otro cliente, sin depender de la jar interna de supertest. */

@@ -15,7 +15,7 @@ import type { Request } from "express";
 import pino from "pino";
 import request from "supertest";
 import { describe, it, expect, afterAll } from "vitest";
-import { app, crearTenantDePrueba, borrarTenantDePrueba } from "./helpers";
+import { app, crearTenantDePrueba, borrarTenantDePrueba, esperarHasta } from "./helpers";
 import { loggerOptions } from "../src/server/config/logger";
 import { runWithRequestContext } from "../src/server/shared/requestContext";
 import { pool, closeDatabase } from "../src/server/config/database";
@@ -114,8 +114,19 @@ describe("métricas por tenant: latencia y errores 4xx", () => {
   const password = "ClaveDePrueba123";
   const tenantsCreados: string[] = [];
 
-  function esperarUnPoco() {
-    return new Promise((r) => setTimeout(r, 200));
+  // tenantMetricsMiddleware escribe la métrica con fire-and-forget dentro
+  // de res.on("finish"), así que cuando supertest devuelve, la fila puede
+  // no estar. Antes esto se esperaba con un sleep fijo de 200 ms y hacía
+  // este archivo flaky en la suite completa — ver esperarHasta() en
+  // helpers.ts.
+  function metricasDelTenant(tenantId: string) {
+    return pool.query(
+      `SELECT COALESCE(sum(latencia_total_ms), 0) AS latencia,
+              COALESCE(sum(requests_error_4xx), 0) AS errores_4xx,
+              COALESCE(sum(requests_error_5xx), 0) AS errores_5xx
+       FROM tenant_metricas_horarias WHERE tenant_id = $1`,
+      [tenantId]
+    );
   }
 
   async function nuevoTenant() {
@@ -137,11 +148,11 @@ describe("métricas por tenant: latencia y errores 4xx", () => {
       .send({ tenantSlug: tenant.slug, email: usuario.email, password });
 
     await agent.get("/api/erp/repuestos");
-    await esperarUnPoco();
 
-    const fila = await pool.query(
-      `SELECT COALESCE(sum(latencia_total_ms), 0) AS latencia FROM tenant_metricas_horarias WHERE tenant_id = $1`,
-      [tenant.id]
+    const fila = await esperarHasta(
+      () => metricasDelTenant(tenant.id),
+      (r) => Number(r.rows[0].latencia) > 0,
+      "que latencia_total_ms del tenant suba después de un GET al ERP"
     );
     expect(Number(fila.rows[0].latencia)).toBeGreaterThan(0);
   });
@@ -169,12 +180,11 @@ describe("métricas por tenant: latencia y errores 4xx", () => {
 
     const bloqueado = await agent.get("/api/erp/iperc");
     expect(bloqueado.status).toBe(403);
-    await esperarUnPoco();
 
-    const fila = await pool.query(
-      `SELECT COALESCE(sum(requests_error_4xx), 0) AS errores_4xx, COALESCE(sum(requests_error_5xx), 0) AS errores_5xx
-       FROM tenant_metricas_horarias WHERE tenant_id = $1`,
-      [tenant.id]
+    const fila = await esperarHasta(
+      () => metricasDelTenant(tenant.id),
+      (r) => Number(r.rows[0].errores_4xx) > 0,
+      "que un 403 por módulo no habilitado se contabilice como error 4xx"
     );
     expect(Number(fila.rows[0].errores_4xx)).toBeGreaterThan(0);
     expect(Number(fila.rows[0].errores_5xx)).toBe(0);
