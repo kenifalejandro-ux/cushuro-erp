@@ -2,12 +2,18 @@
  *
  * Observabilidad básica por tenant (migrations/0022_tenant_metricas_horarias.sql).
  * tenantMetrics.middleware.ts escribe de forma asíncrona (`res.on("finish")`,
- * sin await en el ciclo de respuesta) — los tests que dependen de que la
- * métrica ya esté escrita esperan un toque después del request real.
+ * sin await en el ciclo de respuesta) — así que cuando supertest devuelve la
+ * respuesta, la fila puede no estar todavía.
+ *
+ * Esa espera se hace con esperarHasta() y NO con un sleep fijo: la versión
+ * anterior dormía 200 ms y consultaba, lo que hacía este archivo flaky en
+ * la suite completa (falló 2 veces en dos meses con "expected 0 to be
+ * greater than 0", pasando siempre aislado). Ver el comentario de
+ * esperarHasta en helpers.ts.
  */
 import { describe, it, expect, afterAll } from "vitest";
 import request from "supertest";
-import { app, crearTenantDePrueba, borrarTenantDePrueba } from "./helpers";
+import { app, crearTenantDePrueba, borrarTenantDePrueba, esperarHasta } from "./helpers";
 import { env } from "../src/server/config/env";
 import { pool, closeDatabase } from "../src/server/config/database";
 
@@ -21,8 +27,11 @@ async function nuevoTenant() {
   return creado;
 }
 
-function esperarUnPoco() {
-  return new Promise((r) => setTimeout(r, 200));
+function sumaRequestsTotal(tenantId: string) {
+  return pool.query(
+    `SELECT COALESCE(sum(requests_total), 0) AS total FROM tenant_metricas_horarias WHERE tenant_id = $1`,
+    [tenantId]
+  );
 }
 
 afterAll(async () => {
@@ -38,17 +47,14 @@ describe("registrarMetricaRequest / tenantMetricsMiddleware", () => {
       .post("/api/auth/login")
       .send({ tenantSlug: tenant.slug, email: usuario.email, password });
 
-    const antes = await pool.query(
-      `SELECT COALESCE(sum(requests_total), 0) AS total FROM tenant_metricas_horarias WHERE tenant_id = $1`,
-      [tenant.id]
-    );
+    const antes = await sumaRequestsTotal(tenant.id);
 
     await agent.get("/api/erp/repuestos");
-    await esperarUnPoco();
 
-    const despues = await pool.query(
-      `SELECT COALESCE(sum(requests_total), 0) AS total FROM tenant_metricas_horarias WHERE tenant_id = $1`,
-      [tenant.id]
+    const despues = await esperarHasta(
+      () => sumaRequestsTotal(tenant.id),
+      (r) => Number(r.rows[0].total) > Number(antes.rows[0].total),
+      "que requests_total del tenant suba después de un GET al ERP"
     );
     expect(Number(despues.rows[0].total)).toBeGreaterThan(Number(antes.rows[0].total));
   });
@@ -74,18 +80,15 @@ describe("registrarMetricaRequest / tenantMetricsMiddleware", () => {
       .post("/api/auth/login")
       .send({ tenantSlug: tenant.slug, email: usuario.email, password });
 
-    const antes = await pool.query(
-      `SELECT COALESCE(sum(requests_total), 0) AS total FROM tenant_metricas_horarias WHERE tenant_id = $1`,
-      [tenant.id]
-    );
+    const antes = await sumaRequestsTotal(tenant.id);
 
     const bloqueado = await agent.get("/api/erp/iperc");
     expect(bloqueado.status).toBe(403);
-    await esperarUnPoco();
 
-    const despues = await pool.query(
-      `SELECT COALESCE(sum(requests_total), 0) AS total FROM tenant_metricas_horarias WHERE tenant_id = $1`,
-      [tenant.id]
+    const despues = await esperarHasta(
+      () => sumaRequestsTotal(tenant.id),
+      (r) => Number(r.rows[0].total) > Number(antes.rows[0].total),
+      "que un 403 por módulo no habilitado también sume a requests_total"
     );
     expect(Number(despues.rows[0].total)).toBeGreaterThan(Number(antes.rows[0].total));
   });
@@ -99,11 +102,16 @@ describe("GET /tenants/:id/salud", () => {
       .post("/api/auth/login")
       .send({ tenantSlug: tenant.slug, email: usuario.email, password });
     await agent.get("/api/erp/repuestos");
-    await esperarUnPoco();
 
-    const res = await request(app)
-      .get(`/api/platform/tenants/${tenant.id}/salud`)
-      .set("Authorization", BEARER);
+    // Se espera sobre el endpoint de salud en sí (no sobre la tabla): es lo
+    // que este test asserta, y así el poll termina exactamente cuando la
+    // métrica ya se ve reflejada en la respuesta que se va a verificar.
+    const res = await esperarHasta(
+      () =>
+        request(app).get(`/api/platform/tenants/${tenant.id}/salud`).set("Authorization", BEARER),
+      (r) => r.status === 200 && Number(r.body?.salud?.requestsUltimas24h) > 0,
+      "que GET /tenants/:id/salud refleje el tráfico recién generado"
+    );
 
     expect(res.status).toBe(200);
     expect(res.body.salud.usuariosActivos).toBe(1);
