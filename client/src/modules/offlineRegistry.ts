@@ -54,4 +54,15 @@ export const ESCRITURAS_OFFLINE: Record<string, EscrituraOffline[]> = {
   // el motor offline (rutasOffline.ts) solo matchea rutas literales, sin
   // parámetros de URL, así que combustible_id viaja en el body.
   combustible: [{ metodo: "POST", ruta: "/lecturas" }],
+
+  // Crear el registro (pólizas, SOAT, etc. son `documentos` con otro
+  // nombre, no un tipo aparte) Y subir el archivo adjunto. `/:id/versiones`
+  // usa un segmento comodín -- rutasOffline.ts lo matchea sin importar el
+  // id real (que igual viaja completo en la URL guardada). Editar y la
+  // carga masiva por Excel NO están acá a propósito: editar sobreescribe
+  // campos existentes -- ver ADR-0002 §8.
+  documentos: [
+    { metodo: "POST", ruta: "/" },
+    { metodo: "POST", ruta: "/:id/versiones" },
+  ],
 };

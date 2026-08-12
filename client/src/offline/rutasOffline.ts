@@ -6,8 +6,8 @@
 //
 // Es la pieza que hace que sumar un módulo al offline sea declarativo:
 // agregarlo a ../modules/offlineRegistry.ts (y al registry del backend)
-// alcanza; ni este archivo ni offlineQueue/offlineSync se tocan. Mismo
-// criterio que ya usan `tablas` o `cuota` en el registry del backend — ver
+// alcanza; ni offlineQueue/offlineSync se tocan. Mismo criterio que ya usan
+// `tablas` o `cuota` en el registry del backend — ver
 // docs/adr/0002-contrato-de-modulo.md.
 
 import { ESCRITURAS_OFFLINE } from "../modules/offlineRegistry";
@@ -15,8 +15,24 @@ import { ESCRITURAS_OFFLINE } from "../modules/offlineRegistry";
 export interface RutaOffline {
   moduloId: string;
   metodo: string;
-  /** Path absoluto, tal como lo arma routes/index.ts en el backend. */
+  /** Path absoluto, tal como lo arma routes/index.ts en el backend. Puede
+   *  tener UN segmento comodín (`:id`) para rutas anidadas -- ver
+   *  `segmentosCoinciden` más abajo. El id real que reemplaza al comodín
+   *  no hace falta guardarlo acá: ya viaja completo dentro de la URL de la
+   *  request original, que es lo que queda en `EntradaCola.url` para el
+   *  reenvío (ver offlineQueue.ts). Esta ruta solo decide SI califica. */
   path: string;
+}
+
+/** Compara segmento por segmento; un segmento del patrón que empieza con
+ *  `:` matchea cualquier valor concreto en esa posición. Un solo comodín
+ *  por ruta alcanza hoy (ej. `/:id/versiones` de Documentos) -- no hay
+ *  caso real con más de uno todavía. */
+function segmentosCoinciden(patron: string, path: string): boolean {
+  const segsPatron = patron.split("/");
+  const segsPath = path.split("/");
+  if (segsPatron.length !== segsPath.length) return false;
+  return segsPatron.every((seg, i) => seg.startsWith(":") || seg === segsPath[i]);
 }
 
 /** Se calcula una sola vez: la declaración es estática, no cambia en
@@ -52,7 +68,9 @@ function normalizarPath(url: string): string {
 export function moduloParaEncolar(url: string, metodo: string): string | null {
   const path = normalizarPath(url);
   const metodoNormalizado = metodo.toUpperCase();
-  const match = RUTAS.find((r) => r.metodo === metodoNormalizado && r.path === path);
+  const match = RUTAS.find(
+    (r) => r.metodo === metodoNormalizado && segmentosCoinciden(r.path, path)
+  );
   return match ? match.moduloId : null;
 }
 

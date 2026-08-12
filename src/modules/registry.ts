@@ -93,6 +93,20 @@ export const MODULOS: ModuloDefinicion[] = [
     ],
     raices: ["documentos"],
     cuota: { tabla: "documentos", porDefecto: 20_000 },
+    // Crear el registro (metadata) Y subir el archivo adjunto califican
+    // para offline -- ver ADR-0002 §8. `/` cubre también pólizas, SOAT,
+    // etc.: son `documentos` con otro `nombre_documento`, no un tipo
+    // aparte. `/:id/versiones` es la ruta con archivo binario -- el motor
+    // offline lo guarda como Blob en IndexedDB, no como JSON (ver
+    // client/src/offline/offlineQueue.ts, CampoFormData). Editar y la
+    // carga masiva por Excel quedan FUERA a propósito: editar sobreescribe
+    // campos existentes, y el bulk es un flujo de oficina con array grande.
+    offline: {
+      escrituras: [
+        { metodo: "POST", ruta: "/" },
+        { metodo: "POST", ruta: "/:id/versiones" },
+      ],
+    },
   },
   {
     id: "dashboard",

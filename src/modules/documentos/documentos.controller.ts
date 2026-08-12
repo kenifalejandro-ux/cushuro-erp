@@ -6,6 +6,10 @@ import { getTenantId } from "../../server/shared/utils/request";
 import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/utils/pagination";
 import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
 import { sanearNombreArchivo } from "../../server/services/documentStorage";
+import type {
+  CrearDocumentoInput,
+  SubirVersionDocumentoInput,
+} from "../../server/schemas/documentos.schema";
 import { DocumentosService } from "./documentos.service";
 
 export const DocumentosController = {
@@ -23,15 +27,53 @@ export const DocumentosController = {
     }
   },
 
-  // ➕ CREAR DOCUMENTO (manual o Excel)
+  // 🔍 VERIFICAR DUPLICADO (aviso, no bloqueo -- ver createDoc() en el
+  // cliente). Solo se llama en el camino interactivo online: sin red, el
+  // cliente ni siquiera intenta esta consulta y deja que la creación se
+  // encole como siempre, sin advertir nada.
+  async verificarDuplicado(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const nombre = typeof req.query.nombre === "string" ? req.query.nombre : "";
+      const fecha = typeof req.query.fecha === "string" ? req.query.fecha : "";
+
+      if (!nombre.trim() || !fecha.trim()) {
+        res.json({ duplicado: false });
+        return;
+      }
+
+      const existente = await withTenant(tenantId, (client) =>
+        DocumentosService.verificarDuplicado(client, tenantId, nombre, fecha)
+      );
+
+      res.json({ duplicado: existente !== null, documento: existente ?? undefined });
+    } catch {
+      // Best-effort: si esto falla, el cliente sigue con la creación normal
+      // en vez de bloquear a alguien por un problema en el chequeo.
+      res.json({ duplicado: false });
+    }
+  },
+
+  // ➕ CREAR DOCUMENTO (manual, con soporte de cliente_uuid para offline)
   async create(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const data = await withTenant(tenantId, (client) =>
-        DocumentosService.create(client, tenantId, req.body)
+      const data = req.validatedBody as CrearDocumentoInput;
+      const { fila, creado } = await withTenant(tenantId, (client) =>
+        DocumentosService.create(client, tenantId, data)
       );
-      await publicarEventoTenant(tenantId, "documentos.creado", { documentoId: data.id });
-      res.status(201).json(data);
+
+      // Reintento de un envío que ya se había guardado (la respuesta
+      // original se perdió en la red). No se publica el evento de nuevo --
+      // eso ya pasó la primera vez. 200 y no 201 porque esta llamada no
+      // creó nada, pero sí es un éxito para la cola offline del dispositivo.
+      if (!creado) {
+        res.status(200).json(fila ?? { error: "Este documento ya se había registrado" });
+        return;
+      }
+
+      await publicarEventoTenant(tenantId, "documentos.creado", { documentoId: fila!.id });
+      res.status(201).json(fila);
     } catch {
       res.status(500).json({ error: "Error al crear documento" });
     }
@@ -114,8 +156,9 @@ export const DocumentosController = {
       const tenantId = getTenantId(req);
       const documentoId = Number(req.params.id);
       const archivo = req.file!;
+      const { cliente_uuid } = req.validatedBody as SubirVersionDocumentoInput;
 
-      const data = await DocumentosService.subirVersion(
+      const resultado = await DocumentosService.subirVersion(
         tenantId,
         documentoId,
         {
@@ -123,19 +166,31 @@ export const DocumentosController = {
           mimeType: archivo.mimetype,
           nombreOriginal: archivo.originalname,
         },
-        req.usuario!.id
+        req.usuario!.id,
+        cliente_uuid
       );
 
-      if (!data) {
+      if (!resultado) {
         res.status(404).json({ error: "Documento no encontrado" });
+        return;
+      }
+
+      const { fila, creado } = resultado;
+
+      // Reintento de un envío que ya se había guardado (la respuesta
+      // original se perdió en la red). No se publica el evento de nuevo --
+      // eso ya pasó la primera vez. 200 y no 201 porque esta llamada no
+      // creó nada, pero sí es un éxito para la cola offline del dispositivo.
+      if (!creado) {
+        res.status(200).json(fila ?? { error: "Esta versión ya se había subido" });
         return;
       }
 
       await publicarEventoTenant(tenantId, "documentos.version_subida", {
         documentoId,
-        versionId: data.id,
+        versionId: fila!.id,
       });
-      res.status(201).json(data);
+      res.status(201).json(fila);
     } catch {
       res.status(500).json({ error: "Error al subir el archivo" });
     }

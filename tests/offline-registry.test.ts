@@ -106,4 +106,24 @@ describe("qué se encola y qué no", () => {
       "checklists"
     );
   });
+
+  it("encola el POST de crear un documento", () => {
+    expect(moduloParaEncolar("/api/erp/documentos", "POST")).toBe("documentos");
+  });
+
+  it("encola subir el archivo adjunto de un documento, con id real en la URL", () => {
+    // /:id/versiones usa el comodín de segmentosCoinciden -- distintos ids
+    // concretos deben matchear igual, ver rutasOffline.ts.
+    expect(moduloParaEncolar("/api/erp/documentos/307/versiones", "POST")).toBe("documentos");
+    expect(moduloParaEncolar("/api/erp/documentos/1/versiones", "POST")).toBe("documentos");
+  });
+
+  it("NO encola editar un documento, la carga masiva, ni listar/descargar versiones", () => {
+    // Editar sobreescribe campos existentes, el bulk es un array grande de
+    // oficina, y listar/descargar son lecturas -- ver ADR-0002 §8.
+    expect(moduloParaEncolar("/api/erp/documentos/307", "PUT")).toBeNull();
+    expect(moduloParaEncolar("/api/erp/documentos/bulk", "POST")).toBeNull();
+    expect(moduloParaEncolar("/api/erp/documentos/307/versiones", "GET")).toBeNull();
+    expect(moduloParaEncolar("/api/erp/documentos/307/versiones/5/descarga", "GET")).toBeNull();
+  });
 });

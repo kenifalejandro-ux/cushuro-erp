@@ -8,7 +8,7 @@ import type { Paginacion } from "../../server/shared/utils/pagination";
 // de abajo, no agrega validación en runtime.
 export type DocumentoPayload = {
   nombre_documento: string;
-  responsable: string;
+  responsable: string | null;
   fecha_vencimiento: string;
   estado?: string;
 };
@@ -112,6 +112,32 @@ export const DocumentosRepository = {
       tenantId,
     ]);
     return (result.rowCount ?? 0) > 0;
+  },
+
+  // ============================================================
+  // 🔍 GET /documentos/duplicado -- aviso (no bloqueo) al crear
+  // ============================================================
+  /** Mismo nombre Y misma fecha de vencimiento -- no solo el nombre: una
+   *  renovación normal (SOAT vencido que se vuelve a cargar con fecha
+   *  nueva) tiene el mismo nombre pero OTRA fecha, y no es un duplicado.
+   *  Comparación insensible a mayúsculas/espacios para no dejar pasar
+   *  "SOAT camión 12" vs "soat camión 12 " como si fueran distintos. */
+  async findDuplicado(
+    client: PoolClient,
+    tenantId: string,
+    nombreDocumento: string,
+    fechaVencimiento: string
+  ) {
+    const result = await client.query(
+      `SELECT id, nombre_documento, responsable, fecha_vencimiento
+       FROM documentos
+       WHERE tenant_id = $1
+         AND LOWER(TRIM(nombre_documento)) = LOWER(TRIM($2))
+         AND fecha_vencimiento = $3
+       LIMIT 1`,
+      [tenantId, nombreDocumento, fechaVencimiento]
+    );
+    return result.rows[0] ?? null;
   },
 
   // 📦 CARGA MASIVA
