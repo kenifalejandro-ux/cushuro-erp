@@ -295,6 +295,33 @@ jobs:
       # producción (10/hora). Un reintento de CI (retries: 1) alcanzaría
       # para superarlo.
       LOGIN_EMAIL_RATE_LIMIT_MAX_REQUESTS: 100
+      # Tercera vez el mismo problema, tercera causa distinta -- y esta es
+      # la que más va a repetirse, así que vale entenderla bien.
+      #
+      # erpRateLimiter cuenta por USUARIO (ver el comentario largo de
+      # erpRateLimiter.ts sobre por qué no por IP), con un default de
+      # producción de 120 req/min. TODOS los specs entran con el mismo
+      # E2E_ADMIN_EMAIL y los 3 navegadores corren en paralelo: los tres
+      # comparten ese presupuesto. Cada spec de checklists gasta ~10
+      # requests al ERP entre prerrequisitos por API, cargas del formulario
+      # y envíos.
+      #
+      # Con dos specs de checklists el total quedaba justo por debajo de
+      # 120. Al sumar el tercero (capa-b-cliente-uuid) se pasó, y WebKit
+      # -que corre último- se comió los 429: fallaron los TRES specs de
+      # checklists, incluidos dos que no se habían tocado. El síntoma
+      # engaña, porque parece que rompió el spec nuevo cuando en realidad
+      # solo movió el total.
+      #
+      # A diferencia de los dos de arriba, este NO estaba puesto acá: el
+      # default de 120 ya alcanzaba. Se fija alto para que deje de ser el
+      # techo que hay que recalcular cada vez que se agrega un spec. Mismo
+      # argumento que arriba: el limitador tiene su propia cobertura en
+      # tests/erp-rate-limit.test.ts, donde SÍ es el sujeto del test.
+      #
+      # El límite por TENANT (ERP_RATE_LIMIT_TENANT_DEFAULT, 3000) no hace
+      # falta tocarlo: el job entero no se acerca a ese número.
+      ERP_RATE_LIMIT_USUARIO_MAX: 5000
 
     steps:
       - uses: actions/checkout@v7
