@@ -16,6 +16,7 @@
     "src/server/**/*.ts",
     "src/server/**/*.d.ts",
     "tests/**/*.ts",
+    "e2e/**/*.ts",
     "scripts/**/*.ts",
     "app.ts"
   ],
