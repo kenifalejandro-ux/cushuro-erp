@@ -1,6 +1,7 @@
 // client/src/components/iperc/IpercView.tsx
 import { useState, useEffect, useCallback } from "react";
 
+import { suscribirseASincronizacion } from "../../offline/offlineSync";
 import { apiFetch } from "../../services/apiClient";
 
 interface Iperc {
@@ -251,6 +252,18 @@ export default function IpercView() {
     cargarTodo();
   }, [cargarTodo]);
 
+  // Cuando la cola offline termina de drenar, los IPERC que se crearon sin
+  // señal ya existen del lado del servidor -- recargar es lo que hace que
+  // aparezcan en el listado sin que el operario tenga que refrescar a mano.
+  useEffect(() => {
+    return suscribirseASincronizacion(({ sincronizadas }) => {
+      if (sincronizadas > 0) {
+        setHistorialCursorIpercs([]);
+        cargarIpercs();
+      }
+    });
+  }, []);
+
   // ── IPERC ─────────────────────────────────────────────────────────────
   const handleCrearIperc = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -258,6 +271,12 @@ export default function IpercView() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        // Se genera SIEMPRE, haya señal o no: protege también la respuesta
+        // que se pierde de vuelta después de que el servidor ya guardó
+        // (puede pasar con la señal perfecta al apretar el botón). Es el
+        // mismo valor que viaja en la cola si hay que reintentar (ver
+        // client/src/offline/), nunca se regenera.
+        cliente_uuid: crypto.randomUUID(),
         tipo: formIperc.tipo,
         area_frente: formIperc.area_frente,
         turno: formIperc.turno || undefined,
@@ -276,6 +295,17 @@ export default function IpercView() {
         tarea_especifica: "",
       });
       setItemsIperc([{ ...ITEM_VACIO }]);
+
+      // 202 = no había red y quedó en la cola del dispositivo (ver
+      // apiFetch). No se recarga el listado: sin señal el GET también
+      // falla, y el IPERC todavía no existe del lado del servidor.
+      if (res.status === 202) {
+        alert(
+          "Sin conexión: el IPERC quedó guardado en este equipo y se enviará solo cuando vuelva la señal."
+        );
+        return;
+      }
+
       setHistorialCursorIpercs([]);
       cargarIpercs();
     } else {

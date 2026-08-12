@@ -92,7 +92,11 @@ export default defineConfig({
             urlPattern: ({ url, request }) =>
               request.method === "GET" &&
               (url.pathname === "/api/erp/equipos" ||
-                /^\/api\/erp\/checklists\/plantillas(\/\d+)?$/.test(url.pathname)),
+                /^\/api\/erp\/checklists\/plantillas(\/\d+)?$/.test(url.pathname) ||
+                // IPERC reutiliza este mismo caché: solo lectura del
+                // catálogo de líneas base aprobadas, no participa de la
+                // cola offline (esa es config de oficina, ver ADR-0002).
+                /^\/api\/erp\/iperc\/lineas-base(\/\d+)?$/.test(url.pathname)),
             handler: "NetworkFirst",
             options: {
               cacheName: "erp-catalogos-v1",
