@@ -5,7 +5,12 @@ import { withTenant } from "../../server/config/database";
 import { getTenantId } from "../../server/shared/utils/request";
 import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/utils/pagination";
 import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
-import type { RegistrarMovimientoRepuestoInput } from "../../server/schemas/repuestos.schema";
+import type {
+  RegistrarMovimientoRepuestoInput,
+  CrearRepuestoInput,
+  ActualizarRepuestoInput,
+  CargaMasivaRepuestosInput,
+} from "../../server/schemas/repuestos.schema";
 import { RepuestosService } from "./repuestos.service";
 
 export const RepuestosController = {
@@ -31,8 +36,9 @@ export const RepuestosController = {
   async create(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
+      const data = req.validatedBody as CrearRepuestoInput;
       const nuevo = await withTenant(tenantId, (client) =>
-        RepuestosService.create(client, tenantId, req.body)
+        RepuestosService.create(client, tenantId, data)
       );
       await publicarEventoTenant(tenantId, "repuestos.creado", { repuestoId: nuevo.id });
       res.status(201).json(nuevo);
@@ -48,7 +54,7 @@ export const RepuestosController = {
     try {
       const tenantId = getTenantId(req);
       const id = Number(req.params.id);
-      const data = req.body;
+      const data = req.validatedBody as ActualizarRepuestoInput;
 
       const actualizado = await withTenant(tenantId, (client) =>
         RepuestosService.update(client, tenantId, id, data)
@@ -95,11 +101,10 @@ export const RepuestosController = {
   async bulk(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const rows = req.body;
-      if (!Array.isArray(rows)) {
-        res.status(400).json({ message: "Se esperaba un array de repuestos" });
-        return;
-      }
+      // validate(cargaMasivaRepuestosSchema) ya garantiza que es un array de
+      // 1 a MAX_FILAS_CARGA_MASIVA filas válidas -- el chequeo manual de
+      // Array.isArray() que había acá quedó redundante.
+      const rows = req.validatedBody as CargaMasivaRepuestosInput;
       const result = await withTenant(tenantId, (client) =>
         RepuestosService.createBulk(client, tenantId, rows)
       );

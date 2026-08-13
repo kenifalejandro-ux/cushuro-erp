@@ -9,11 +9,11 @@
 
 Limita el **volumen** que un tenant puede acumular:
 
-| Recurso        | Se mide                                          | Default         |
-| -------------- | ------------------------------------------------ | --------------- |
-| `usuarios`     | Usuarios **activos** del tenant                  | 100             |
-| `backup_bytes` | Suma de `tamano_bytes` de sus backups existentes | 5 GiB           |
-| Uno por módulo | Filas en la tabla que el módulo declare          | Ver el registry |
+| Recurso                    | Se mide                                          | Default         |
+| --------------------------- | ------------------------------------------------ | --------------- |
+| `usuarios`                  | Usuarios **activos** del tenant                  | 100             |
+| `backup_bytes`               | Suma de `tamano_bytes` de sus backups existentes | 5 GiB           |
+| Uno o más por módulo        | Filas en la tabla que el módulo declare          | Ver el registry |
 
 **No** limita frecuencia de requests: eso es rate limiting, un sistema aparte (ver más abajo). Y **no cobra nada**: los planes segmentan y aplican límites, pero no hay billing. Levantar un límite es una decisión que se toma en el panel, no pagando.
 
@@ -32,6 +32,33 @@ Limita el **volumen** que un tenant puede acumular:
 Un módulo sin `cuota` no tiene límite — correcto para `dashboard`, que no crea registros propios, solo agrega los de otros.
 
 **Subir el límite de todos los clientes es cambiar ese número y desplegar.** No hay que correr ningún UPDATE masivo.
+
+### Un módulo puede tener MÁS de un recurso: `cuotasPorRuta`
+
+`cuota` da un único recurso por módulo (`recurso` = el id del módulo), lo que alcanza casi siempre. Pero `requireCuota()` (`src/server/shared/middlewares/cuota.middleware.ts`) se monta **una sola vez por módulo, sobre TODO su router** (`routes/index.ts`) — así que un módulo con más de una escritura que hace crecer recursos DISTINTOS necesita más de una cuota, no una compartida.
+
+El caso real que forzó esto: **Repuestos**. `POST /` y `POST /bulk` crean filas de catálogo (pocas, configuración); `POST /movimientos` crea filas de un histórico de campo (entradas/salidas de stock, que crece sin parar). Si las tres compartieran el mismo `cuota.tabla`, mover ese `tabla` al histórico habría dejado las altas de catálogo sin límite real (el histórico no crece con un `POST /`), y al revés, un tenant con mucho volumen de movimientos podría quedar bloqueado para dar de alta un SKU nuevo — dos recursos sin relación real, atados por accidente de implementación.
+
+`cuotasPorRuta` declara recursos ADICIONALES, cada uno atado a una ruta específica del módulo:
+
+```ts
+{
+  id: "repuestos",
+  // ...
+  cuota: { tabla: "repuestos", porDefecto: 50_000 }, // recurso base: "repuestos" (catálogo)
+  cuotasPorRuta: [
+    {
+      ruta: "/movimientos",
+      metodo: "POST",
+      recurso: "repuestos_movimientos", // recurso propio, NO el id del módulo
+      tabla: "repuestos_movimientos",
+      porDefecto: 100_000,
+    },
+  ],
+}
+```
+
+`requireCuota()` resuelve el recurso de cada request mirando si la ruta matchea alguna entrada de `cuotasPorRuta` (mismo criterio de comparación por segmentos que `offline.escrituras`/`rutasOffline.ts`, duplicado del lado servidor a propósito); si ninguna matchea, cae al recurso base de `cuota`. Cada recurso nuevo (`recurso`, acá `"repuestos_movimientos"`) participa del resto del mecanismo igual que cualquier otro: tiene su propia fila posible en `tenant_cuotas` (override) y en `plan_limites` (por plan), y aparece aparte en `resumenCuotasTenant()`/el panel.
 
 ---
 

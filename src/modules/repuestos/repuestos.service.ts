@@ -2,9 +2,14 @@
 
 import type { PoolClient } from "pg";
 import type { Paginacion } from "../../server/shared/utils/pagination";
-import type { RegistrarMovimientoRepuestoInput } from "../../server/schemas/repuestos.schema";
+import type {
+  RegistrarMovimientoRepuestoInput,
+  CrearRepuestoInput,
+  ActualizarRepuestoInput,
+  CargaMasivaRepuestosInput,
+} from "../../server/schemas/repuestos.schema";
 import { idempotentInsert } from "../../server/shared/utils/idempotentInsert";
-import { RepuestosRepository, type RepuestoPayload } from "./repuestos.repository";
+import { RepuestosRepository } from "./repuestos.repository";
 
 export const RepuestosService = {
   // 📥 traer todo (paginado)
@@ -13,12 +18,12 @@ export const RepuestosService = {
   },
 
   // ➕ crear
-  create(client: PoolClient, tenantId: string, data: RepuestoPayload) {
+  create(client: PoolClient, tenantId: string, data: CrearRepuestoInput) {
     return RepuestosRepository.create(client, tenantId, data);
   },
 
   // ✏️ actualizar
-  update(client: PoolClient, tenantId: string, id: number, data: RepuestoPayload) {
+  update(client: PoolClient, tenantId: string, id: number, data: ActualizarRepuestoInput) {
     return RepuestosRepository.update(client, tenantId, id, data);
   },
 
@@ -28,7 +33,7 @@ export const RepuestosService = {
   },
 
   // 📦 bulk
-  createBulk(client: PoolClient, tenantId: string, rows: RepuestoPayload[]) {
+  createBulk(client: PoolClient, tenantId: string, rows: CargaMasivaRepuestosInput) {
     return RepuestosRepository.createBulk(client, tenantId, rows);
   },
 

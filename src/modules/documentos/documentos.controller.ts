@@ -6,6 +6,7 @@ import { getTenantId } from "../../server/shared/utils/request";
 import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/utils/pagination";
 import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
 import { sanearNombreArchivo } from "../../server/services/documentStorage";
+import { leerClaveIdempotencia } from "../../server/shared/utils/idempotencyKey";
 import type {
   CrearDocumentoInput,
   ActualizarDocumentoInput,
@@ -13,17 +14,6 @@ import type {
   SubirVersionDocumentoInput,
 } from "../../server/schemas/documentos.schema";
 import { DocumentosService } from "./documentos.service";
-
-/** Formato UUID, sin exigir una versión concreta: la clave la deriva el
- *  cliente de un hash del archivo (ver DocumentosTable.tsx), no de
- *  crypto.randomUUID(), así que no es un UUID v4. Lo que importa es que
- *  entre en la columna `uuid` de idempotency_keys. */
-const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function leerClaveIdempotencia(req: Request): string | undefined {
-  const clave = req.get("Idempotency-Key");
-  return clave && RE_UUID.test(clave) ? clave : undefined;
-}
 
 export const DocumentosController = {
   // 📄 LISTAR DOCUMENTOS (paginado)
