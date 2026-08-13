@@ -386,8 +386,9 @@ describe("Repuestos: rechazo por stock insuficiente", () => {
     return res.rows[0].total;
   }
 
-  it("una salida rechazada NO inserta fila en el histórico de movimientos", async () => {
+  it("una salida rechazada SÍ queda en el histórico, con estado 'rechazado' y sin tocar stock", async () => {
     const antesMovs = await contarMovimientos();
+    const antesStock = await stockDelRepuesto(tenantId, repuestoId);
     const res = await agente.post("/api/erp/repuestos/movimientos").send({
       cliente_uuid: crypto.randomUUID(),
       repuesto_id: repuestoId,
@@ -395,7 +396,11 @@ describe("Repuestos: rechazo por stock insuficiente", () => {
       cantidad: 999,
     });
     expect(res.status).toBe(409);
-    expect(await contarMovimientos()).toBe(antesMovs);
+    expect(res.body.movimiento.estado).toBe("rechazado");
+    // Queda registrado -- a diferencia de perderse sin rastro, que era el
+    // problema real que esto resuelve (ver migrations/0048).
+    expect(await contarMovimientos()).toBe(antesMovs + 1);
+    expect(await stockDelRepuesto(tenantId, repuestoId)).toBe(antesStock);
   });
 
   it("una salida exacta al stock disponible SÍ se acepta (el límite es >=, no >)", async () => {
@@ -420,14 +425,11 @@ describe("Repuestos: rechazo por stock insuficiente", () => {
     expect(res.status).toBe(201);
   });
 
-  it("un reintento con el mismo cliente_uuid tras un 409 vuelve a dar 409 de forma consistente, sin crear nada", async () => {
-    // La clave de idempotencia de un rechazo NUNCA se reserva en firme --
-    // idempotentInsert() reserva la clave y recién después llama a
-    // insertar(); si insertar() tira (stock insuficiente), la transacción
-    // entera de withTenant() se revierte, clave incluida. Por eso un
-    // reintento genuino vuelve a intentar el mismo trabajo, no encuentra
-    // "ya procesado" -- y como el stock sigue sin alcanzar, vuelve a dar
-    // 409, nunca un 200 fantasma ni una creación fantasma.
+  it("un reintento con el mismo cliente_uuid tras un 409 devuelve LA MISMA fila rechazada (409 de nuevo), sin crear una segunda", async () => {
+    // A diferencia de un rechazo que no dejara fila, acá insertar() SÍ
+    // tiene éxito (crea la fila con estado 'rechazado') -- así que
+    // idempotentInsert() reserva la clave en firme, y un reintento la
+    // encuentra: responde con la fila YA CREADA, no reintenta el trabajo.
     const clienteUuid = crypto.randomUUID();
     const antesMovs = await contarMovimientos();
     const antesStock = await stockDelRepuesto(tenantId, repuestoId);
@@ -443,8 +445,11 @@ describe("Repuestos: rechazo por stock insuficiente", () => {
 
     const reintento = await agente.post("/api/erp/repuestos/movimientos").send(cuerpo);
     expect(reintento.status).toBe(409);
+    expect(reintento.body.movimiento.id).toBe(primera.body.movimiento.id);
 
-    expect(await contarMovimientos()).toBe(antesMovs);
+    // Una sola fila creada (la del primer intento), el reintento no crea
+    // una segunda -- y el stock nunca se tocó en ninguno de los dos.
+    expect(await contarMovimientos()).toBe(antesMovs + 1);
     expect(await stockDelRepuesto(tenantId, repuestoId)).toBe(antesStock);
   });
 });

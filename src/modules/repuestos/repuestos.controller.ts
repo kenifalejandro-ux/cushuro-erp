@@ -141,17 +141,43 @@ export const RepuestosController = {
         RepuestosService.registrarMovimiento(client, tenantId, req.usuario!.id, data)
       );
 
-      // Reintento de un envío que ya se había guardado (la respuesta
-      // original se perdió en la red). No se publica el evento de nuevo --
-      // eso ya pasó la primera vez. 200 y no 201 porque esta llamada no
-      // creó nada, pero sí es un éxito para la cola offline del dispositivo.
+      if (!fila) {
+        // Caso documentado por idempotentInsert(): la clave quedó
+        // reservada pero la fila ya no existe (alguien la borró después).
+        // No pasa hoy -- repuestos_movimientos no tiene DELETE -- pero se
+        // preserva el contrato del helper en vez de asumir que no puede
+        // pasar.
+        res.status(200).json({ message: "Este movimiento ya se había procesado" });
+        return;
+      }
+
+      // 409 y no 400: no es un dato mal formado, es un rechazo por el
+      // ESTADO actual del recurso (stock insuficiente, ver
+      // RepuestosRepository.registrarMovimiento) -- y es la clave de todo
+      // esto: cae dentro de `esErrorPermanente()`
+      // (client/src/offline/offlineSync.ts, 4xx salvo 401/408/429), así
+      // que la cola offline del dispositivo lo descarta sin reintentar y
+      // lo reporta -- sin tocar el motor offline ni EstadoOffline.tsx, que
+      // ya son genéricos. El movimiento SÍ queda persistido (estado
+      // "rechazado") para que un rechazo no se pierda sin rastro -- ver
+      // migrations/0048.
+      const rechazado = fila.movimiento.estado === "rechazado";
+
       if (!creado) {
-        res.status(200).json(fila ?? { message: "Este movimiento ya se había registrado" });
+        // Reintento de un envío que ya se había guardado (la respuesta
+        // original se perdió en la red) -- responde IGUAL que la primera
+        // vez, sin publicar el evento de nuevo.
+        res.status(rechazado ? 409 : 200).json(fila);
+        return;
+      }
+
+      if (rechazado) {
+        res.status(409).json({ ...fila, message: "Stock insuficiente para este movimiento" });
         return;
       }
 
       await publicarEventoTenant(tenantId, "repuestos.movimiento_registrado", {
-        movimientoId: fila!.movimiento.id,
+        movimientoId: fila.movimiento.id,
         repuestoId: data.repuesto_id,
         tipo: data.tipo,
         cantidad: data.cantidad,
@@ -160,16 +186,6 @@ export const RepuestosController = {
     } catch (err) {
       if (err instanceof Error && err.message.includes("no existe en este tenant")) {
         res.status(400).json({ message: err.message });
-        return;
-      }
-      // 409 y no 400: no es un dato mal formado, es un rechazo por el
-      // ESTADO actual del recurso -- y es la clave de todo esto: cae
-      // dentro de `esErrorPermanente()` (client/src/offline/offlineSync.ts,
-      // 4xx salvo 401/408/429), así que la cola offline del dispositivo lo
-      // descarta sin reintentar y lo reporta -- sin tocar el motor offline
-      // ni EstadoOffline.tsx, que ya son genéricos.
-      if (err instanceof Error && err.message.includes("stock insuficiente")) {
-        res.status(409).json({ message: err.message });
         return;
       }
       res.status(500).json({ message: "Error al registrar movimiento de repuesto" });
