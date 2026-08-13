@@ -479,8 +479,14 @@ export default function ChecklistsView() {
             </div>
             <form onSubmit={handleCrearPlantilla} className="p-6 space-y-4">
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">Nombre</label>
+                <label
+                  htmlFor="plantilla-nombre"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Nombre
+                </label>
                 <input
+                  id="plantilla-nombre"
                   type="text"
                   required
                   className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
@@ -489,10 +495,14 @@ export default function ChecklistsView() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">
+                <label
+                  htmlFor="plantilla-tipo-equipo"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
                   Tipo de equipo (opcional)
                 </label>
                 <input
+                  id="plantilla-tipo-equipo"
                   type="text"
                   placeholder="Ej: Camioneta"
                   className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
@@ -503,9 +513,7 @@ export default function ChecklistsView() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-500 uppercase">
-                  Ítems a revisar
-                </label>
+                <span className="text-xs font-bold text-slate-500 uppercase">Ítems a revisar</span>
                 {formPlantilla.items.map((valor, i) => (
                   <div key={i} className="flex gap-2">
                     <input
@@ -644,7 +652,7 @@ export default function ChecklistsView() {
 
               {plantillaSeleccionada && (
                 <div className="space-y-3 border-t pt-4">
-                  <label className="text-xs font-bold text-slate-500 uppercase">Ítems</label>
+                  <span className="text-xs font-bold text-slate-500 uppercase">Ítems</span>
                   {plantillaSeleccionada.items.map((item) => (
                     <div
                       key={item.id}

@@ -236,8 +236,14 @@ export default function EquiposTable() {
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">Placa / Código</label>
+                <label
+                  htmlFor="equipo-placa-codigo"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Placa / Código
+                </label>
                 <input
+                  id="equipo-placa-codigo"
                   type="text"
                   placeholder="Ej: V-014"
                   required
@@ -247,8 +253,11 @@ export default function EquiposTable() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">Tipo</label>
+                <label htmlFor="equipo-tipo" className="text-xs font-bold text-slate-500 uppercase">
+                  Tipo
+                </label>
                 <select
+                  id="equipo-tipo"
                   className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
                   value={formData.tipo}
                   onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
@@ -262,8 +271,14 @@ export default function EquiposTable() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase">Marca</label>
+                  <label
+                    htmlFor="equipo-marca"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Marca
+                  </label>
                   <input
+                    id="equipo-marca"
                     type="text"
                     className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
                     value={formData.marca}
@@ -271,8 +286,14 @@ export default function EquiposTable() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase">Modelo</label>
+                  <label
+                    htmlFor="equipo-modelo"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Modelo
+                  </label>
                   <input
+                    id="equipo-modelo"
                     type="text"
                     className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
                     value={formData.modelo}

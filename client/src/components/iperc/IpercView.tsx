@@ -80,7 +80,7 @@ function ItemsEditor({
 }) {
   return (
     <div className="space-y-4 border-t pt-4">
-      <label className="text-xs font-bold text-slate-500 uppercase">Ítems de riesgo</label>
+      <span className="text-xs font-bold text-slate-500 uppercase">Ítems de riesgo</span>
       {items.map((item, i) => (
         <div key={i} className="bg-slate-50 rounded-xl p-4 space-y-2">
           <div className="grid grid-cols-2 gap-2">
@@ -613,8 +613,14 @@ export default function IpercView() {
             <form onSubmit={handleCrearIperc} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase">Tipo</label>
+                  <label
+                    htmlFor="iperc-tipo"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Tipo
+                  </label>
                   <select
+                    id="iperc-tipo"
                     className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white"
                     value={formIperc.tipo}
                     onChange={(e) =>
@@ -629,10 +635,14 @@ export default function IpercView() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase">
+                  <label
+                    htmlFor="iperc-equipo"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
                     Equipo (opcional)
                   </label>
                   <select
+                    id="iperc-equipo"
                     className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white"
                     value={formIperc.equipo_id}
                     onChange={(e) => setFormIperc({ ...formIperc, equipo_id: e.target.value })}
@@ -647,8 +657,14 @@ export default function IpercView() {
                 </div>
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">Área/frente</label>
+                <label
+                  htmlFor="iperc-area-frente"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Área/frente
+                </label>
                 <input
+                  id="iperc-area-frente"
                   type="text"
                   required
                   className="w-full border border-slate-200 rounded-xl p-3 outline-none"
@@ -657,10 +673,11 @@ export default function IpercView() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">
+                <label htmlFor="iperc-turno" className="text-xs font-bold text-slate-500 uppercase">
                   Turno (opcional)
                 </label>
                 <input
+                  id="iperc-turno"
                   type="text"
                   className="w-full border border-slate-200 rounded-xl p-3 outline-none"
                   value={formIperc.turno}
@@ -669,10 +686,14 @@ export default function IpercView() {
               </div>
               {formIperc.tipo === "especifico" && (
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase">
+                  <label
+                    htmlFor="iperc-tarea-especifica"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
                     Tarea específica
                   </label>
                   <input
+                    id="iperc-tarea-especifica"
                     type="text"
                     required
                     className="w-full border border-slate-200 rounded-xl p-3 outline-none"
@@ -713,10 +734,14 @@ export default function IpercView() {
             </div>
             <form onSubmit={handleCrearLineaBase} className="p-6 space-y-4">
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">
+                <label
+                  htmlFor="lineabase-proceso-actividad"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
                   Proceso/actividad
                 </label>
                 <input
+                  id="lineabase-proceso-actividad"
                   type="text"
                   required
                   className="w-full border border-slate-200 rounded-xl p-3 outline-none"
@@ -727,10 +752,14 @@ export default function IpercView() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">
+                <label
+                  htmlFor="lineabase-area-frente"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
                   Área/frente (opcional)
                 </label>
                 <input
+                  id="lineabase-area-frente"
                   type="text"
                   className="w-full border border-slate-200 rounded-xl p-3 outline-none"
                   value={formLineaBase.area_frente}
