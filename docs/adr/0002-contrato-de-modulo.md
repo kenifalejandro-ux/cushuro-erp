@@ -116,7 +116,7 @@ Agregado después de la primera versión de este ADR, al construir el offline de
 
 - **Lecturas (GET)**: no se encolan nunca. Lo que hace falta para llenar un formulario sin red se resuelve cacheando catálogos en el service worker (`runtimeCaching` en `client/vite.config.js`), no en la cola.
 - **DELETE**: reintentar un borrado puede eliminar algo que se recreó entre medio.
-- **Transiciones de estado** (aprobar, rechazar, cambiar de fase): no son creaciones, son "aplicar esto SI el estado actual todavía es X". Encolar una a ciegas hace que un reintento tardío pise una decisión más nueva, o se aplique sobre un estado que ya cambió — el mismo problema de fondo que `fix_race_condition_iperc_estado` resolvió para requests concurrentes, aplicado ahora a requests *tardías*.
+- **Transiciones de estado** (aprobar, rechazar, cambiar de fase): no son creaciones, son "aplicar esto SI el estado actual todavía es X". Encolar una a ciegas hace que un reintento tardío pise una decisión más nueva, o se aplique sobre un estado que ya cambió — el mismo problema de fondo que `fix_race_condition_iperc_estado` resolvió para requests concurrentes, aplicado ahora a requests _tardías_.
 - **Escrituras que sobreescriben un valor absoluto** (no acumulan): si dos lecturas pueden llegar fuera de orden (una offline, tomada horas antes, sincronizando después de una online más reciente), la vieja pisa a la nueva en silencio — no es un duplicado detectable por `idempotentInsert()`, es corrupción de dato real. Antes de declarar una ruta así, hay que pasar el modelo a histórico append-only (ver Combustible más abajo).
 - **Configuración de catálogo** (plantillas, líneas base): hoy se edita con poca frecuencia y no es parte del flujo que se interrumpe por falta de señal en el momento — pendiente de reevaluar si en el futuro alguien necesita crear/editar una plantilla sin red (ver "Fuera de alcance").
 
@@ -153,7 +153,54 @@ Ningún módulo de los 4 llegó completo a offline — en cada uno, algunas escr
 1. **Sin encadenar colas.** En teoría, subir un archivo depende de que el documento ya exista con un id real — si la creación del documento (Caso A) todavía está encolada sin sincronizar, ese id no existe. No se construyó ninguna lógica para resolver esa dependencia porque, en la UI actual, es físicamente imposible llegar al flujo de "subir archivo" para un documento que no volvió del servidor: `DocumentosTable.tsx` solo lista documentos ya sincronizados, y el botón que abre el modal de subida solo existe en filas de esa tabla.
 2. **Un reintento sube el archivo al storage una segunda vez antes de que `idempotentInsert()` detecte el duplicado** (la subida a R2/disco pasa primero a propósito, afuera de la transacción — no tiene sentido bloquear Postgres esperando una llamada de red). Eso deja un archivo huérfano en el storage en el caso raro de un reintento real. Se aceptó sin agregar una verificación previa (que sumaría su propia condición de carrera) porque `documentos.service.ts` ya acepta el mismo tipo de huérfano en `delete()` — mismo criterio, ya validado en este archivo.
 
-### 9. Checklist de "Nuevo Módulo"
+### 9. Protección contra doble submit
+
+Agregado después de encontrar el hueco en los 4 módulos que ya escribían (PR #75). Es una sección aparte de la 8 y no una subsección, porque **también aplica a formularios que NO participan del offline**.
+
+#### El problema, y por qué la idempotencia sola no lo cubre
+
+Un doble clic —o un doble tap en una tablet de campo, con guantes y pantalla lenta— creaba **dos registros reales**. Y no era un bug de `idempotency_keys`: el cliente generaba un `cliente_uuid` nuevo **dentro del handler de submit**, así que cada clic mandaba una clave distinta. El servidor compara la clave, no el contenido, y dos claves distintas son dos registros legítimamente distintos.
+
+Eso **tiene que ser así**: es exactamente lo que permite que dos operarios llenen un checklist del mismo camión en el mismo turno. El servidor no puede —ni debe— distinguir un dedo torpe de dos inspecciones reales. La distinción tiene que hacerla el cliente.
+
+#### Las dos capas, y por qué ninguna alcanza sola
+
+**A — Bloquear el botón** (lo que el operario ve). Un estado `guardando`/`enviando`, un `if (guardando) return` al entrar al handler, y `disabled` en el botón de submit.
+
+> **El reset va en un `finally`, no al final del `try`.** Si `apiFetch` _tira_ (sin red y con una ruta que no se encola), sin `finally` el botón queda trabado para siempre y el operario tiene que recargar la app para poder seguir trabajando. Es un error fácil de cometer y difícil de notar, porque solo aparece sin señal.
+
+Esta capa da feedback inmediato, pero **solo achica la ventana**: si los dos taps entran antes de que React re-renderice, pasan los dos. Y el `Enter` sobre el formulario es otro camino al mismo submit.
+
+**B — Fijar el `cliente_uuid` al ABRIR el formulario** (lo que garantiza). Se genera una sola vez al abrir el modal, vive en el estado del componente, y se reutiliza en todos los submits de esa instancia. Así los dos envíos comparten clave y la idempotencia del servidor los une.
+
+> **Se REGENERA en cada apertura.** Este es el filo del patrón: si el uuid quedara pegado entre aperturas, el segundo registro legítimo del turno chocaría contra la clave del primero y el servidor devolvería aquel **en silencio** — se perdería un registro sin dejar rastro. Eso es peor que el duplicado que se está evitando.
+
+#### La regla
+
+Todo formulario de **creación** lleva la capa A. Los que además usan `cliente_uuid` llevan también la B.
+
+**Los que NO usan `cliente_uuid` no quedan exentos** — al contrario. En las plantillas de checklist y las líneas base de IPERC (catálogo de oficina, no participan del offline), la capa A es la **única** defensa posible contra el doble clic. Que no haya una capa B que las respalde las hace _más_ dependientes de bloquear el botón, no menos.
+
+#### La excepción razonada: subir un archivo
+
+`subirArchivo()` en Documentos genera el uuid **por invocación**, no al abrir el modal, y es deliberado. Se dispara desde el `onChange` de un `<input type="file">`: un tap de más abre el selector de archivos, no manda dos veces. Y atarlo al modal haría que subir **dos versiones distintas** del mismo documento sin cerrar el panel se deduplicara contra sí misma — la segunda se perdería, que es justo lo contrario de lo que se espera de un historial de versiones. Ahí va solo el guard de reentrada.
+
+Aplicar la receta a ciegas habría roto ese flujo. Cuando un formulario no encaja, el criterio es preguntarse **qué representa una repetición para el usuario**: en un modal de creación, dos envíos son un accidente; en un selector de archivos, dos selecciones son dos intenciones.
+
+#### Dónde vive cada cosa
+
+- Generación del uuid: en el **estado del componente**, en el handler que abre el modal. Nunca dentro del handler de submit.
+- Idempotencia del lado del servidor: `idempotentInsert()` + declaración en los dos registries (ver sección 8).
+
+#### Test obligatorio
+
+Un módulo que agregue creación con `cliente_uuid` necesita un e2e que abra el modal, **dispare dos submits**, afirme que se envió **exactamente el mismo** `cliente_uuid`, y después cierre, reabra y afirme que se generó **uno distinto**.
+
+Las dos mitades son obligatorias: la primera prueba que no duplica, la segunda que no pierde registros. Ver `e2e/capa-b-cliente-uuid.spec.ts`, que además documenta por qué se hace interceptando con un 500 (mantiene el modal abierto, no depende del timing de los clics y no ensucia la base) y por qué necesita `serviceWorkers: "block"`.
+
+**Un test de servidor no sirve para esto.** `tests/idempotencia-offline.test.ts` prueba "el mismo `cliente_uuid` dos veces ⇒ una sola fila" — y eso ya pasaba **con el bug puesto**. Lo que estaba roto era que el cliente mandaba uuid distintos, y eso solo se ve desde el navegador.
+
+### 10. Checklist de "Nuevo Módulo"
 
 1. Migración `NNNN_<nombre>.sql`: tablas con `tenant_id NOT NULL REFERENCES tenants(id)` (header e hijas), índices, bloque RLS (`ENABLE` + `FORCE ROW LEVEL SECURITY` + policy `tenant_isolation` — copiar el bloque `DO $$` de `migrations/0006` o `0007`), y `ALTER TYPE modulo_erp ADD VALUE '<id>'`.
 2. `src/modules/<id>/`: `routes.ts` + `controller.ts` + `service.ts` + `repository.ts`, siguiendo el patrón de un módulo existente (ej. `equipos/`).
@@ -162,6 +209,7 @@ Ningún módulo de los 4 llegó completo a offline — en cada uno, algunas escr
 5. Agregar el módulo a `client/src/modules/registry.tsx`: mismo `id`, `label`, `icono`, `componente: lazy(() => import(...))`.
 6. Construir la pantalla en `client/src/components/<id>/`.
    6b. **Evaluar offline para cada escritura del módulo, siempre** (no solo si "se usa en campo" — en un ERP minero rural, la señal es inestable en toda la operación, no solo en la cancha; ver sección 8). Para cada `POST`/`PUT`/`PATCH`: si es una creación idempotente-viable, declararla siguiendo los pasos de la sección 8. Si no califica (transición de estado, sobreescribe un valor absoluto, DELETE, o el trabajo de volverla idempotente no se justifica todavía), dejar una línea en el PR explicando por qué no — igual que se documentó para aprobar/rechazar en IPERC. Ningún módulo queda bloqueado por esto: lo que no se declara sigue exigiendo red, como siempre.
+   6c. **Proteger cada formulario de creación contra el doble submit** (ver sección 9). Capa A —botón bloqueado con el reset en un `finally`— en TODOS, incluidos los que no participan del offline, donde es la única defensa. Capa B —`cliente_uuid` fijado al abrir el modal y regenerado en cada apertura— en los que sí usan `cliente_uuid`. Y el e2e de las dos mitades que exige esa sección.
 7. Correr `npm run migrate`, luego `npx vitest run tests/module-registry.test.ts tests/rls-coverage.test.ts` — deben pasar antes de tocar nada más. Después, la suite completa.
 8. `npm run build` en `client/` y confirmar que el módulo nuevo generó su propio chunk (code-splitting).
 9. Smoke test manual: login, el módulo aparece en el Sidebar, CRUD básico funciona, sin errores en consola.
@@ -183,6 +231,7 @@ Ningún módulo de los 4 llegó completo a offline — en cada uno, algunas escr
 
 - Que el `id` del registry del cliente coincida con el del backend — un typo ahí produce un módulo que el backend permite pero el Sidebar nunca muestra (el mismo bug que originó este ADR, pero ahora acotado a un solo archivo de una sola línea por módulo, en vez de repartido en 3).
 - Que un controller llame `registrarAuditoria` en cada mutación — no hay lint ni test que lo exija. Se decidió no automatizarlo (ej. con un middleware genérico) porque `detalle` necesita criterio humano por acción (qué ids son relevantes, qué NO incluir).
+- Que un formulario de creación proteja contra el doble submit (sección 9). Está probado **solo en Checklists** (`e2e/capa-b-cliente-uuid.spec.ts`); en IPERC, Combustible y Documentos el patrón está implementado pero nada lo vigila. No se generalizó el e2e a los cuatro porque lo que cambia en cada módulo es cómo se llena el formulario, no la garantía — y un spec parametrizado que hay que ajustar módulo por módulo no es más barato que cuatro específicos. Si un módulo nuevo se olvida de la capa B, el fallo es silencioso: dos registros donde debería haber uno.
 - El orden de `tablas`/`raices` dentro de un módulo respeta las FK reales — si un desarrollador declara un orden incorrecto, el error aparece recién al _restaurar_ un backup (INSERT falla por FK), no antes. Aceptado porque backup/restore ya corre dentro de una transacción (`withTenant`) — un orden incorrecto falla ruidoso, nunca deja datos a medias.
 
 ## Fuera de alcance de esta primera versión
