@@ -25,31 +25,15 @@
  */
 import { test } from "@playwright/test";
 import { probarAislamientoDeModulo, type ConfigAislamientoModulo } from "./fixtures/aislamiento";
-
-function leerEnv(nombre: string): string {
-  const valor = process.env[nombre];
-  if (!valor) {
-    throw new Error(
-      `Falta ${nombre} -- este spec necesita DOS tenants sembrados con 'npm run tenant:create' antes de levantar el server (ver el job e2e-tests de ci.yml)`
-    );
-  }
-  return valor;
-}
+import { adminA, adminB } from "./fixtures/entorno";
 
 // Tenant A: el del build. Entra por la UI porque es el único cuyo slug quedó
 // horneado en el bundle — y de paso, la sesión que ataca es una cookie real
 // puesta por el navegador, no una fabricada por el test.
-const tenantA = {
-  email: leerEnv("E2E_ADMIN_EMAIL"),
-  password: leerEnv("E2E_ADMIN_PASSWORD"),
-};
+const tenantA = adminA();
 
 // Tenant B: la víctima. Nunca se loguea en el navegador.
-const tenantB = {
-  slug: leerEnv("E2E_TENANT_B_SLUG"),
-  email: leerEnv("E2E_ADMIN_B_EMAIL"),
-  password: leerEnv("E2E_ADMIN_B_PASSWORD"),
-};
+const tenantB = adminB();
 
 const MODULOS: ConfigAislamientoModulo[] = [
   {

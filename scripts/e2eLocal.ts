@@ -170,15 +170,25 @@ async function main(): Promise<number> {
     );
   }
 
-  // Si no se pide un proyecto explícito, se saltea WebKit: está roto en
-  // esta máquina (falla la red, no la app — en CI anda bien). Pedirlo a
-  // mano con --project=webkit sigue funcionando, por si algún día se
-  // arregla.
+  // Por default, solo Chromium. No es pereza: en esta máquina de desarrollo
+  // tanto WebKit como Firefox tienen la red rota contra localhost —
+  // medido, no supuesto: los mismos 7 specs tardan 37s y pasan enteros en
+  // Chromium, y en Firefox tardan 2.9 min y fallan 3, siempre esperando
+  // respuestas que no llegan (el <select> existe pero nunca se llena porque
+  // el GET no vuelve). Los mismos specs pasan en Firefox en CI.
+  //
+  // El objetivo de este script es un bucle rápido y confiable para
+  // diagnosticar ANTES de pushear; los tres motores los cubre CI, que es
+  // donde de verdad importa. Un default que falla por el entorno enseña a
+  // ignorar los rojos, que es exactamente lo que no queremos.
+  //
+  // --project=firefox / --project=webkit siguen funcionando por si algún
+  // día se arregla la red local.
   const pidieronProyecto = argsPlaywright.some((a) => a.startsWith("--project"));
-  const proyectos = pidieronProyecto ? [] : ["--project=chromium", "--project=firefox"];
+  const proyectos = pidieronProyecto ? [] : ["--project=chromium"];
   if (!pidieronProyecto) {
-    console.log("ℹ  Corriendo solo chromium y firefox (WebKit está roto en local, no en CI).");
-    console.log("   Para forzarlo: npm run e2e:local -- --project=webkit\n");
+    console.log("ℹ  Corriendo solo Chromium (Firefox y WebKit tienen la red rota en local).");
+    console.log("   Los tres motores los cubre CI. Para forzar uno: --project=firefox\n");
   }
 
   console.log("→ aplicando migraciones pendientes...");
