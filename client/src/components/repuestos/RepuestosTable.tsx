@@ -339,10 +339,14 @@ export default function RepuestosTable() {
             <form onSubmit={handleManualSubmit} className="p-6 space-y-4">
               {/* Fila 1: Código */}
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">
+                <label
+                  htmlFor="repuesto-codigo"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
                   Código del Repuesto
                 </label>
                 <input
+                  id="repuesto-codigo"
                   type="text"
                   placeholder="Ej: FIL-001"
                   required
@@ -354,10 +358,14 @@ export default function RepuestosTable() {
 
               {/* Fila 2: Nombre */}
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">
+                <label
+                  htmlFor="repuesto-nombre"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
                   Nombre del Producto
                 </label>
                 <input
+                  id="repuesto-nombre"
                   type="text"
                   placeholder="Nombre completo"
                   required
@@ -369,8 +377,14 @@ export default function RepuestosTable() {
 
               {/* Fila 3: Categoría (Selección) */}
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">Categoría</label>
+                <label
+                  htmlFor="repuesto-categoria"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Categoría
+                </label>
                 <select
+                  id="repuesto-categoria"
                   className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
                   value={formData.categoria}
                   onChange={(e) => setFormData({ ...formData, categoria: e.target.value })}
@@ -387,44 +401,68 @@ export default function RepuestosTable() {
               {/* Fila 4: Stocks (Dos columnas) */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase">Stock Actual</label>
+                  <label
+                    htmlFor="repuesto-stock-actual"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Stock Actual
+                  </label>
                   <input
+                    id="repuesto-stock-actual"
                     type="number"
                     className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
                     value={formData.stock}
                     onChange={(e) => setFormData({ ...formData, stock: Number(e.target.value) })}
                   />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase">Stock Mínimo</label>
-
-                  <input
-                    type="number"
-                    className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
-                    placeholder="Stock Mínimo"
-                    value={formData.stock_minimo}
-                    onChange={(e) =>
-                      setFormData({ ...formData, stock_minimo: Number(e.target.value) })
-                    }
-                  />
-                  <input
-                    type="number"
-                    className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
-                    placeholder="Stock Máximo"
-                    value={formData.stock_maximo}
-                    onChange={(e) =>
-                      setFormData({ ...formData, stock_maximo: Number(e.target.value) })
-                    }
-                  />
+                <div className="space-y-1 grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label
+                      htmlFor="repuesto-stock-minimo"
+                      className="text-xs font-bold text-slate-500 uppercase"
+                    >
+                      Stock Mínimo
+                    </label>
+                    <input
+                      id="repuesto-stock-minimo"
+                      type="number"
+                      className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                      value={formData.stock_minimo}
+                      onChange={(e) =>
+                        setFormData({ ...formData, stock_minimo: Number(e.target.value) })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label
+                      htmlFor="repuesto-stock-maximo"
+                      className="text-xs font-bold text-slate-500 uppercase"
+                    >
+                      Stock Máximo
+                    </label>
+                    <input
+                      id="repuesto-stock-maximo"
+                      type="number"
+                      className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                      value={formData.stock_maximo}
+                      onChange={(e) =>
+                        setFormData({ ...formData, stock_maximo: Number(e.target.value) })
+                      }
+                    />
+                  </div>
                 </div>
               </div>
 
               {/* Fila 5: Precio */}
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">
+                <label
+                  htmlFor="repuesto-precio"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
                   Precio Unitario (S/)
                 </label>
                 <input
+                  id="repuesto-precio"
                   type="number"
                   step="0.01"
                   className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
