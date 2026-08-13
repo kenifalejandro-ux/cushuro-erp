@@ -41,21 +41,14 @@
 import { randomBytes } from "node:crypto";
 import { test, expect } from "@playwright/test";
 import { loginPorUI } from "./fixtures/auth";
-
-function leerEnv(nombre: string): string {
-  const valor = process.env[nombre];
-  if (!valor) {
-    throw new Error(
-      `Falta ${nombre} -- este spec necesita el tenant A sembrado con 'npm run tenant:create' antes de levantar el server (ver el job e2e-tests de ci.yml)`
-    );
-  }
-  return valor;
-}
-
-const admin = {
-  email: leerEnv("E2E_ADMIN_EMAIL"),
-  password: leerEnv("E2E_ADMIN_PASSWORD"),
-};
+import {
+  abrirModalNuevoChecklist,
+  botonCerrarModal,
+  botonRegistrar,
+  elegirEquipoYPlantilla,
+  sembrarEquipoYPlantilla,
+} from "./fixtures/checklists";
+import { adminA } from "./fixtures/entorno";
 
 const RUTA_CREACION = "/api/erp/checklists";
 
@@ -81,23 +74,13 @@ test.use({ serviceWorkers: "block" });
 
 test("el cliente_uuid está atado al formulario abierto, no al clic", async ({ page }) => {
   const marca = `UUID-${randomBytes(3).toString("hex").toUpperCase()}`;
+  const admin = adminA();
 
   await loginPorUI(page, admin.email, admin.password);
 
-  // Prerrequisitos por API, ANTES de instalar la intercepción — así el
-  // route no tiene que discriminar estas llamadas de las que sí importan.
-  const equipo = await page.request.post("/api/erp/equipos", {
-    data: { placa_codigo: marca, tipo: "Camioneta" },
-  });
-  expect(equipo.status()).toBe(201);
-
-  const plantilla = await page.request.post("/api/erp/checklists/plantillas", {
-    data: {
-      nombre: `Pre-uso ${marca}`,
-      items: [{ descripcion: "Frenos" }, { descripcion: "Luces" }],
-    },
-  });
-  expect(plantilla.status()).toBe(201);
+  // Los prerrequisitos se siembran ANTES de instalar la intercepción — así
+  // el route no tiene que discriminar estas llamadas de las que sí importan.
+  await sembrarEquipoYPlantilla(page, marca);
 
   // El alert de error del 500 bloquearía el test si nadie lo atiende.
   page.on("dialog", (dialog) => void dialog.accept());
@@ -140,24 +123,20 @@ test("el cliente_uuid está atado al formulario abierto, no al clic", async ({ p
     });
   });
 
-  await page.getByRole("button", { name: "Checklists" }).first().click();
-  await page.getByRole("button", { name: "+ Nuevo Checklist" }).click();
-  await page.getByLabel("Equipo").selectOption({ label: marca });
-  await page.getByLabel("Plantilla").selectOption({ label: `Pre-uso ${marca}` });
-  // El submit está deshabilitado hasta que la plantilla cargó sus ítems.
-  await expect(page.getByText("Frenos")).toBeVisible();
+  await abrirModalNuevoChecklist(page);
+  await elegirEquipoYPlantilla(page, marca);
 
-  const botonRegistrar = page.getByRole("button", { name: /Registrar Checklist|Registrando/ });
+  const registrar = botonRegistrar(page);
 
   // ── Mitad 1: dos submits del MISMO modal ─────────────────────────────
   // Secuenciales y esperando cada uno, a propósito: lo que se prueba acá
   // NO es que dos clics simultáneos se bloqueen (eso es la capa A, y ya
   // lo cubre doble-clic-duplicados.spec.ts) sino que el uuid no cambie
   // entre un envío y el siguiente del mismo formulario.
-  await botonRegistrar.click();
+  await registrar.click();
   await expect.poll(() => uuidsEnviados.length).toBe(1);
 
-  await botonRegistrar.click();
+  await registrar.click();
   await expect.poll(() => uuidsEnviados.length).toBe(2);
 
   const unicos = new Set(uuidsEnviados);
@@ -171,21 +150,16 @@ test("el cliente_uuid está atado al formulario abierto, no al clic", async ({ p
   const uuidDelPrimerModal = [...unicos][0];
 
   // ── Mitad 2: cerrar y reabrir ⇒ uuid NUEVO ───────────────────────────
-  await page.getByRole("button", { name: "×" }).click();
-  await expect(botonRegistrar).toBeHidden();
+  await botonCerrarModal(page).click();
+  await expect(registrar).toBeHidden();
 
   uuidsEnviados.length = 0;
   await page.getByRole("button", { name: "+ Nuevo Checklist" }).click();
+  // `reabriendo` no es un detalle: al cerrar, el <select> conserva su valor
+  // y volver a elegir lo mismo no dispara onChange -- ver la fixture.
+  await elegirEquipoYPlantilla(page, marca, { reabriendo: true });
 
-  // Cerrar el modal deja `plantillaSeleccionada` en null pero NO limpia el
-  // <select>, así que volver a elegir la misma opción no dispararía
-  // onChange (el value no cambia) y el submit quedaría deshabilitado para
-  // siempre. Pasar por la opción vacía fuerza los dos cambios.
-  await page.getByLabel("Plantilla").selectOption({ value: "" });
-  await page.getByLabel("Plantilla").selectOption({ label: `Pre-uso ${marca}` });
-  await expect(page.getByText("Frenos")).toBeVisible();
-
-  await botonRegistrar.click();
+  await registrar.click();
   await expect.poll(() => uuidsEnviados.length).toBe(1);
 
   expect(
