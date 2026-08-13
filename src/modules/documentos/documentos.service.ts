@@ -6,6 +6,7 @@ import type { CrearDocumentoInput } from "../../server/schemas/documentos.schema
 import { withTenant } from "../../server/config/database";
 import { logger } from "../../server/config/logger";
 import { idempotentInsert } from "../../server/shared/utils/idempotentInsert";
+import { idempotentBatch } from "../../server/shared/utils/idempotentBatch";
 import {
   borrarArchivoDocumento,
   construirKeyDocumento,
@@ -93,8 +94,18 @@ export const DocumentosService = {
     return true;
   },
 
-  bulkCreate(client: PoolClient, tenantId: string, data: DocumentoPayload[]) {
-    return DocumentosRepository.bulkCreate(client, tenantId, data);
+  /** `clienteUuid` viene del header Idempotency-Key y lo deriva el cliente
+   *  del CONTENIDO del archivo, así que volver a elegir la misma planilla
+   *  después de un error de red se reconoce como reintento en vez de
+   *  duplicar todo -- ver idempotentBatch.ts. */
+  bulkCreate(client: PoolClient, tenantId: string, data: DocumentoPayload[], clienteUuid?: string) {
+    return idempotentBatch({
+      client,
+      tenantId,
+      modulo: "documentos",
+      clienteUuid,
+      ejecutar: () => DocumentosRepository.bulkCreate(client, tenantId, data),
+    });
   },
 
   getKPIs(client: PoolClient, tenantId: string) {

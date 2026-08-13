@@ -96,6 +96,39 @@ function fechaDeCelda(fila: Record<string, unknown>, alias: string[]): string {
   return `${fecha.getFullYear()}-${mes}-${dia}`;
 }
 
+/** Clave de idempotencia derivada del CONTENIDO de las filas a importar.
+ *
+ *  Que sea derivada y no aleatoria es lo que hace que esto sirva. El
+ *  reintento real no es automático: es una persona que ve el error, vuelve
+ *  a apretar "Excel" y elige EL MISMO ARCHIVO. Un crypto.randomUUID() daría
+ *  una clave nueva en ese segundo intento y duplicaría todo igual; el hash
+ *  del contenido da la misma clave, y el servidor lo reconoce como
+ *  reintento (ver idempotentBatch.ts).
+ *
+ *  Se hashea el contenido ya parseado y normalizado, no los bytes crudos
+ *  del archivo: así el mismo Excel guardado de nuevo por Excel (que cambia
+ *  metadatos internos y por lo tanto los bytes) sigue dando la misma clave.
+ *
+ *  El resultado se formatea como UUID porque la columna de la base es de
+ *  ese tipo. Se fuerzan los nibbles de versión (8, "custom") y de variante
+ *  (10xx) para que sea un UUID bien formado y no un hash disfrazado. */
+async function claveDeIdempotencia(filas: FilaImportada[]): Promise<string | undefined> {
+  // crypto.subtle solo existe en contexto seguro (https o localhost). Si no
+  // está, se sigue sin idempotencia en vez de romper la importación: es una
+  // protección contra duplicados, no un requisito para poder importar.
+  if (!globalThis.crypto?.subtle) return undefined;
+
+  const contenido = JSON.stringify(filas);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(contenido));
+  const bytes = new Uint8Array(digest).slice(0, 16);
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x80; // versión 8
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variante RFC 4122
+
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 /** Traduce la respuesta de error a algo accionable. El 413 es el caso que
  *  más confundía: no lo genera nuestro código sino Express, así que no trae
  *  JSON y sin este mensaje el usuario ve un error vacío. */
@@ -472,9 +505,14 @@ export default function DocumentosTable() {
         );
       }
 
+      const clave = await claveDeIdempotencia(filas);
+
       const res = await apiFetch("/api/erp/documentos/bulk", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(clave ? { "Idempotency-Key": clave } : {}),
+        },
         body: JSON.stringify(filas),
       });
 
@@ -485,7 +523,9 @@ export default function DocumentosTable() {
 
       const body = await res.json().catch(() => ({}));
       setResultadoImportacion(
-        `Se importaron ${body.insertadas ?? filas.length} documentos correctamente.`
+        body.yaImportado
+          ? "Este archivo ya se había importado antes, así que no se duplicó nada."
+          : `Se importaron ${body.insertadas ?? filas.length} documentos correctamente.`
       );
       load();
     } catch (err) {

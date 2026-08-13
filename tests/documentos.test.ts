@@ -493,6 +493,110 @@ describe("documentos: validación de entrada (Zod)", () => {
     expect(res.status).toBe(400);
   });
 
+  // ── Idempotencia de la importación ────────────────────────────────────
+  //
+  // El caso real: la importación llega y se commitea, pero la respuesta se
+  // pierde de vuelta (se cortó la red). El usuario ve un error, vuelve a
+  // apretar "Excel" y elige EL MISMO ARCHIVO. Sin esto, se duplica todo.
+  // Ver idempotentBatch.ts.
+
+  const CLAVE = "3f2a1b4c-5d6e-8f70-a1b2-c3d4e5f60718";
+
+  it("reintentar la MISMA importación con la misma clave no duplica nada", async () => {
+    const antes = await agent.get("/api/erp/documentos?pageSize=1");
+    const filas = [
+      { nombre_documento: "Reintento A", fecha_vencimiento: fechaEn(10) },
+      { nombre_documento: "Reintento B", fecha_vencimiento: fechaEn(10) },
+    ];
+
+    const primera = await agent
+      .post("/api/erp/documentos/bulk")
+      .set("Idempotency-Key", CLAVE)
+      .send(filas);
+    expect(primera.status).toBe(201);
+    expect(primera.body.insertadas).toBe(2);
+
+    // El reintento: 200 (no creó nada) en vez de 201, y lo dice explícito.
+    const reintento = await agent
+      .post("/api/erp/documentos/bulk")
+      .set("Idempotency-Key", CLAVE)
+      .send(filas);
+    expect(reintento.status).toBe(200);
+    expect(reintento.body.yaImportado).toBe(true);
+
+    const despues = await agent.get("/api/erp/documentos?pageSize=1");
+    expect(despues.body.pagination.total).toBe(antes.body.pagination.total + 2);
+  });
+
+  it("una clave distinta SÍ importa, aunque el contenido sea igual", async () => {
+    // Que dos importaciones idénticas con claves distintas se procesen las
+    // dos es correcto: la clave la deriva el cliente del contenido, así que
+    // claves distintas significan que el cliente las considera envíos
+    // distintos. Acá se verifica que la protección no se pase de celosa.
+    const antes = await agent.get("/api/erp/documentos?pageSize=1");
+    const filas = [{ nombre_documento: "Clave distinta", fecha_vencimiento: fechaEn(10) }];
+
+    const a = await agent
+      .post("/api/erp/documentos/bulk")
+      .set("Idempotency-Key", "11111111-2222-8333-a444-555555555555")
+      .send(filas);
+    const b = await agent
+      .post("/api/erp/documentos/bulk")
+      .set("Idempotency-Key", "66666666-7777-8888-a999-aaaaaaaaaaaa")
+      .send(filas);
+
+    expect(a.status).toBe(201);
+    expect(b.status).toBe(201);
+
+    const despues = await agent.get("/api/erp/documentos?pageSize=1");
+    expect(despues.body.pagination.total).toBe(antes.body.pagination.total + 2);
+  });
+
+  it("sin header de idempotencia la importación funciona igual (no es obligatorio)", async () => {
+    const res = await agent
+      .post("/api/erp/documentos/bulk")
+      .send([{ nombre_documento: "Sin clave", fecha_vencimiento: fechaEn(10) }]);
+    expect(res.status).toBe(201);
+    expect(res.body.insertadas).toBe(1);
+  });
+
+  it("una clave con formato inválido se ignora en vez de rechazar la importación", async () => {
+    // Perder una importación válida por un header mal armado sería peor que
+    // procesarla sin protección contra duplicados.
+    const res = await agent
+      .post("/api/erp/documentos/bulk")
+      .set("Idempotency-Key", "no-soy-un-uuid")
+      .send([{ nombre_documento: "Clave basura", fecha_vencimiento: fechaEn(10) }]);
+    expect(res.status).toBe(201);
+    expect(res.body.insertadas).toBe(1);
+  });
+
+  it("si la importación FALLA, la clave se libera y se puede reintentar de verdad", async () => {
+    // La reserva de la clave y los INSERT viven en la misma transacción: si
+    // algo revienta, la clave revierte con todo lo demás. Si no fuera así,
+    // un fallo dejaría la clave "usada" y el reintento legítimo respondería
+    // "ya importado" sobre datos que nunca entraron -- perder una
+    // importación en silencio, el peor resultado posible.
+    const claveFallo = "abcdef01-2345-8678-9abc-def012345678";
+
+    // Se fuerza el fallo con un nombre que pasa Zod (<=200) pero rompe en
+    // Postgres... no existe ese caso; se usa una fecha inválida, que Zod
+    // deja pasar (solo exige string no vacío) y Postgres rechaza.
+    const conFechaRota = await agent
+      .post("/api/erp/documentos/bulk")
+      .set("Idempotency-Key", claveFallo)
+      .send([{ nombre_documento: "Fecha rota", fecha_vencimiento: "no-es-una-fecha" }]);
+    expect(conFechaRota.status).toBe(500);
+
+    // Misma clave, ahora con datos válidos: tiene que insertar de verdad.
+    const reintento = await agent
+      .post("/api/erp/documentos/bulk")
+      .set("Idempotency-Key", claveFallo)
+      .send([{ nombre_documento: "Fecha corregida", fecha_vencimiento: fechaEn(10) }]);
+    expect(reintento.status).toBe(201);
+    expect(reintento.body.insertadas).toBe(1);
+  });
+
   it("bulk acepta filas sin responsable (queda en NULL)", async () => {
     const res = await agent
       .post("/api/erp/documentos/bulk")

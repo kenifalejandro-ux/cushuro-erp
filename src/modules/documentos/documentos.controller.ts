@@ -14,6 +14,17 @@ import type {
 } from "../../server/schemas/documentos.schema";
 import { DocumentosService } from "./documentos.service";
 
+/** Formato UUID, sin exigir una versión concreta: la clave la deriva el
+ *  cliente de un hash del archivo (ver DocumentosTable.tsx), no de
+ *  crypto.randomUUID(), así que no es un UUID v4. Lo que importa es que
+ *  entre en la columna `uuid` de idempotency_keys. */
+const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function leerClaveIdempotencia(req: Request): string | undefined {
+  const clave = req.get("Idempotency-Key");
+  return clave && RE_UUID.test(clave) ? clave : undefined;
+}
+
 export const DocumentosController = {
   // 📄 LISTAR DOCUMENTOS (paginado)
   async getAll(req: Request, res: Response) {
@@ -129,16 +140,32 @@ export const DocumentosController = {
     try {
       const tenantId = getTenantId(req);
       const filas = req.validatedBody as CargaMasivaDocumentosInput;
-      const insertadas = await withTenant(tenantId, (client) =>
-        DocumentosService.bulkCreate(client, tenantId, filas)
+
+      // El cliente lo deriva del contenido del archivo, así que reelegir la
+      // misma planilla tras un corte de red se reconoce como reintento en
+      // vez de duplicar. Si viene con formato inválido se ignora en vez de
+      // rechazar: la importación es lo que el usuario pidió, y perderla por
+      // un header mal armado sería peor que procesarla sin idempotencia.
+      const claveIdempotencia = leerClaveIdempotencia(req);
+
+      const { yaProcesado, resultado } = await withTenant(tenantId, (client) =>
+        DocumentosService.bulkCreate(client, tenantId, filas, claveIdempotencia)
       );
+
+      if (yaProcesado) {
+        // 200 y no 201: esta llamada no creó nada. Igual es un éxito para
+        // quien reintenta -- su importación está hecha.
+        res.status(200).json({ yaImportado: true, insertadas: 0 });
+        return;
+      }
+
       await publicarEventoTenant(tenantId, "documentos.carga_masiva", {
-        cantidad: insertadas,
+        cantidad: resultado,
       });
       // Se devuelve el conteo y no las filas: una importación de miles de
       // registros no tiene por qué volver entera al cliente, que igual
       // recarga la lista paginada después.
-      res.status(201).json({ insertadas });
+      res.status(201).json({ insertadas: resultado });
     } catch {
       res.status(500).json({ error: "Error en carga masiva" });
     }
