@@ -243,6 +243,84 @@ describe("bloqueo al exceder la cuota de un módulo", () => {
   });
 });
 
+describe("cuota independiente por ruta (Repuestos: catálogo vs. movimientos)", () => {
+  async function crearRepuesto(tenantId: string, stock: number): Promise<number> {
+    const fila = await withTenant(tenantId, (client) =>
+      client.query(
+        `INSERT INTO repuestos (tenant_id, codigo, nombre, stock) VALUES ($1, $2, $3, $4) RETURNING id`,
+        [tenantId, idUnico("CUOTA"), "Repuesto de prueba", stock]
+      )
+    );
+    return fila.rows[0].id;
+  }
+
+  it("la cuota de movimientos AGOTADA no bloquea un alta de catálogo", async () => {
+    const { tenant, usuario } = await nuevoTenant();
+    await fijarCuotaTenant(tenant.id, "repuestos_movimientos", 0);
+    const agente = await agenteDe(tenant, usuario.email);
+
+    const alta = await agente.post("/api/erp/repuestos").send({
+      codigo: idUnico("CAT"),
+      nombre: "Repuesto nuevo",
+      categoria: "General",
+      stock: 5,
+      stock_minimo: 1,
+      stock_maximo: 10,
+      precio: 10,
+    });
+    expect(alta.status).toBe(201);
+  });
+
+  it("la cuota de catálogo AGOTADA no bloquea un movimiento de stock", async () => {
+    const { tenant, usuario } = await nuevoTenant();
+    const repuestoId = await crearRepuesto(tenant.id, 100);
+    await fijarCuotaTenant(tenant.id, "repuestos", 0);
+    const agente = await agenteDe(tenant, usuario.email);
+
+    const mov = await agente.post("/api/erp/repuestos/movimientos").send({
+      cliente_uuid: crypto.randomUUID(),
+      repuesto_id: repuestoId,
+      tipo: "entrada",
+      cantidad: 1,
+    });
+    expect(mov.status).toBe(201);
+  });
+
+  it("deja registrar movimientos hasta su propio límite y rechaza el siguiente sobre el recurso 'repuestos_movimientos'", async () => {
+    const { tenant, usuario } = await nuevoTenant();
+    const repuestoId = await crearRepuesto(tenant.id, 100);
+    await fijarCuotaTenant(tenant.id, "repuestos_movimientos", 2);
+    const agente = await agenteDe(tenant, usuario.email);
+
+    for (let i = 0; i < 2; i++) {
+      const ok = await agente.post("/api/erp/repuestos/movimientos").send({
+        cliente_uuid: crypto.randomUUID(),
+        repuesto_id: repuestoId,
+        tipo: "entrada",
+        cantidad: 1,
+      });
+      expect(ok.status).toBe(201);
+    }
+
+    const rechazado = await agente.post("/api/erp/repuestos/movimientos").send({
+      cliente_uuid: crypto.randomUUID(),
+      repuesto_id: repuestoId,
+      tipo: "entrada",
+      cantidad: 1,
+    });
+    expect(rechazado.status).toBe(403);
+    expect(rechazado.body.error).toBe("cuota_excedida");
+    expect(rechazado.body.recurso).toBe("repuestos_movimientos");
+  });
+
+  it("resumenCuotasTenant() lista 'repuestos' y 'repuestos_movimientos' como recursos aparte", async () => {
+    const { tenant } = await nuevoTenant();
+    const recursos = (await resumenCuotasTenant(tenant.id)).map((c) => c.recurso);
+    expect(recursos).toContain("repuestos");
+    expect(recursos).toContain("repuestos_movimientos");
+  });
+});
+
 describe("cuota de usuarios", () => {
   it("bloquea el alta cuando se llega al límite (cubre panel y SCIM: comparten servicio)", async () => {
     const { tenant } = await nuevoTenant();

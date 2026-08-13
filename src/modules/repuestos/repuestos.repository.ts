@@ -147,15 +147,28 @@ export const RepuestosRepository = {
   // =========================================================
   // 📦 REGISTRAR MOVIMIENTO DE STOCK (entrada/salida)
   // =========================================================
-  /** Inserta el movimiento en el histórico y aplica su delta a `stock` con
-   *  un UPDATE atómico -- sin comparar contra ningún timestamp: a diferencia
-   *  de una lectura absoluta (ver CombustibleRepository.registrarLectura),
-   *  un delta es conmutativo, así que da igual en qué orden sincronicen dos
-   *  movimientos offline (ver migrations/0046_repuestos_movimientos.sql).
-   *  Stock negativo se permite sin bloquear: el movimiento físico ya pasó.
+  /** Aplica el delta a `stock` con un UPDATE atómico -- sin comparar contra
+   *  ningún timestamp: a diferencia de una lectura absoluta (ver
+   *  CombustibleRepository.registrarLectura), un delta es conmutativo, así
+   *  que da igual en qué orden sincronicen dos movimientos offline (ver
+   *  migrations/0046_repuestos_movimientos.sql).
    *
-   *  Lanza si `repuestoId` no existe en este tenant -- mismo patrón que
-   *  `CombustibleRepository.registrarLectura` / `IpercController.crear`. */
+   *  Una `salida` lleva la guarda `stock >= cantidad`: si dejaría el stock
+   *  negativo, el UPDATE no afecta ninguna fila y el movimiento se inserta
+   *  igual pero con `estado = 'rechazado'`, SIN aplicar el delta -- a
+   *  diferencia de una versión anterior de este método, un rechazo YA NO
+   *  se descarta sin dejar rastro (ver migrations/0048): dos técnicos
+   *  offline compitiendo por la última unidad dejaban al perdedor sin
+   *  ninguna evidencia, ni en el servidor ni en el dispositivo (el banner
+   *  de EstadoOffline.tsx es puro estado en memoria del navegador). Una
+   *  `entrada` nunca se rechaza, no lleva guarda.
+   *
+   *  Lanza SOLO si `repuestoId` no existe en este tenant -- eso sigue
+   *  siendo un dato inválido, no un conflicto de negocio (mismo patrón que
+   *  `CombustibleRepository.registrarLectura` / `IpercController.crear`;
+   *  el controller distingue el mensaje para responder 400). El rechazo
+   *  por stock insuficiente ya NO lanza: el controller decide 201 vs. 409
+   *  mirando `movimiento.estado`. */
   async registrarMovimiento(
     client: PoolClient,
     tenantId: string,
@@ -177,12 +190,39 @@ export const RepuestosRepository = {
       throw new Error(`repuesto_id ${data.repuestoId} no existe en este tenant`);
     }
 
+    const delta = data.tipo === "entrada" ? data.cantidad : -data.cantidad;
+    const actualizado = await client.query(
+      data.tipo === "salida"
+        ? `UPDATE repuestos SET stock = stock + $1
+           WHERE id = $2 AND tenant_id = $3 AND stock >= $4
+           RETURNING *`
+        : `UPDATE repuestos SET stock = stock + $1
+           WHERE id = $2 AND tenant_id = $3
+           RETURNING *`,
+      data.tipo === "salida"
+        ? [delta, data.repuestoId, tenantId, data.cantidad]
+        : [delta, data.repuestoId, tenantId]
+    );
+
+    const aplicado = actualizado.rows.length > 0;
+    // Si no se aplicó, el repuesto no cambió -- se trae tal cual para que
+    // la respuesta tenga la misma forma que el caso exitoso (el cliente no
+    // tiene que distinguir de dónde salió `repuesto`).
+    const repuesto = aplicado
+      ? actualizado.rows[0]
+      : (
+          await client.query(`SELECT * FROM repuestos WHERE id = $1 AND tenant_id = $2`, [
+            data.repuestoId,
+            tenantId,
+          ])
+        ).rows[0];
+
     const movimiento = await client.query(
       `
       INSERT INTO repuestos_movimientos
-        (tenant_id, repuesto_id, tipo, cantidad, motivo, registrado_en, usuario_id, metadata)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING id, repuesto_id, tipo, cantidad, motivo, registrado_en, usuario_id, origen, metadata, creado_en
+        (tenant_id, repuesto_id, tipo, cantidad, motivo, registrado_en, usuario_id, metadata, estado)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id, repuesto_id, tipo, cantidad, motivo, registrado_en, usuario_id, origen, metadata, creado_en, estado
       `,
       [
         tenantId,
@@ -193,27 +233,19 @@ export const RepuestosRepository = {
         data.registradoEn,
         data.usuarioId,
         JSON.stringify(data.metadata),
+        aplicado ? "aplicado" : "rechazado",
       ]
     );
 
-    const delta = data.tipo === "entrada" ? data.cantidad : -data.cantidad;
-    const repuesto = await client.query(
-      `
-      UPDATE repuestos SET stock = stock + $1
-      WHERE id = $2 AND tenant_id = $3
-      RETURNING *
-      `,
-      [delta, data.repuestoId, tenantId]
-    );
-
-    return { movimiento: movimiento.rows[0], repuesto: repuesto.rows[0] };
+    return { movimiento: movimiento.rows[0], repuesto };
   },
 
   /** Para el reintento de un movimiento ya creado (mismo cliente_uuid) --
-   *  responde igual que la primera vez, sin volver a tocar `stock`. */
+   *  responde igual que la primera vez (incluido su `estado`), sin volver
+   *  a tocar `stock`. */
   async findMovimientoConRepuesto(client: PoolClient, tenantId: string, movimientoId: number) {
     const movimiento = await client.query(
-      `SELECT id, repuesto_id, tipo, cantidad, motivo, registrado_en, usuario_id, origen, metadata, creado_en
+      `SELECT id, repuesto_id, tipo, cantidad, motivo, registrado_en, usuario_id, origen, metadata, creado_en, estado
        FROM repuestos_movimientos
        WHERE id = $1 AND tenant_id = $2`,
       [movimientoId, tenantId]

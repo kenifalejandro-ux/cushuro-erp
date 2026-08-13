@@ -65,8 +65,10 @@ export interface DefinicionRecurso {
 }
 
 /** Catálogo completo de recursos con cuota. Los de módulo salen del
- *  registry; los módulos sin `cuota` (ej. dashboard, que no crea nada
- *  propio) quedan afuera solos. */
+ *  registry (tanto `cuota`, con `recurso = id del módulo`, como
+ *  `cuotasPorRuta`, con su propio `recurso` -- ver el comentario largo en
+ *  modules/types.ts); los módulos sin ninguno de los dos (ej. dashboard,
+ *  que no crea nada propio) quedan afuera solos. */
 export function recursosConCuota(): DefinicionRecurso[] {
   return [
     {
@@ -84,11 +86,31 @@ export function recursosConCuota(): DefinicionRecurso[] {
       unidad: "cantidad" as const,
       limitePorDefecto: m.cuota!.porDefecto,
     })),
+    ...MODULOS.flatMap((m) => m.cuotasPorRuta ?? []).map((c) => ({
+      recurso: c.recurso,
+      unidad: "cantidad" as const,
+      limitePorDefecto: c.porDefecto,
+    })),
   ];
 }
 
 function definicionDe(recurso: string): DefinicionRecurso | undefined {
   return recursosConCuota().find((r) => r.recurso === recurso);
+}
+
+/** Qué tabla contar para un recurso de módulo -- busca primero en `cuota`
+ *  (recurso = id del módulo) y después en `cuotasPorRuta` (recurso = su
+ *  propio id declarado). `undefined` si el recurso no es de ningún
+ *  módulo (ej. 'usuarios', 'backup_bytes', o uno inexistente). */
+function tablaDeRecurso(recurso: string): string | undefined {
+  const modulo = obtenerModulo(recurso);
+  if (modulo?.cuota) return modulo.cuota.tabla;
+
+  for (const m of MODULOS) {
+    const porRuta = m.cuotasPorRuta?.find((c) => c.recurso === recurso);
+    if (porRuta) return porRuta.tabla;
+  }
+  return undefined;
 }
 
 /** De dónde salió el límite que se está aplicando. Se expone en el panel
@@ -283,12 +305,12 @@ export async function usoActual(
       return Number(r.rows[0].total);
     }
 
-    const modulo = obtenerModulo(recurso);
-    if (!modulo?.cuota) return 0;
+    const tabla = tablaDeRecurso(recurso);
+    if (!tabla) return 0;
     // La tabla sale del registry, nunca de un parámetro del request: no hay
     // forma de que un valor del cliente termine interpolado acá.
     const r = await c.query<{ total: string }>(
-      `SELECT count(*)::text AS total FROM ${modulo.cuota.tabla} WHERE tenant_id = $1`,
+      `SELECT count(*)::text AS total FROM ${tabla} WHERE tenant_id = $1`,
       [tenantId]
     );
     return Number(r.rows[0].total);

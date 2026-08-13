@@ -288,15 +288,16 @@ describe("Repuestos: el stock aplica movimientos como delta conmutativo", () => 
     expect(await stockDelRepuesto(tenantId, repuestoId)).toBe(55);
   });
 
-  it("una salida puede dejar el stock en negativo sin rechazar el movimiento", async () => {
+  it("una salida que dejaría el stock negativo se RECHAZA (409), el stock no cambia", async () => {
+    const antes = await stockDelRepuesto(tenantId, repuestoId);
     const res = await agente.post("/api/erp/repuestos/movimientos").send({
       cliente_uuid: crypto.randomUUID(),
       repuesto_id: repuestoId,
       tipo: "salida",
-      cantidad: 1000,
+      cantidad: antes + 1,
     });
-    expect(res.status).toBe(201);
-    expect(res.body.repuesto.stock).toBeLessThan(0);
+    expect(res.status).toBe(409);
+    expect(await stockDelRepuesto(tenantId, repuestoId)).toBe(antes);
   });
 
   it("el resultado final es el mismo sin importar en qué orden sincronizan dos movimientos", async () => {
@@ -348,6 +349,108 @@ describe("Repuestos: el stock aplica movimientos como delta conmutativo", () => 
 
     expect(stockOrdenA).toBe(stockOrdenB);
     expect(stockOrdenA).toBe(120);
+  });
+});
+
+describe("Repuestos: rechazo por stock insuficiente", () => {
+  let tenantId: string;
+  let repuestoId: number;
+  const password = "ClaveDePrueba123";
+  const agente = request.agent(app);
+
+  beforeAll(async () => {
+    const creado = await crearTenantDePrueba(password);
+    tenantId = creado.tenant.id;
+    await agente
+      .post("/api/auth/login")
+      .send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
+
+    repuestoId = await crearRepuesto(tenantId, {
+      codigo: "RECHAZO-001",
+      nombre: "Repuesto rechazo",
+      stock: 10,
+    });
+  });
+
+  afterAll(async () => {
+    await borrarTenantDePrueba(tenantId);
+  });
+
+  async function contarMovimientos(): Promise<number> {
+    const res = await withTenant(tenantId, (client) =>
+      client.query(
+        `SELECT COUNT(*)::int AS total FROM repuestos_movimientos WHERE tenant_id = $1 AND repuesto_id = $2`,
+        [tenantId, repuestoId]
+      )
+    );
+    return res.rows[0].total;
+  }
+
+  it("una salida rechazada SÍ queda en el histórico, con estado 'rechazado' y sin tocar stock", async () => {
+    const antesMovs = await contarMovimientos();
+    const antesStock = await stockDelRepuesto(tenantId, repuestoId);
+    const res = await agente.post("/api/erp/repuestos/movimientos").send({
+      cliente_uuid: crypto.randomUUID(),
+      repuesto_id: repuestoId,
+      tipo: "salida",
+      cantidad: 999,
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.movimiento.estado).toBe("rechazado");
+    // Queda registrado -- a diferencia de perderse sin rastro, que era el
+    // problema real que esto resuelve (ver migrations/0048).
+    expect(await contarMovimientos()).toBe(antesMovs + 1);
+    expect(await stockDelRepuesto(tenantId, repuestoId)).toBe(antesStock);
+  });
+
+  it("una salida exacta al stock disponible SÍ se acepta (el límite es >=, no >)", async () => {
+    const antes = await stockDelRepuesto(tenantId, repuestoId);
+    const res = await agente.post("/api/erp/repuestos/movimientos").send({
+      cliente_uuid: crypto.randomUUID(),
+      repuesto_id: repuestoId,
+      tipo: "salida",
+      cantidad: antes,
+    });
+    expect(res.status).toBe(201);
+    expect(await stockDelRepuesto(tenantId, repuestoId)).toBe(0);
+  });
+
+  it("una entrada nunca se rechaza, sin importar la cantidad", async () => {
+    const res = await agente.post("/api/erp/repuestos/movimientos").send({
+      cliente_uuid: crypto.randomUUID(),
+      repuesto_id: repuestoId,
+      tipo: "entrada",
+      cantidad: 1_000_000,
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it("un reintento con el mismo cliente_uuid tras un 409 devuelve LA MISMA fila rechazada (409 de nuevo), sin crear una segunda", async () => {
+    // A diferencia de un rechazo que no dejara fila, acá insertar() SÍ
+    // tiene éxito (crea la fila con estado 'rechazado') -- así que
+    // idempotentInsert() reserva la clave en firme, y un reintento la
+    // encuentra: responde con la fila YA CREADA, no reintenta el trabajo.
+    const clienteUuid = crypto.randomUUID();
+    const antesMovs = await contarMovimientos();
+    const antesStock = await stockDelRepuesto(tenantId, repuestoId);
+    const cuerpo = {
+      cliente_uuid: clienteUuid,
+      repuesto_id: repuestoId,
+      tipo: "salida",
+      cantidad: antesStock + 1,
+    };
+
+    const primera = await agente.post("/api/erp/repuestos/movimientos").send(cuerpo);
+    expect(primera.status).toBe(409);
+
+    const reintento = await agente.post("/api/erp/repuestos/movimientos").send(cuerpo);
+    expect(reintento.status).toBe(409);
+    expect(reintento.body.movimiento.id).toBe(primera.body.movimiento.id);
+
+    // Una sola fila creada (la del primer intento), el reintento no crea
+    // una segunda -- y el stock nunca se tocó en ninguno de los dos.
+    expect(await contarMovimientos()).toBe(antesMovs + 1);
+    expect(await stockDelRepuesto(tenantId, repuestoId)).toBe(antesStock);
   });
 });
 
