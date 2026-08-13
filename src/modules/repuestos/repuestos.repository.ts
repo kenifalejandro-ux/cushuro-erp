@@ -2,18 +2,10 @@
 
 import type { PoolClient } from "pg";
 import type { Paginacion } from "../../server/shared/utils/pagination";
-
-// Sin schema de validación (req.body pasa directo desde el controller) --
-// documenta la forma asumida por las queries de abajo, no valida en runtime.
-export type RepuestoPayload = {
-  codigo: string;
-  nombre: string;
-  categoria?: string;
-  stock?: number;
-  stock_minimo?: number;
-  stock_maximo?: number;
-  precio?: number;
-};
+import type {
+  CrearRepuestoInput,
+  ActualizarRepuestoInput,
+} from "../../server/schemas/repuestos.schema";
 
 export const RepuestosRepository = {
   // =========================================================
@@ -47,7 +39,7 @@ export const RepuestosRepository = {
   // =========================================================
   // ➕ CREAR REPUESTO
   // =========================================================
-  async create(client: PoolClient, tenantId: string, data: RepuestoPayload) {
+  async create(client: PoolClient, tenantId: string, data: CrearRepuestoInput) {
     const { codigo, nombre, categoria, stock, stock_minimo, stock_maximo, precio } = data;
 
     const result = await client.query(
@@ -77,7 +69,7 @@ export const RepuestosRepository = {
   // =========================================================
   // ✏️ ACTUALIZAR REPUESTO (solo si pertenece al tenant activo)
   // =========================================================
-  async update(client: PoolClient, tenantId: string, id: number, data: RepuestoPayload) {
+  async update(client: PoolClient, tenantId: string, id: number, data: ActualizarRepuestoInput) {
     const { codigo, nombre, categoria, stock, stock_minimo, stock_maximo, precio } = data;
 
     const result = await client.query(
@@ -113,13 +105,56 @@ export const RepuestosRepository = {
   // =========================================================
   // 📦 INSERCIÓN MASIVA
   // =========================================================
-  async createBulk(client: PoolClient, tenantId: string, rows: RepuestoPayload[]) {
-    const results = [];
-    for (const data of rows) {
-      const { codigo, nombre, categoria, stock, stock_minimo, stock_maximo, precio } = data;
+  /** Un INSERT por lote de 1.000 filas en vez de N INSERT en loop -- mismo
+   *  motivo que DocumentosRepository.bulkCreate: cada round-trip mantiene
+   *  tomada una conexión del pool COMPARTIDO, así que una importación
+   *  grande en loop le sube la latencia al resto de los tenants. El lote
+   *  de 1.000 respeta el techo de 65.535 parámetros por sentencia (acá
+   *  usa 8 por fila).
+   *
+   *  Deduplicación DENTRO de cada lote, quedándose con la ÚLTIMA
+   *  ocurrencia de cada `codigo`: Postgres RECHAZA un
+   *  `ON CONFLICT DO UPDATE` que afecte la misma fila dos veces en la
+   *  MISMA sentencia ("command cannot affect row a second time"). El loop
+   *  anterior no tenía este problema porque cada fila era su propia
+   *  sentencia -- un Excel con un código repetido simplemente aplicaba el
+   *  último. Deduplicar acá preserva ese mismo resultado en vez de que la
+   *  importación entera reviente. Entre lotes distintos no hace falta:
+   *  son sentencias separadas, `ON CONFLICT` las resuelve solas. */
+  async createBulk(client: PoolClient, tenantId: string, items: CrearRepuestoInput[]) {
+    const TAMANO_LOTE = 1000;
+    const results: unknown[] = [];
+
+    for (let inicio = 0; inicio < items.length; inicio += TAMANO_LOTE) {
+      const lote = items.slice(inicio, inicio + TAMANO_LOTE);
+
+      const porCodigo = new Map<string, CrearRepuestoInput>();
+      for (const fila of lote) porCodigo.set(fila.codigo, fila);
+      const filasUnicas = [...porCodigo.values()];
+
+      // ($1,...,$8,NOW()), ($9,...,$16,NOW()), ... -- los valores SIEMPRE
+      // parametrizados, nunca interpolados en el SQL.
+      const placeholders = filasUnicas
+        .map(
+          (_, i) =>
+            `($${i * 8 + 1}, $${i * 8 + 2}, $${i * 8 + 3}, $${i * 8 + 4}, $${i * 8 + 5}, $${i * 8 + 6}, $${i * 8 + 7}, $${i * 8 + 8}, NOW())`
+        )
+        .join(", ");
+
+      const valores = filasUnicas.flatMap((d) => [
+        tenantId,
+        d.codigo,
+        d.nombre,
+        d.categoria,
+        d.stock,
+        d.stock_minimo,
+        d.stock_maximo,
+        d.precio,
+      ]);
+
       const result = await client.query(
         `INSERT INTO repuestos (tenant_id, codigo, nombre, categoria, stock, stock_minimo, stock_maximo, precio, fecha_creacion)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+         VALUES ${placeholders}
          ON CONFLICT (tenant_id, codigo) DO UPDATE SET
            nombre = EXCLUDED.nombre,
            categoria = EXCLUDED.categoria,
@@ -128,19 +163,11 @@ export const RepuestosRepository = {
            stock_maximo = EXCLUDED.stock_maximo,
            precio = EXCLUDED.precio
          RETURNING *`,
-        [
-          tenantId,
-          codigo,
-          nombre,
-          categoria ?? "General",
-          stock ?? 0,
-          stock_minimo ?? 5,
-          stock_maximo ?? 30,
-          precio ?? 0,
-        ]
+        valores
       );
-      results.push(result.rows[0]);
+      results.push(...result.rows);
     }
+
     return results;
   },
 
