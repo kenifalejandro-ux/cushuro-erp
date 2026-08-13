@@ -94,14 +94,46 @@ const helmetMiddleware = helmet({
 
 const compressionMiddleware = compression({ threshold: 1024 }) as unknown as RequestHandler;
 const corsMiddleware = cors(corsOptions) as unknown as RequestHandler;
+// Guarda el body crudo para poder validar firmas HMAC de futuros webhooks
+// (pagos, integraciones) sin tener que reserializar el JSON parseado.
+const guardarBodyCrudo = (req: unknown, _res: unknown, buf: Buffer) => {
+  (req as { rawBody: Buffer }).rawBody = buf;
+};
+
 const jsonMiddleware = express.json({
   limit: env.bodyLimit,
-  // Guarda el body crudo para poder validar firmas HMAC de futuros webhooks
-  // (pagos, integraciones) sin tener que reserializar el JSON parseado.
-  verify: (req, _res, buf) => {
-    (req as unknown as { rawBody: Buffer }).rawBody = buf;
-  },
+  verify: guardarBodyCrudo,
 }) as unknown as RequestHandler;
+
+// ── Cuerpos grandes SOLO en las rutas de carga masiva ────────────────────
+//
+// El límite general (16 kb por default) es una defensa deliberada: acota
+// cuánta memoria puede hacerle reservar un request cualquiera. Pero los
+// endpoints /bulk reciben un array con la planilla entera, y con 16 kb la
+// importación se cortaba a ~110 filas devolviendo un 413 — un tope
+// invisible que nada documentaba y que el cliente ni siquiera mostraba.
+//
+// Se amplía SOLO para esas rutas en vez de subir el límite global: así el
+// resto de la API conserva la superficie chica. El tope de FILAS es aparte
+// (MAX_FILAS_CARGA_MASIVA en los schemas) — hacen falta los dos, porque
+// muchas filas cortas y pocas filas larguísimas son problemas distintos.
+const jsonBulkMiddleware = express.json({
+  limit: env.bulkBodyLimit,
+  verify: guardarBodyCrudo,
+}) as unknown as RequestHandler;
+
+/** Las rutas de carga masiva son, por convención del Contrato de Módulo,
+ *  las que terminan en `/bulk` (hoy: repuestos y documentos). Se resuelve
+ *  por path y no por una lista de rutas para que un módulo nuevo que siga
+ *  la convención quede cubierto sin tocar este archivo. */
+function esRutaDeCargaMasiva(path: string): boolean {
+  return path.endsWith("/bulk");
+}
+
+const jsonPorRuta: RequestHandler = (req, res, next) =>
+  esRutaDeCargaMasiva(req.path)
+    ? jsonBulkMiddleware(req, res, next)
+    : jsonMiddleware(req, res, next);
 const urlencodedMiddleware = express.urlencoded({
   extended: false,
   limit: env.bodyLimit,
@@ -139,7 +171,7 @@ export function createApp() {
   app.use(compressionMiddleware);
   app.use(corsMiddleware);
   app.use(cookieParser() as unknown as RequestHandler);
-  app.use(jsonMiddleware);
+  app.use(jsonPorRuta);
   app.use(urlencodedMiddleware);
   app.use(noStoreMiddleware);
 

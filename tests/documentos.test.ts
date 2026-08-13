@@ -1,16 +1,20 @@
 /** tests/documentos.test.ts
  *
- * `PUT /:id` y `POST /bulk` siguen sin schema de validación (req.body pasa
- * directo a la query) -- solo `POST /` valida con Zod (ver
- * documentos.schema.ts, sumado junto con offline). Estos tests cubren la
- * regla de negocio real (estado_alerta calculado por fecha_vencimiento),
- * CRUD, bulk, permisos por rol, y el aviso de posible duplicado.
+ * Cubre la regla de negocio real (estado_alerta calculado por
+ * fecha_vencimiento), CRUD, carga masiva, permisos por rol y el aviso de
+ * posible duplicado.
+ *
+ * Las TRES rutas que escriben (`POST /`, `PUT /:id` y `POST /bulk`) validan
+ * con Zod -- ver documentos.schema.ts. El bloque "validación" de abajo
+ * cubre los límites de esos schemas; los casos felices están repartidos en
+ * el resto del archivo.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import { app, crearTenantDePrueba, borrarTenantDePrueba } from "./helpers";
 import { crearUsuarioService } from "../src/server/services/auth.service";
 import { closeDatabase, withTenant } from "../src/server/config/database";
+import { MAX_FILAS_CARGA_MASIVA } from "../src/server/schemas/documentos.schema";
 
 function fechaEn(dias: number): string {
   const fecha = new Date();
@@ -124,9 +128,49 @@ describe("documentos: CRUD, estado_alerta y permisos por rol", () => {
       { nombre_documento: "Bulk 2", responsable: "B", fecha_vencimiento: fechaEn(20) },
     ]);
     expect(res.status).toBe(201);
+    // Devuelve el conteo, no las filas: una importación de miles de
+    // registros no tiene por qué volver entera al cliente.
+    expect(res.body.insertadas).toBe(2);
 
     const despues = await agentAdmin.get("/api/erp/documentos?pageSize=1");
     expect(despues.body.pagination.total).toBe(totalAntes + 2);
+  });
+
+  it("la carga masiva inserta en lotes: 1.200 filas cruzan el tamaño de lote sin perder ninguna", async () => {
+    const antes = await agentAdmin.get("/api/erp/documentos?pageSize=1");
+    const totalAntes = antes.body.pagination.total;
+
+    // 1.200 > TAMANO_LOTE (1.000): fuerza la segunda vuelta del loop de
+    // lotes, que es donde se rompería un cálculo de placeholders mal hecho
+    // ($1..$4000 en el primero, y de nuevo desde $1 en el segundo).
+    const filas = Array.from({ length: 1200 }, (_, i) => ({
+      nombre_documento: `Lote ${i}`,
+      responsable: "Importación",
+      fecha_vencimiento: fechaEn(30),
+    }));
+
+    const res = await agentAdmin.post("/api/erp/documentos/bulk").send(filas);
+    expect(res.status).toBe(201);
+    expect(res.body.insertadas).toBe(1200);
+
+    const despues = await agentAdmin.get("/api/erp/documentos?pageSize=1");
+    expect(despues.body.pagination.total).toBe(totalAntes + 1200);
+  });
+
+  it("la carga masiva acepta un cuerpo bastante más grande que el límite general de 16 kb", async () => {
+    // El límite general cortaba la importación a ~110 filas con un 413 que
+    // el cliente ni siquiera mostraba. 400 filas con textos largos superan
+    // holgadamente esos 16 kb (ver BULK_BODY_LIMIT en app.ts).
+    const filas = Array.from({ length: 400 }, (_, i) => ({
+      nombre_documento: `Licencia de operación de planta concentradora N° ${i} - unidad minera`,
+      responsable: "Juan Carlos Pérez Rodríguez - Jefe de Seguridad y Salud Ocupacional",
+      fecha_vencimiento: fechaEn(60),
+    }));
+    expect(Buffer.byteLength(JSON.stringify(filas))).toBeGreaterThan(16 * 1024);
+
+    const res = await agentAdmin.post("/api/erp/documentos/bulk").send(filas);
+    expect(res.status).toBe(201);
+    expect(res.body.insertadas).toBe(400);
   });
 
   it("un usuario con rol 'lectura' no puede crear ni borrar (403), pero sí puede leer", async () => {
@@ -313,6 +357,148 @@ describe("documentos: aislamiento entre tenants", () => {
     );
     expect(filaB.rows).toHaveLength(1);
     expect(filaB.rows[0].nombre_documento).toBe("Documento secreto de B");
+  });
+});
+
+describe("documentos: validación de entrada (Zod)", () => {
+  let tenantSlug: string;
+  const password = "ClaveDePrueba123";
+  const agent = request.agent(app);
+  let documentoId: number;
+
+  beforeAll(async () => {
+    const creado = await crearTenantDePrueba(password);
+    tenantSlug = creado.tenant.slug;
+    await agent.post("/api/auth/login").send({ tenantSlug, email: creado.usuario.email, password });
+
+    const doc = await agent.post("/api/erp/documentos").send({
+      nombre_documento: "Documento base",
+      responsable: "X",
+      fecha_vencimiento: fechaEn(30),
+    });
+    documentoId = doc.body.id;
+  });
+
+  // ── PUT /:id ──────────────────────────────────────────────────────────
+
+  it("PUT rechaza un nombre vacío con 400 en vez de guardarlo", async () => {
+    const res = await agent.put(`/api/erp/documentos/${documentoId}`).send({
+      nombre_documento: "   ",
+      responsable: "X",
+      fecha_vencimiento: fechaEn(30),
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.errors[0].field).toBe("nombre_documento");
+  });
+
+  it("PUT rechaza un nombre que excede el largo de la columna (200)", async () => {
+    // Sin validación esto llegaba a Postgres y volvía como 500 genérico,
+    // no como un error de formulario que el usuario pudiera corregir.
+    const res = await agent.put(`/api/erp/documentos/${documentoId}`).send({
+      nombre_documento: "A".repeat(201),
+      responsable: "X",
+      fecha_vencimiento: fechaEn(30),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("PUT ignora los campos de más que manda el formulario (id, estado_alerta, total_count)", async () => {
+    // El cliente hace setForm(doc) con la fila entera, así que el PUT llega
+    // con columnas calculadas. El schema no es .strict(): las descarta.
+    const res = await agent.put(`/api/erp/documentos/${documentoId}`).send({
+      id: 999999,
+      estado_alerta: "VENCIDO",
+      total_count: "42",
+      nombre_documento: "Actualizado con campos de más",
+      responsable: "Y",
+      fecha_vencimiento: fechaEn(45),
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.nombre_documento).toBe("Actualizado con campos de más");
+    // El id de la URL manda; el del body se descartó.
+    expect(res.body.id).toBe(documentoId);
+  });
+
+  it("PUT recorta los espacios sobrantes del nombre", async () => {
+    const res = await agent.put(`/api/erp/documentos/${documentoId}`).send({
+      nombre_documento: "  Con espacios  ",
+      responsable: "Y",
+      fecha_vencimiento: fechaEn(45),
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.nombre_documento).toBe("Con espacios");
+  });
+
+  // ── POST /bulk ────────────────────────────────────────────────────────
+
+  it("bulk rechaza un cuerpo que no es un array", async () => {
+    // Antes esto entraba al `for (const d of items)` y explotaba como 500.
+    const res = await agent
+      .post("/api/erp/documentos/bulk")
+      .send({ nombre_documento: "No soy un array", fecha_vencimiento: fechaEn(10) });
+    expect(res.status).toBe(400);
+  });
+
+  it("bulk rechaza un array vacío", async () => {
+    const res = await agent.post("/api/erp/documentos/bulk").send([]);
+    expect(res.status).toBe(400);
+  });
+
+  it("bulk rechaza el lote entero si UNA fila está mal, sin insertar nada", async () => {
+    const antes = await agent.get("/api/erp/documentos?pageSize=1");
+
+    const res = await agent.post("/api/erp/documentos/bulk").send([
+      { nombre_documento: "Válida", responsable: "A", fecha_vencimiento: fechaEn(10) },
+      { nombre_documento: "", responsable: "B", fecha_vencimiento: fechaEn(10) },
+    ]);
+    expect(res.status).toBe(400);
+    // El índice del array viaja en el campo del error: es lo que le permite
+    // al cliente decir "fila 3 de tu planilla" en vez de un error genérico.
+    expect(res.body.errors[0].field).toBe("1.nombre_documento");
+
+    const despues = await agent.get("/api/erp/documentos?pageSize=1");
+    expect(despues.body.pagination.total).toBe(antes.body.pagination.total);
+  });
+
+  it("bulk rechaza más filas que el máximo permitido", async () => {
+    const filas = Array.from({ length: MAX_FILAS_CARGA_MASIVA + 1 }, (_, i) => ({
+      nombre_documento: `Fila ${i}`,
+      fecha_vencimiento: fechaEn(10),
+    }));
+    const res = await agent.post("/api/erp/documentos/bulk").send(filas);
+    expect(res.status).toBe(400);
+  });
+
+  it("un cuerpo que supera el límite responde 413, no 500", async () => {
+    // body-parser lanza su propio error (type: "entity.too.large"), que no
+    // es un AppError: sin traducirlo caía al 500 genérico. Importa por dos
+    // motivos -- el cliente no puede distinguir "me pasé de tamaño" de "se
+    // rompió el servidor", y un 5xx despierta a alguien de guardia por lo
+    // que en realidad es un error del que llama.
+    const enorme = Array.from({ length: 2000 }, (_, i) => ({
+      nombre_documento: `Documento con nombre deliberadamente larguísimo número ${i} `.repeat(30),
+      fecha_vencimiento: fechaEn(10),
+    }));
+    expect(Buffer.byteLength(JSON.stringify(enorme))).toBeGreaterThan(2 * 1024 * 1024);
+
+    const res = await agent.post("/api/erp/documentos/bulk").send(enorme);
+    expect(res.status).toBe(413);
+  });
+
+  it("un JSON malformado responde 400, no 500", async () => {
+    const res = await agent
+      .post("/api/erp/documentos/bulk")
+      .set("Content-Type", "application/json")
+      .send('[{"nombre_documento": "roto"');
+    expect(res.status).toBe(400);
+  });
+
+  it("bulk acepta filas sin responsable (queda en NULL)", async () => {
+    const res = await agent
+      .post("/api/erp/documentos/bulk")
+      .send([{ nombre_documento: "Sin responsable", fecha_vencimiento: fechaEn(10) }]);
+    expect(res.status).toBe(201);
+    expect(res.body.insertadas).toBe(1);
   });
 });
 

@@ -8,6 +8,8 @@ import { publicarEventoTenant } from "../../server/services/realtimeEvents.servi
 import { sanearNombreArchivo } from "../../server/services/documentStorage";
 import type {
   CrearDocumentoInput,
+  ActualizarDocumentoInput,
+  CargaMasivaDocumentosInput,
   SubirVersionDocumentoInput,
 } from "../../server/schemas/documentos.schema";
 import { DocumentosService } from "./documentos.service";
@@ -83,8 +85,9 @@ export const DocumentosController = {
   async update(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
+      const cambios = req.validatedBody as ActualizarDocumentoInput;
       const data = await withTenant(tenantId, (client) =>
-        DocumentosService.update(client, tenantId, Number(req.params.id), req.body)
+        DocumentosService.update(client, tenantId, Number(req.params.id), cambios)
       );
 
       if (!data) {
@@ -125,13 +128,17 @@ export const DocumentosController = {
   async bulkCreate(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const data = await withTenant(tenantId, (client) =>
-        DocumentosService.bulkCreate(client, tenantId, req.body)
+      const filas = req.validatedBody as CargaMasivaDocumentosInput;
+      const insertadas = await withTenant(tenantId, (client) =>
+        DocumentosService.bulkCreate(client, tenantId, filas)
       );
       await publicarEventoTenant(tenantId, "documentos.carga_masiva", {
-        cantidad: Array.isArray(req.body) ? req.body.length : undefined,
+        cantidad: insertadas,
       });
-      res.status(201).json(data);
+      // Se devuelve el conteo y no las filas: una importación de miles de
+      // registros no tiene por qué volver entera al cliente, que igual
+      // recarga la lista paginada después.
+      res.status(201).json({ insertadas });
     } catch {
       res.status(500).json({ error: "Error en carga masiva" });
     }
