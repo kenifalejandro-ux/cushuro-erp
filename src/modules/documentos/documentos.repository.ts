@@ -3,12 +3,16 @@
 import type { PoolClient } from "pg";
 import type { Paginacion } from "../../server/shared/utils/pagination";
 
-// Sin schema de validación (ver documentos.routes.ts: req.body pasa directo,
-// sin `validate()`) -- este tipo documenta la forma asumida por las queries
-// de abajo, no agrega validación en runtime.
+// La validación en runtime la hacen los schemas de Zod en las rutas (ver
+// server/schemas/documentos.schema.ts) -- este tipo solo describe la forma
+// que asumen las queries de abajo.
+//
+// `responsable` admite undefined además de null porque los schemas lo
+// declaran `.optional()`: quien no lo manda deja la columna en NULL, y las
+// queries normalizan con `?? null` antes de pasarlo a pg.
 export type DocumentoPayload = {
   nombre_documento: string;
-  responsable: string | null;
+  responsable?: string | null;
   fecha_vencimiento: string;
   estado?: string;
 };
@@ -97,7 +101,7 @@ export const DocumentosRepository = {
       WHERE id = $5 AND tenant_id = $6
       RETURNING *
     `,
-      [nombre_documento, responsable, fecha_vencimiento, estado, id, tenantId]
+      [nombre_documento, responsable ?? null, fecha_vencimiento, estado ?? null, id, tenantId]
     );
 
     return result.rows[0] ?? null;
@@ -141,14 +145,49 @@ export const DocumentosRepository = {
   },
 
   // 📦 CARGA MASIVA
+  /** Inserta todas las filas en UNA sola sentencia, no en un loop de N
+   *  INSERT. La diferencia importa por multi-tenancy, no por microsegundos:
+   *  cada round-trip a Postgres mantiene tomada una conexión del pool
+   *  COMPARTIDO entre todos los tenants, así que una importación de 5.000
+   *  filas en loop bloquea esa conexión 5.000 viajes de red seguidos y le
+   *  sube la latencia a los demás clientes. Con una sola sentencia es un
+   *  viaje.
+   *
+   *  Se inserta en lotes de 1.000 y no todo junto porque Postgres tiene un
+   *  tope duro de 65.535 parámetros por sentencia: con 4 columnas por fila,
+   *  el techo real está en ~16.000 filas. El lote de 1.000 (4.000
+   *  parámetros) deja margen de sobra y mantiene acotado el tamaño de cada
+   *  sentencia. Todos los lotes van en la MISMA transacción (el `client` lo
+   *  abre withTenant), así que la importación sigue siendo todo-o-nada. */
   async bulkCreate(client: PoolClient, tenantId: string, items: DocumentoPayload[]) {
-    for (const d of items) {
-      await client.query(
+    const TAMANO_LOTE = 1000;
+    let insertadas = 0;
+
+    for (let inicio = 0; inicio < items.length; inicio += TAMANO_LOTE) {
+      const lote = items.slice(inicio, inicio + TAMANO_LOTE);
+
+      // ($1,$2,$3,$4), ($5,$6,$7,$8), ... -- los valores SIEMPRE
+      // parametrizados, nunca interpolados en el SQL.
+      const placeholders = lote
+        .map((_, i) => `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, $${i * 4 + 4})`)
+        .join(", ");
+
+      const valores = lote.flatMap((d) => [
+        tenantId,
+        d.nombre_documento,
+        d.responsable ?? null,
+        d.fecha_vencimiento,
+      ]);
+
+      const result = await client.query(
         `INSERT INTO documentos (tenant_id, nombre_documento, responsable, fecha_vencimiento)
-         VALUES ($1,$2,$3,$4)`,
-        [tenantId, d.nombre_documento, d.responsable, d.fecha_vencimiento]
+         VALUES ${placeholders}`,
+        valores
       );
+      insertadas += result.rowCount ?? 0;
     }
+
+    return insertadas;
   },
 
   // ============================================================

@@ -6,6 +6,8 @@ import { asyncHandler } from "../../server/shared/utils/asyncHandler";
 import { validate } from "../../server/middleware/validate";
 import {
   crearDocumentoSchema,
+  actualizarDocumentoSchema,
+  cargaMasivaDocumentosSchema,
   subirVersionDocumentoSchema,
 } from "../../server/schemas/documentos.schema";
 import { subirArchivoDocumento } from "./documentos.upload";
@@ -25,13 +27,21 @@ router.post(
   validate(crearDocumentoSchema),
   asyncHandler(DocumentosController.create)
 );
-router.put("/:id", requireRole("admin", "operador"), asyncHandler(DocumentosController.update));
+router.put(
+  "/:id",
+  requireRole("admin", "operador"),
+  validate(actualizarDocumentoSchema),
+  asyncHandler(DocumentosController.update)
+);
 router.delete("/:id", requireRole("admin"), asyncHandler(DocumentosController.delete));
 
 // 📊 EXCEL MASIVO
+// El límite de tamaño del cuerpo para esta ruta lo amplía app.ts (los 16 kb
+// del default cortaban la importación a ~110 filas, ver BULK_BODY_LIMIT).
 router.post(
   "/bulk",
   requireRole("admin", "operador"),
+  validate(cargaMasivaDocumentosSchema),
   asyncHandler(DocumentosController.bulkCreate)
 );
 

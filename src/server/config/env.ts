@@ -34,6 +34,13 @@ export const env = {
   isProduction: process.env.NODE_ENV === "production",
   port: readNumber(process.env.PORT, 3000),
   bodyLimit: process.env.BODY_LIMIT || "16kb",
+  // Límite ampliado SOLO para las rutas de carga masiva (`/bulk`) -- ver
+  // app.ts. Separado de bodyLimit a propósito: subir el límite general
+  // por culpa de un endpoint puntual le agranda la superficie de ataque a
+  // toda la API. 2 MB alcanzan holgadamente para las 5.000 filas que topa
+  // MAX_FILAS_CARGA_MASIVA (~150 bytes por fila, con margen para campos
+  // largos).
+  bulkBodyLimit: process.env.BULK_BODY_LIMIT || "2mb",
   logLevel: process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug"),
   allowedOrigins,
   recaptchaSiteKey: process.env.RECAPTCHA_SITE_KEY || "",

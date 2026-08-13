@@ -23,6 +23,141 @@ interface DocumentoVersion {
 const MIME_TYPES_PERMITIDOS = ["application/pdf", "image/jpeg", "image/png"];
 const TAMANO_MAXIMO_BYTES = 10 * 1024 * 1024;
 
+/** Espejo de MAX_FILAS_CARGA_MASIVA en server/schemas/documentos.schema.ts.
+ *  Duplicarlo permite avisar ANTES de mandar 5 MB al servidor para que los
+ *  rechace; el servidor sigue siendo el que decide (esto es comodidad, no
+ *  seguridad). */
+const MAX_FILAS_IMPORTACION = 5000;
+
+interface FilaImportada {
+  nombre_documento: string;
+  responsable?: string;
+  fecha_vencimiento: string;
+}
+
+/** Encabezados aceptados por columna, ya normalizados (ver
+ *  normalizarEncabezado: minúsculas, sin acentos y SIN separadores). Se
+ *  admiten varios porque la planilla la arma el cliente, no nosotros:
+ *  exigir un encabezado exacto convierte cualquier variante ("Documento"
+ *  en vez de "Nombre") en un error que el usuario no sabe corregir.
+ *
+ *  Ojo al agregar alias: van sin espacios ni guiones bajos, porque el
+ *  encabezado con el que se comparan ya viene sin separadores. */
+const COLUMNAS = {
+  nombre: ["nombredocumento", "documento", "nombre"],
+  responsable: ["responsable", "encargado"],
+  vencimiento: ["fechavencimiento", "vencimiento", "fecha", "vence"],
+};
+
+function normalizarEncabezado(clave: string): string {
+  return (
+    clave
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      // Marcas diacríticas combinantes, por punto de código: escritas como
+      // caracteres literales serían invisibles y frágiles ante un reformateo.
+      .replace(/[\u0300-\u036f]/g, "")
+      // Espacios, guiones, guiones bajos, puntos: cualquier cosa que alguien
+      // use para separar palabras en un encabezado.
+      .replace(/[^a-z0-9]/g, "")
+  );
+}
+
+function buscarCelda(fila: Record<string, unknown>, alias: string[]): unknown {
+  for (const [clave, valor] of Object.entries(fila)) {
+    if (alias.includes(normalizarEncabezado(clave))) return valor;
+  }
+  return undefined;
+}
+
+function textoDeCelda(fila: Record<string, unknown>, alias: string[]): string {
+  const valor = buscarCelda(fila, alias);
+  return valor == null ? "" : String(valor).trim();
+}
+
+/** Devuelve la fecha en ISO (YYYY-MM-DD) o "" si no se pudo interpretar.
+ *
+ *  Excel guarda las fechas como número de serie, no como texto. Con
+ *  `cellDates: true` la librería ya devuelve un Date en la mayoría de los
+ *  casos, pero una celda formateada como texto llega como string -- por eso
+ *  se contemplan los dos. Se usan los getters LOCALES (no toISOString) para
+ *  no correr la fecha un día por zona horaria: quien escribe 15/03/2027 en
+ *  Lima espera guardar el 15, no el 14. */
+function fechaDeCelda(fila: Record<string, unknown>, alias: string[]): string {
+  const valor = buscarCelda(fila, alias);
+  if (valor == null || valor === "") return "";
+
+  const fecha = valor instanceof Date ? valor : new Date(String(valor));
+  if (Number.isNaN(fecha.getTime())) return "";
+
+  const mes = String(fecha.getMonth() + 1).padStart(2, "0");
+  const dia = String(fecha.getDate()).padStart(2, "0");
+  return `${fecha.getFullYear()}-${mes}-${dia}`;
+}
+
+/** Clave de idempotencia derivada del CONTENIDO de las filas a importar.
+ *
+ *  Que sea derivada y no aleatoria es lo que hace que esto sirva. El
+ *  reintento real no es automático: es una persona que ve el error, vuelve
+ *  a apretar "Excel" y elige EL MISMO ARCHIVO. Un crypto.randomUUID() daría
+ *  una clave nueva en ese segundo intento y duplicaría todo igual; el hash
+ *  del contenido da la misma clave, y el servidor lo reconoce como
+ *  reintento (ver idempotentBatch.ts).
+ *
+ *  Se hashea el contenido ya parseado y normalizado, no los bytes crudos
+ *  del archivo: así el mismo Excel guardado de nuevo por Excel (que cambia
+ *  metadatos internos y por lo tanto los bytes) sigue dando la misma clave.
+ *
+ *  El resultado se formatea como UUID porque la columna de la base es de
+ *  ese tipo. Se fuerzan los nibbles de versión (8, "custom") y de variante
+ *  (10xx) para que sea un UUID bien formado y no un hash disfrazado. */
+async function claveDeIdempotencia(filas: FilaImportada[]): Promise<string | undefined> {
+  // crypto.subtle solo existe en contexto seguro (https o localhost). Si no
+  // está, se sigue sin idempotencia en vez de romper la importación: es una
+  // protección contra duplicados, no un requisito para poder importar.
+  if (!globalThis.crypto?.subtle) return undefined;
+
+  const contenido = JSON.stringify(filas);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(contenido));
+  const bytes = new Uint8Array(digest).slice(0, 16);
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x80; // versión 8
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variante RFC 4122
+
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** Traduce la respuesta de error a algo accionable. El 413 es el caso que
+ *  más confundía: no lo genera nuestro código sino Express, así que no trae
+ *  JSON y sin este mensaje el usuario ve un error vacío. */
+async function mensajeDeErrorDelServidor(res: Response, filas: number): Promise<string> {
+  if (res.status === 413) {
+    return `El archivo es demasiado grande para enviarlo de una vez (${filas} filas). Dividilo en varios archivos.`;
+  }
+  if (res.status === 403) {
+    const body = await res.json().catch(() => null);
+    if (body?.error === "cuota_excedida") {
+      return `Se alcanzó el límite de documentos del plan (${body.uso} de ${body.limite}). Importar ${filas} más lo superaría.`;
+    }
+    return "No tenés permiso para importar documentos.";
+  }
+  if (res.status === 400) {
+    const body = await res.json().catch(() => null);
+    const primero = body?.errors?.[0];
+    if (primero) {
+      // El campo viene como "3.nombre_documento" (índice del array). Se
+      // traduce a número de fila de la planilla, +2 por el encabezado.
+      const indice = Number(String(primero.field).split(".")[0]);
+      const ubicacion = Number.isInteger(indice) ? `Fila ${indice + 2}: ` : "";
+      return `${ubicacion}${primero.message}`;
+    }
+    return "El archivo tiene filas con datos inválidos.";
+  }
+  return "El servidor rechazó la importación. Intentalo de nuevo.";
+}
+
 function formatearTamano(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -65,6 +200,11 @@ export default function DocumentosTable() {
   const [cargandoVersiones, setCargandoVersiones] = useState(false);
   const [subiendoArchivo, setSubiendoArchivo] = useState(false);
   const [errorArchivo, setErrorArchivo] = useState<string | null>(null);
+
+  // 📦 IMPORTACIÓN MASIVA
+  const [importando, setImportando] = useState(false);
+  const [errorImportacion, setErrorImportacion] = useState<string | null>(null);
+  const [resultadoImportacion, setResultadoImportacion] = useState<string | null>(null);
 
   const load = useCallback(
     (paginaAConsultar: number = page) => {
@@ -310,23 +450,89 @@ export default function DocumentosTable() {
     window.open(`/api/erp/documentos/${docArchivoId}/versiones/${versionId}/descarga`, "_blank");
   };
 
-  // 📦 EXCEL
+  // 📦 IMPORTACIÓN DESDE EXCEL
+  //
+  // xlsx se carga on-demand (import dinámico) para que su chunk no viaje en
+  // el bundle inicial -- mismo criterio que RepuestosTable, y ya está
+  // contemplado en el manualChunks de vite.config.js.
+  //
+  // Antes esto hacía readAsText() + JSON.parse(): decía "Excel" pero
+  // esperaba un .json, y si el usuario elegía un .xlsx de verdad el
+  // JSON.parse tiraba adentro de un callback async, o sea fallaba en
+  // silencio absoluto.
+  const leerFilasDelExcel = async (file: File): Promise<FilaImportada[]> => {
+    const buffer = await file.arrayBuffer();
+    const XLSX = await import("xlsx");
+    const wb = XLSX.read(buffer, { type: "array", cellDates: true });
+
+    const hoja = wb.Sheets[wb.SheetNames[0]];
+    if (!hoja) throw new Error("El archivo no tiene ninguna hoja de cálculo.");
+
+    const filas = XLSX.utils.sheet_to_json<Record<string, unknown>>(hoja);
+    if (filas.length === 0) throw new Error("La primera hoja está vacía.");
+
+    return filas.map((fila, i) => {
+      const nombre = textoDeCelda(fila, COLUMNAS.nombre);
+      const vencimiento = fechaDeCelda(fila, COLUMNAS.vencimiento);
+
+      // Se valida acá y no solo en el servidor para poder decir QUÉ fila
+      // está mal: el 400 del backend habla de índices del array, que al
+      // usuario no le dicen nada. La fila +2 compensa el encabezado y que
+      // las planillas se numeran desde 1.
+      if (!nombre) throw new Error(`Fila ${i + 2}: falta el nombre del documento.`);
+      if (!vencimiento)
+        throw new Error(`Fila ${i + 2}: falta la fecha de vencimiento o no es una fecha válida.`);
+
+      return {
+        nombre_documento: nombre,
+        responsable: textoDeCelda(fila, COLUMNAS.responsable) || undefined,
+        fecha_vencimiento: vencimiento,
+      };
+    });
+  };
+
   const uploadExcel = async (file: File) => {
-    const reader = new FileReader();
+    setErrorImportacion(null);
+    setResultadoImportacion(null);
+    setImportando(true);
 
-    reader.onload = async (e) => {
-      const json = JSON.parse(e.target?.result as string);
+    try {
+      const filas = await leerFilasDelExcel(file);
 
-      await apiFetch("/api/erp/documentos/bulk", {
+      if (filas.length > MAX_FILAS_IMPORTACION) {
+        throw new Error(
+          `El archivo tiene ${filas.length} filas y el máximo es ${MAX_FILAS_IMPORTACION}. Dividilo en varios archivos.`
+        );
+      }
+
+      const clave = await claveDeIdempotencia(filas);
+
+      const res = await apiFetch("/api/erp/documentos/bulk", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(json),
+        headers: {
+          "Content-Type": "application/json",
+          ...(clave ? { "Idempotency-Key": clave } : {}),
+        },
+        body: JSON.stringify(filas),
       });
 
-      load();
-    };
+      if (!res.ok) {
+        setErrorImportacion(await mensajeDeErrorDelServidor(res, filas.length));
+        return;
+      }
 
-    reader.readAsText(file);
+      const body = await res.json().catch(() => ({}));
+      setResultadoImportacion(
+        body.yaImportado
+          ? "Este archivo ya se había importado antes, así que no se duplicó nada."
+          : `Se importaron ${body.insertadas ?? filas.length} documentos correctamente.`
+      );
+      load();
+    } catch (err) {
+      setErrorImportacion(err instanceof Error ? err.message : "No se pudo leer el archivo.");
+    } finally {
+      setImportando(false);
+    }
   };
 
   if (loading) {
@@ -360,14 +566,27 @@ export default function DocumentosTable() {
           </button>
 
           {/* 📦 EXCEL */}
-          <label className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg cursor-pointer">
-            Excel
+          <label
+            className={`px-6 py-2.5 text-white text-sm font-medium rounded-lg ${
+              importando
+                ? "bg-blue-400 cursor-wait"
+                : "bg-blue-600 hover:bg-blue-700 cursor-pointer"
+            }`}
+          >
+            {importando ? "Importando..." : "Excel"}
             <input
               type="file"
               hidden
+              accept=".xlsx,.xls,.csv"
+              disabled={importando}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) uploadExcel(file);
+                // Sin esto, elegir el MISMO archivo dos veces seguidas no
+                // dispara onChange (el value no cambió) -- justo lo que
+                // querría hacer alguien que corrigió su planilla y la
+                // vuelve a subir con el mismo nombre.
+                e.target.value = "";
               }}
             />
           </label>
@@ -492,6 +711,32 @@ export default function DocumentosTable() {
               Cerrar
             </button>
           </div>
+        </div>
+      )}
+
+      {/* RESULTADO DE LA IMPORTACIÓN */}
+      {errorImportacion && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+          <p className="text-sm text-red-900 font-light flex-1">{errorImportacion}</p>
+          <button
+            className="text-red-400 hover:text-red-600 text-sm shrink-0"
+            onClick={() => setErrorImportacion(null)}
+            aria-label="Cerrar aviso de error"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {resultadoImportacion && (
+        <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4 flex items-start gap-3">
+          <p className="text-sm text-green-900 font-light flex-1">{resultadoImportacion}</p>
+          <button
+            className="text-green-500 hover:text-green-700 text-sm shrink-0"
+            onClick={() => setResultadoImportacion(null)}
+            aria-label="Cerrar aviso de importación"
+          >
+            ✕
+          </button>
         </div>
       )}
 
