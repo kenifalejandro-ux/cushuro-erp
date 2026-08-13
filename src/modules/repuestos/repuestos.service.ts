@@ -2,6 +2,8 @@
 
 import type { PoolClient } from "pg";
 import type { Paginacion } from "../../server/shared/utils/pagination";
+import type { RegistrarMovimientoRepuestoInput } from "../../server/schemas/repuestos.schema";
+import { idempotentInsert } from "../../server/shared/utils/idempotentInsert";
 import { RepuestosRepository, type RepuestoPayload } from "./repuestos.repository";
 
 export const RepuestosService = {
@@ -33,5 +35,39 @@ export const RepuestosService = {
   // 📊 KPIs
   getKPIs(client: PoolClient, tenantId: string) {
     return RepuestosRepository.getDashboardKPIs(client, tenantId);
+  },
+
+  // 📦 registrar movimiento de stock (entrada/salida)
+  // Devuelve `creado: false` cuando este movimiento ya se había registrado
+  // con el mismo `cliente_uuid` -- el reintento de un envío cuya respuesta
+  // se perdió. El controller usa ese flag para no publicar el evento de
+  // nuevo. Sin `cliente_uuid` en el body, siempre crea (mismo molde que
+  // CombustibleService.registrarLectura).
+  registrarMovimiento(
+    client: PoolClient,
+    tenantId: string,
+    usuarioId: string,
+    data: RegistrarMovimientoRepuestoInput
+  ) {
+    return idempotentInsert({
+      client,
+      tenantId,
+      modulo: "repuestos",
+      clienteUuid: data.cliente_uuid,
+      insertar: async () => {
+        const fila = await RepuestosRepository.registrarMovimiento(client, tenantId, {
+          repuestoId: data.repuesto_id,
+          tipo: data.tipo,
+          cantidad: data.cantidad,
+          motivo: data.motivo ?? null,
+          registradoEn: data.registrado_en ?? new Date().toISOString(),
+          usuarioId,
+          metadata: data.metadata ?? {},
+        });
+        return { id: Number(fila.movimiento.id), fila };
+      },
+      recuperar: (filaId) =>
+        RepuestosRepository.findMovimientoConRepuesto(client, tenantId, filaId),
+    });
   },
 };

@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 
+import { suscribirseASincronizacion } from "../../offline/offlineSync";
 import { apiFetch } from "../../services/apiClient";
+import { ahoraParaInputLocal } from "../../utils/fechaLocal";
 
 // 1. ESTRUCTURA DE DATOS: Define qué campos tiene un repuesto
 interface Repuesto {
@@ -53,6 +55,19 @@ export default function RepuestosTable() {
     precio: 0,
   });
 
+  // --- MOVIMIENTO DE STOCK (entrada/salida, offline-capaz) ---
+  const [movimientoRepuesto, setMovimientoRepuesto] = useState<Repuesto | null>(null);
+  const [movTipo, setMovTipo] = useState<"entrada" | "salida">("salida");
+  const [movCantidad, setMovCantidad] = useState("");
+  const [movMotivo, setMovMotivo] = useState("");
+  const [movRegistradoEn, setMovRegistradoEn] = useState(ahoraParaInputLocal());
+  const [movEnviando, setMovEnviando] = useState(false);
+  // El cliente_uuid se fija al ABRIR el modal, no al apretar el botón --
+  // mismo motivo que en CombustiblePanel/ChecklistsView: si los dos taps
+  // entran antes del re-render, generarlo en el submit mandaría dos claves
+  // distintas y el servidor crearía dos movimientos.
+  const [movClienteUuid, setMovClienteUuid] = useState("");
+
   const fetchRepuestos = useCallback(
     async (paginaAConsultar: number = page) => {
       try {
@@ -75,6 +90,77 @@ export default function RepuestosTable() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchRepuestos(page);
   }, [page, fetchRepuestos]);
+
+  // Cuando la cola offline termina de drenar, el movimiento que se cargó
+  // sin señal ya existe del lado del servidor -- recargar es lo que hace
+  // que el stock se ponga al día sin que el operario tenga que refrescar a
+  // mano (mismo hook que usa CombustiblePanel.tsx).
+  useEffect(() => {
+    return suscribirseASincronizacion(({ sincronizadas }) => {
+      if (sincronizadas > 0) fetchRepuestos(page);
+    });
+  }, [page, fetchRepuestos]);
+
+  // --- MOVIMIENTO DE STOCK: abrir modal y registrar ---
+  const abrirModalMovimiento = (r: Repuesto) => {
+    setMovimientoRepuesto(r);
+    setMovTipo("salida");
+    setMovCantidad("");
+    setMovMotivo("");
+    setMovRegistradoEn(ahoraParaInputLocal());
+    // Se regenera en cada apertura: si no, el segundo movimiento legítimo
+    // del turno reusaría la clave del primero y el servidor devolvería
+    // aquel en silencio -- se perdería un movimiento, que es peor que el
+    // duplicado que estamos evitando.
+    setMovClienteUuid(crypto.randomUUID());
+  };
+
+  const cerrarModalMovimiento = () => setMovimientoRepuesto(null);
+
+  const handleRegistrarMovimiento = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (movEnviando || !movimientoRepuesto) return;
+    setMovEnviando(true);
+    try {
+      const res = await apiFetch("/api/erp/repuestos/movimientos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // Viene del estado (se fijó al abrir el modal), NO de un
+          // crypto.randomUUID() acá adentro -- ver el comentario donde se
+          // declara movClienteUuid.
+          cliente_uuid: movClienteUuid,
+          repuesto_id: movimientoRepuesto.id,
+          tipo: movTipo,
+          cantidad: Number(movCantidad),
+          motivo: movMotivo || undefined,
+          registrado_en: new Date(movRegistradoEn).toISOString(),
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert(body.message || "Error al registrar el movimiento.");
+        return;
+      }
+
+      cerrarModalMovimiento();
+
+      // 202 = no había red y quedó en la cola del dispositivo (ver
+      // apiFetch). No se recarga: sin señal el GET también falla, y el
+      // movimiento todavía no existe del lado del servidor.
+      if (res.status === 202) {
+        alert(
+          "Sin conexión: el movimiento quedó guardado en este equipo y se enviará solo cuando vuelva la señal."
+        );
+        return;
+      }
+
+      fetchRepuestos(page);
+    } finally {
+      setMovEnviando(false);
+    }
+  };
 
   // 3. LÓGICA DE ELIMINACIÓN: Borra un registro por ID
   const handleDelete = async (id: number) => {
@@ -276,8 +362,15 @@ export default function RepuestosTable() {
                 {/* FECHA DE CREACIÓN (Mapeada desde el backend) */}
                 <td className="p-5 text-sm text-slate-500 text-right">{r.fecha || "---"}</td>
 
-                {/* ACCIONES (EDITAR - ELIMINAR) */}
+                {/* ACCIONES (MOVIMIENTO - EDITAR - ELIMINAR) */}
                 <td className="p-5 text-right space-x-2">
+                  <button
+                    onClick={() => abrirModalMovimiento(r)}
+                    className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                    title="Registrar movimiento de stock"
+                  >
+                    📦
+                  </button>
                   <button
                     onClick={() => openEditModal(r)}
                     className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
@@ -476,6 +569,108 @@ export default function RepuestosTable() {
                 className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4"
               >
                 {editingId ? "Guardar Cambios" : "Registrar en Inventario"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: registrar movimiento de stock */}
+      {movimientoRepuesto && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl animate-in zoom-in duration-200">
+            <div className="p-6 border-b flex justify-between items-center">
+              <h3 className="text-xl font-bold">Movimiento — {movimientoRepuesto.codigo}</h3>
+              <button
+                onClick={cerrarModalMovimiento}
+                className="text-slate-400 hover:text-slate-900 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleRegistrarMovimiento} className="p-6 space-y-4">
+              <p className="text-sm text-slate-500">
+                Stock actual: <span className="font-bold">{movimientoRepuesto.stock}</span>
+              </p>
+
+              <div className="space-y-1">
+                <label
+                  htmlFor="movimiento-tipo"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Tipo de movimiento
+                </label>
+                <select
+                  id="movimiento-tipo"
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
+                  value={movTipo}
+                  onChange={(e) => setMovTipo(e.target.value as "entrada" | "salida")}
+                >
+                  <option value="salida">Salida (se usó / se retiró)</option>
+                  <option value="entrada">Entrada (ingreso / devolución)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label
+                  htmlFor="movimiento-cantidad"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Cantidad
+                </label>
+                <input
+                  id="movimiento-cantidad"
+                  type="number"
+                  min={1}
+                  step="1"
+                  required
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                  value={movCantidad}
+                  onChange={(e) => setMovCantidad(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label
+                  htmlFor="movimiento-motivo"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Motivo (opcional)
+                </label>
+                <input
+                  id="movimiento-motivo"
+                  type="text"
+                  placeholder="Ej: usado en mantenimiento del equipo EQ-01"
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                  value={movMotivo}
+                  onChange={(e) => setMovMotivo(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label
+                  htmlFor="movimiento-registrado-en"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Fecha y hora del movimiento
+                </label>
+                <input
+                  id="movimiento-registrado-en"
+                  type="datetime-local"
+                  required
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                  value={movRegistradoEn}
+                  onChange={(e) => setMovRegistradoEn(e.target.value)}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={movEnviando}
+                className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4 disabled:opacity-50"
+              >
+                {movEnviando ? "Registrando..." : "Registrar movimiento"}
               </button>
             </form>
           </div>

@@ -145,6 +145,90 @@ export const RepuestosRepository = {
   },
 
   // =========================================================
+  // 📦 REGISTRAR MOVIMIENTO DE STOCK (entrada/salida)
+  // =========================================================
+  /** Inserta el movimiento en el histórico y aplica su delta a `stock` con
+   *  un UPDATE atómico -- sin comparar contra ningún timestamp: a diferencia
+   *  de una lectura absoluta (ver CombustibleRepository.registrarLectura),
+   *  un delta es conmutativo, así que da igual en qué orden sincronicen dos
+   *  movimientos offline (ver migrations/0046_repuestos_movimientos.sql).
+   *  Stock negativo se permite sin bloquear: el movimiento físico ya pasó.
+   *
+   *  Lanza si `repuestoId` no existe en este tenant -- mismo patrón que
+   *  `CombustibleRepository.registrarLectura` / `IpercController.crear`. */
+  async registrarMovimiento(
+    client: PoolClient,
+    tenantId: string,
+    data: {
+      repuestoId: number;
+      tipo: "entrada" | "salida";
+      cantidad: number;
+      motivo: string | null;
+      registradoEn: string;
+      usuarioId: string | null;
+      metadata: Record<string, unknown>;
+    }
+  ) {
+    const repuestoExiste = await client.query<{ id: number }>(
+      `SELECT id FROM repuestos WHERE id = $1 AND tenant_id = $2`,
+      [data.repuestoId, tenantId]
+    );
+    if (repuestoExiste.rows.length === 0) {
+      throw new Error(`repuesto_id ${data.repuestoId} no existe en este tenant`);
+    }
+
+    const movimiento = await client.query(
+      `
+      INSERT INTO repuestos_movimientos
+        (tenant_id, repuesto_id, tipo, cantidad, motivo, registrado_en, usuario_id, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING id, repuesto_id, tipo, cantidad, motivo, registrado_en, usuario_id, origen, metadata, creado_en
+      `,
+      [
+        tenantId,
+        data.repuestoId,
+        data.tipo,
+        data.cantidad,
+        data.motivo,
+        data.registradoEn,
+        data.usuarioId,
+        JSON.stringify(data.metadata),
+      ]
+    );
+
+    const delta = data.tipo === "entrada" ? data.cantidad : -data.cantidad;
+    const repuesto = await client.query(
+      `
+      UPDATE repuestos SET stock = stock + $1
+      WHERE id = $2 AND tenant_id = $3
+      RETURNING *
+      `,
+      [delta, data.repuestoId, tenantId]
+    );
+
+    return { movimiento: movimiento.rows[0], repuesto: repuesto.rows[0] };
+  },
+
+  /** Para el reintento de un movimiento ya creado (mismo cliente_uuid) --
+   *  responde igual que la primera vez, sin volver a tocar `stock`. */
+  async findMovimientoConRepuesto(client: PoolClient, tenantId: string, movimientoId: number) {
+    const movimiento = await client.query(
+      `SELECT id, repuesto_id, tipo, cantidad, motivo, registrado_en, usuario_id, origen, metadata, creado_en
+       FROM repuestos_movimientos
+       WHERE id = $1 AND tenant_id = $2`,
+      [movimientoId, tenantId]
+    );
+    if (movimiento.rows.length === 0) return null;
+
+    const repuesto = await client.query(
+      `SELECT * FROM repuestos WHERE id = $1 AND tenant_id = $2`,
+      [movimiento.rows[0].repuesto_id, tenantId]
+    );
+
+    return { movimiento: movimiento.rows[0], repuesto: repuesto.rows[0] ?? null };
+  },
+
+  // =========================================================
   // 📊 KPIs DASHBOARD
   // =========================================================
   async getDashboardKPIs(client: PoolClient, tenantId: string) {

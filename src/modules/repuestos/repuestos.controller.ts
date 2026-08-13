@@ -5,6 +5,7 @@ import { withTenant } from "../../server/config/database";
 import { getTenantId } from "../../server/shared/utils/request";
 import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/utils/pagination";
 import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
+import type { RegistrarMovimientoRepuestoInput } from "../../server/schemas/repuestos.schema";
 import { RepuestosService } from "./repuestos.service";
 
 export const RepuestosController = {
@@ -121,6 +122,47 @@ export const RepuestosController = {
       res.json(data);
     } catch {
       res.status(500).json({ message: "Error KPIs" });
+    }
+  },
+
+  // =========================
+  // 📦 REGISTRAR MOVIMIENTO DE STOCK
+  // =========================
+  // POST /repuestos/movimientos -- crea un movimiento histórico y aplica su
+  // delta a `stock` (ver RepuestosRepository.registrarMovimiento). Único
+  // endpoint de Repuestos que participa de la cola offline: `repuesto_id`
+  // viaja en el body a propósito, no en la URL -- rutasOffline.ts (motor
+  // offline del cliente) solo matchea rutas literales, sin parámetros.
+  async registrarMovimiento(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const data = req.validatedBody as RegistrarMovimientoRepuestoInput;
+      const { fila, creado } = await withTenant(tenantId, (client) =>
+        RepuestosService.registrarMovimiento(client, tenantId, req.usuario!.id, data)
+      );
+
+      // Reintento de un envío que ya se había guardado (la respuesta
+      // original se perdió en la red). No se publica el evento de nuevo --
+      // eso ya pasó la primera vez. 200 y no 201 porque esta llamada no
+      // creó nada, pero sí es un éxito para la cola offline del dispositivo.
+      if (!creado) {
+        res.status(200).json(fila ?? { message: "Este movimiento ya se había registrado" });
+        return;
+      }
+
+      await publicarEventoTenant(tenantId, "repuestos.movimiento_registrado", {
+        movimientoId: fila!.movimiento.id,
+        repuestoId: data.repuesto_id,
+        tipo: data.tipo,
+        cantidad: data.cantidad,
+      });
+      res.status(201).json(fila);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("no existe en este tenant")) {
+        res.status(400).json({ message: err.message });
+        return;
+      }
+      res.status(500).json({ message: "Error al registrar movimiento de repuesto" });
     }
   },
 };
