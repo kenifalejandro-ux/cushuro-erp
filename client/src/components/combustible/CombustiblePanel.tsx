@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 
 import { suscribirseASincronizacion } from "../../offline/offlineSync";
 import { apiFetch } from "../../services/apiClient";
+import { ahoraParaInputLocal } from "../../utils/fechaLocal";
 import CountUp from "../dashboard/CountUp";
 
 interface Tanque {
@@ -22,15 +23,6 @@ function formatearFecha(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-/** Formato que espera un <input type="datetime-local">: sin zona horaria,
- *  con la hora LOCAL del dispositivo (no UTC) -- así "ahora" en el input
- *  coincide con el reloj real del operario en campo. */
-function ahoraParaInputLocal(): string {
-  const ahora = new Date();
-  ahora.setMinutes(ahora.getMinutes() - ahora.getTimezoneOffset());
-  return ahora.toISOString().slice(0, 16);
 }
 
 export default function CombustiblePanel() {

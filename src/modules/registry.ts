@@ -35,9 +35,40 @@ export const MODULOS: ModuloDefinicion[] = [
     icono: "🔧",
     version: "v1",
     router: repuestosRoutes,
-    tablas: [{ nombre: "repuestos", pk: "serial" }],
+    tablas: [
+      { nombre: "repuestos", pk: "serial" },
+      {
+        nombre: "repuestos_movimientos",
+        pk: "serial",
+        fks: { repuesto_id: "repuestos", usuario_id: "usuarios" },
+      },
+    ],
+    // repuestos_movimientos cascadea desde su padre (ON DELETE CASCADE, ver
+    // migrations/0046) -- no necesita DELETE propio.
     raices: ["repuestos"],
+    // NO se mueve a repuestos_movimientos (a diferencia de lo que hizo
+    // Combustible con combustible_lecturas en 0045/PR #73): requireCuota()
+    // se monta UNA VEZ POR MÓDULO sobre TODO el router (routes/index.ts),
+    // no por ruta -- así que un solo `cuota.tabla` gobierna cada POST bajo
+    // /repuestos, incluidos `POST /` y `POST /bulk` (altas de catálogo).
+    // Combustible pudo moverlo sin este problema porque NO tiene ningún
+    // POST que cree tanques (se cargan directo en la base) -- acá si se
+    // mueve, un alta de catálogo dejaría de estar limitada de verdad (el
+    // conteo de movimientos no crece con un POST /) y, al revés, un tenant
+    // con mucho historial de movimientos podría quedar bloqueado para dar
+    // de alta un SKU nuevo, algo sin relación real con esa cuota. Se
+    // mantiene contando el catálogo -- el volumen de movimientos queda sin
+    // tope propio por ahora (fuera de alcance: exigiría que un módulo
+    // pueda declarar más de un recurso con cuota, cambio al mecanismo de
+    // cuotas en sí, no a Repuestos).
     cuota: { tabla: "repuestos", porDefecto: 50_000 },
+    // Solo registrar un movimiento de stock califica para offline -- ver
+    // ADR-0002 §8. `repuesto_id` viaja en el body porque rutasOffline.ts
+    // solo matchea rutas literales, sin parámetros de URL. Editar (PUT) y
+    // la carga masiva por Excel NO están acá a propósito: editar
+    // sobreescribe campos existentes (mismo riesgo que tenía Combustible
+    // antes de 0045) y el bulk es un flujo de oficina.
+    offline: { escrituras: [{ metodo: "POST", ruta: "/movimientos" }] },
   },
   {
     id: "combustible",

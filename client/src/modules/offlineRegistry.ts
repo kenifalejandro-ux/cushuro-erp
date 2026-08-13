@@ -65,4 +65,12 @@ export const ESCRITURAS_OFFLINE: Record<string, EscrituraOffline[]> = {
     { metodo: "POST", ruta: "/" },
     { metodo: "POST", ruta: "/:id/versiones" },
   ],
+
+  // Solo registrar un movimiento de stock (entrada/salida). `/movimientos`,
+  // NO `/:id/movimientos` -- el motor offline (rutasOffline.ts) solo
+  // matchea rutas literales, sin parámetros de URL, así que repuesto_id
+  // viaja en el body. Editar el catálogo y la carga masiva por Excel NO
+  // están acá a propósito: editar sobreescribe campos existentes -- ver
+  // ADR-0002 §8.
+  repuestos: [{ metodo: "POST", ruta: "/movimientos" }],
 };
