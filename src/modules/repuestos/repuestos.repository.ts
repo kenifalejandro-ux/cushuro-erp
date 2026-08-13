@@ -147,15 +147,24 @@ export const RepuestosRepository = {
   // =========================================================
   // 📦 REGISTRAR MOVIMIENTO DE STOCK (entrada/salida)
   // =========================================================
-  /** Inserta el movimiento en el histórico y aplica su delta a `stock` con
-   *  un UPDATE atómico -- sin comparar contra ningún timestamp: a diferencia
-   *  de una lectura absoluta (ver CombustibleRepository.registrarLectura),
-   *  un delta es conmutativo, así que da igual en qué orden sincronicen dos
-   *  movimientos offline (ver migrations/0046_repuestos_movimientos.sql).
-   *  Stock negativo se permite sin bloquear: el movimiento físico ya pasó.
+  /** Aplica el delta a `stock` con un UPDATE atómico -- sin comparar contra
+   *  ningún timestamp: a diferencia de una lectura absoluta (ver
+   *  CombustibleRepository.registrarLectura), un delta es conmutativo, así
+   *  que da igual en qué orden sincronicen dos movimientos offline (ver
+   *  migrations/0046_repuestos_movimientos.sql). SOLO si el UPDATE tiene
+   *  éxito se inserta el movimiento en el histórico -- un rechazo no debe
+   *  dejar una fila de algo que nunca se aplicó.
    *
-   *  Lanza si `repuestoId` no existe en este tenant -- mismo patrón que
-   *  `CombustibleRepository.registrarLectura` / `IpercController.crear`. */
+   *  Una `salida` lleva la guarda `stock >= cantidad`: se RECHAZA si
+   *  dejaría el stock negativo (el `rowCount = 0` resultante distingue
+   *  "no había stock" de "no existe", que ya se descartó arriba). Una
+   *  `entrada` nunca se rechaza, no lleva guarda.
+   *
+   *  Lanza si `repuestoId` no existe en este tenant, o si una `salida` no
+   *  tiene stock suficiente -- mismo patrón de "throw con mensaje
+   *  reconocible" que `CombustibleRepository.registrarLectura` /
+   *  `IpercController.crear`; el controller distingue cada mensaje para
+   *  responder 400 vs. 409. */
   async registrarMovimiento(
     client: PoolClient,
     tenantId: string,
@@ -177,6 +186,24 @@ export const RepuestosRepository = {
       throw new Error(`repuesto_id ${data.repuestoId} no existe en este tenant`);
     }
 
+    const delta = data.tipo === "entrada" ? data.cantidad : -data.cantidad;
+    const repuesto = await client.query(
+      data.tipo === "salida"
+        ? `UPDATE repuestos SET stock = stock + $1
+           WHERE id = $2 AND tenant_id = $3 AND stock >= $4
+           RETURNING *`
+        : `UPDATE repuestos SET stock = stock + $1
+           WHERE id = $2 AND tenant_id = $3
+           RETURNING *`,
+      data.tipo === "salida"
+        ? [delta, data.repuestoId, tenantId, data.cantidad]
+        : [delta, data.repuestoId, tenantId]
+    );
+
+    if (repuesto.rows.length === 0) {
+      throw new Error(`stock insuficiente para repuesto_id ${data.repuestoId}`);
+    }
+
     const movimiento = await client.query(
       `
       INSERT INTO repuestos_movimientos
@@ -194,16 +221,6 @@ export const RepuestosRepository = {
         data.usuarioId,
         JSON.stringify(data.metadata),
       ]
-    );
-
-    const delta = data.tipo === "entrada" ? data.cantidad : -data.cantidad;
-    const repuesto = await client.query(
-      `
-      UPDATE repuestos SET stock = stock + $1
-      WHERE id = $2 AND tenant_id = $3
-      RETURNING *
-      `,
-      [delta, data.repuestoId, tenantId]
     );
 
     return { movimiento: movimiento.rows[0], repuesto: repuesto.rows[0] };

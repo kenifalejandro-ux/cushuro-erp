@@ -21,6 +21,16 @@
  * filas de un saque. Un chequeo ingenuo ("¿hay lugar para una más?") dejaría
  * pasar una importación de 10.000 filas con un solo cupo libre. Por eso el
  * incremento sale del largo del array cuando el body es una lista.
+ *
+ * ── Más de un recurso por módulo ─────────────────────────────────────────
+ *
+ * Este middleware se monta UNA VEZ por módulo, sobre TODO su router — un
+ * módulo que solo declara `cuota` queda con un único recurso (`recurso` =
+ * su id) para cada POST que atienda. Un módulo que además declara
+ * `cuotasPorRuta` (ej. Repuestos: catálogo vs. movimientos de stock) puede
+ * tener varios: cada request resuelve su recurso mirando si matchea alguna
+ * ruta de `cuotasPorRuta` y, si no, cae al recurso base. Ver el comentario
+ * largo en modules/types.ts.
  */
 import type { Request, Response, NextFunction } from "express";
 import { getTenantId } from "../utils/request";
@@ -28,6 +38,7 @@ import { verificarCuota, CuotaExcedidaError } from "../../services/platformCuota
 import { registrarAuditoria } from "../../services/platformAudit.service";
 import { contextoAuditoriaModulo } from "../utils/moduleAudit";
 import { obtenerModulo } from "../../../modules/registry";
+import type { ModuloDefinicion } from "../../../modules/types";
 import { logger } from "../../config/logger";
 import { asyncHandler } from "../utils/asyncHandler";
 
@@ -43,23 +54,56 @@ function cantidadACrear(req: Request): number {
   return Array.isArray(req.body) ? req.body.length : 1;
 }
 
+/** Compara segmento por segmento, mismo criterio que `segmentosCoinciden`
+ *  de `client/src/offline/rutasOffline.ts` (duplicado a propósito y no
+ *  importado: ese archivo vive del lado cliente). Un segmento del patrón
+ *  que empieza con `:` matchea cualquier valor concreto en esa posición. */
+function segmentosCoinciden(patron: string, path: string): boolean {
+  const segsPatron = patron.split("/");
+  const segsPath = path.split("/");
+  if (segsPatron.length !== segsPath.length) return false;
+  return segsPatron.every((seg, i) => seg.startsWith(":") || seg === segsPath[i]);
+}
+
+/** Qué recurso de cuota le corresponde a ESTE request: primero busca en
+ *  `cuotasPorRuta` (recurso propio, atado a una ruta específica) y recién
+ *  si ninguna matchea cae al recurso base (`cuota`, recurso = id del
+ *  módulo). `null` = este POST no crece ningún recurso con cuota -- ej. un
+ *  módulo con `cuotasPorRuta` pero sin `cuota` base, para una ruta que no
+ *  matchea ninguna entrada. `req.path` ya viene relativo al montaje del
+ *  módulo (routes/index.ts monta con `router.use('/'+modulo.id, ...)`). */
+function recursoParaRequest(
+  modulo: ModuloDefinicion,
+  moduloId: string,
+  req: Request
+): string | null {
+  const porRuta = modulo.cuotasPorRuta?.find(
+    (c) => c.metodo === req.method && segmentosCoinciden(c.ruta, req.path)
+  );
+  if (porRuta) return porRuta.recurso;
+  return modulo.cuota ? moduloId : null;
+}
+
 /** Debe usarse después de authMiddleware + tenantMiddleware. Sin efecto en
- *  módulos que no declaran `cuota` en el registry. */
+ *  módulos que no declaran `cuota` ni `cuotasPorRuta` en el registry. */
 export function requireCuota(moduloId: string) {
   const modulo = obtenerModulo(moduloId);
 
-  // Se resuelve al montar y no en cada request: si el módulo no tiene cuota
-  // declarada, el middleware es un passthrough sin costo.
-  if (!modulo?.cuota) {
+  // Se resuelve al montar y no en cada request: si el módulo no tiene
+  // ninguna cuota declarada, el middleware es un passthrough sin costo.
+  if (!modulo?.cuota && !modulo?.cuotasPorRuta?.length) {
     return (_req: Request, _res: Response, next: NextFunction) => next();
   }
 
   return asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     if (req.method !== "POST") return next();
 
+    const recurso = recursoParaRequest(modulo, moduloId, req);
+    if (!recurso) return next(); // esta ruta no crece ningún recurso con cuota
+
     try {
       const tenantId = getTenantId(req);
-      await verificarCuota(tenantId, moduloId, cantidadACrear(req));
+      await verificarCuota(tenantId, recurso, cantidadACrear(req));
       next();
     } catch (err) {
       if (err instanceof CuotaExcedidaError) {

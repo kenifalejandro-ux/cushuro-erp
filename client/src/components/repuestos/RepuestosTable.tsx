@@ -91,13 +91,18 @@ export default function RepuestosTable() {
     fetchRepuestos(page);
   }, [page, fetchRepuestos]);
 
-  // Cuando la cola offline termina de drenar, el movimiento que se cargó
-  // sin señal ya existe del lado del servidor -- recargar es lo que hace
-  // que el stock se ponga al día sin que el operario tenga que refrescar a
-  // mano (mismo hook que usa CombustiblePanel.tsx).
+  // Cuando la cola offline termina de drenar, recargar pone el stock al
+  // día sin que el operario tenga que refrescar a mano -- tanto si el
+  // movimiento se aplicó (mismo hook que usa CombustiblePanel.tsx) como si
+  // el servidor lo RECHAZÓ (stock insuficiente, ver
+  // repuestos.repository.ts): en ese caso corrige el optimistic update que
+  // se aplicó al encolarlo. El aviso al operario de qué se perdió y por
+  // qué ya lo da EstadoOffline.tsx (banner global, lee `descartadas`) --
+  // acá no hace falta duplicarlo, solo refrescar los números.
   useEffect(() => {
-    return suscribirseASincronizacion(({ sincronizadas }) => {
-      if (sincronizadas > 0) fetchRepuestos(page);
+    return suscribirseASincronizacion(({ sincronizadas, descartadas }) => {
+      const propias = descartadas.some((d) => d.moduloId === "repuestos");
+      if (sincronizadas > 0 || propias) fetchRepuestos(page);
     });
   }, [page, fetchRepuestos]);
 
@@ -148,8 +153,16 @@ export default function RepuestosTable() {
 
       // 202 = no había red y quedó en la cola del dispositivo (ver
       // apiFetch). No se recarga: sin señal el GET también falla, y el
-      // movimiento todavía no existe del lado del servidor.
+      // movimiento todavía no existe del lado del servidor -- pero SÍ se
+      // aplica optimistamente en la fila para que el operario vea el
+      // cambio ya mismo (físicamente ya pasó). Si el servidor lo rechaza
+      // al sincronizar (stock insuficiente), el efecto de arriba
+      // (suscribirseASincronizacion) refresca y corrige este número solo.
       if (res.status === 202) {
+        const delta = movTipo === "entrada" ? Number(movCantidad) : -Number(movCantidad);
+        setRepuestos((prev) =>
+          prev.map((r) => (r.id === movimientoRepuesto.id ? { ...r, stock: r.stock + delta } : r))
+        );
         alert(
           "Sin conexión: el movimiento quedó guardado en este equipo y se enviará solo cuando vuelva la señal."
         );
@@ -629,6 +642,18 @@ export default function RepuestosTable() {
                   value={movCantidad}
                   onChange={(e) => setMovCantidad(e.target.value)}
                 />
+                {/* Advertencia NO bloqueante: el stock visible puede estar
+                    desactualizado offline (otra salida ya se lo llevó, o
+                    todavía no sincronizó) -- quien decide de verdad es el
+                    servidor al sincronizar, esto solo evita una sorpresa. */}
+                {movTipo === "salida" &&
+                  Number(movCantidad) > 0 &&
+                  Number(movCantidad) > movimientoRepuesto.stock && (
+                    <p className="text-xs text-amber-600">
+                      El stock visible es {movimientoRepuesto.stock}. Si al sincronizar no alcanza,
+                      el servidor rechaza este movimiento.
+                    </p>
+                  )}
               </div>
 
               <div className="space-y-1">

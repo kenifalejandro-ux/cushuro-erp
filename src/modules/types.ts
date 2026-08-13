@@ -76,6 +76,31 @@ export interface ModuloDefinicion {
    *  tenant_cuotas (migración 0033). Subirlo para todos = cambiar este
    *  número y desplegar. */
   cuota?: { tabla: string; porDefecto: number };
+  /** Cuotas ADICIONALES, atadas a rutas específicas del módulo -- para
+   *  cuando una escritura de este módulo crece un recurso DISTINTO del
+   *  que cuenta `cuota` (ej. Repuestos: el catálogo vs. el histórico de
+   *  movimientos de stock). `requireCuota()` (cuota.middleware.ts) se
+   *  monta una sola vez por módulo sobre TODO el router -- sin esto, un
+   *  solo `cuota.tabla` gobernaría cada POST del módulo por igual, y
+   *  mover ese `tabla` a la tabla hija dejaría las altas del recurso
+   *  original sin límite real (ver el comentario largo en el registry,
+   *  entrada de Repuestos).
+   *
+   *  `ruta` es relativa al montaje del módulo, mismo formato que
+   *  `offline.escrituras` (soporta un segmento comodín `:id`). El recurso
+   *  BASE (`cuota`, si existe) sigue aplicando a cualquier POST del
+   *  módulo que no matchee ninguna entrada de acá.
+   *
+   *  `recurso` es un id nuevo, NO el id del módulo -- así
+   *  `recursosConCuota()`/`tenant_cuotas`/`plan_limites` lo tratan como un
+   *  recurso aparte, con su propio override y su propio límite por plan. */
+  cuotasPorRuta?: {
+    ruta: string;
+    metodo: "POST" | "PUT" | "PATCH";
+    recurso: string;
+    tabla: string;
+    porDefecto: number;
+  }[];
   /** Qué escrituras de este módulo se pueden reintentar sin duplicar, y
    *  por lo tanto son elegibles para la cola offline del cliente (ver
    *  client/src/offline/). Omitirlo = el módulo no participa del offline:
