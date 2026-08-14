@@ -81,4 +81,10 @@ export const ESCRITURAS_OFFLINE: Record<string, EscrituraOffline[]> = {
   // sobreescritura de campos existentes respectivamente, mismo criterio
   // que aprobar/rechazar en IPERC y editar en Documentos -- ver ADR-0002 §8.
   ordenes_trabajo: [{ metodo: "POST", ruta: "/" }],
+
+  // Solo dar de alta el equipo. Registrar un equipo nuevo en cancha, sin
+  // señal, es un caso de campo real -- mismo criterio que checklists/iperc/
+  // ordenes_trabajo. Editar (`PUT`) y eliminar (`DELETE`) NO están acá a
+  // propósito: editar sobreescribe campos existentes -- ver ADR-0002 §8.
+  equipos: [{ metodo: "POST", ruta: "/" }],
 };

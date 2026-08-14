@@ -29,6 +29,15 @@ export const EquiposRepository = {
     return result.rows;
   },
 
+  async findById(client: PoolClient, tenantId: string, id: number) {
+    const result = await client.query(
+      `SELECT id, placa_codigo, tipo, marca, modelo, activo, creado_en
+       FROM equipos WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId]
+    );
+    return result.rows[0] ?? null;
+  },
+
   async create(client: PoolClient, tenantId: string, data: EquipoPayload) {
     const { placa_codigo, tipo, marca, modelo } = data;
 
