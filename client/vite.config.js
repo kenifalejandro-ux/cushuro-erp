@@ -43,7 +43,7 @@ export default defineConfig({
         lang: "es-PE",
         description:
           "ERP para el sector minero: gestión de repuestos, combustible y documentos de vencimiento",
-        theme_color: "#C6FB32",
+        theme_color: "#C9E600",
         background_color: "#0A1014",
         start_url: "/",
         display: "standalone",
