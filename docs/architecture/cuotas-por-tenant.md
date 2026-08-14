@@ -78,12 +78,19 @@ El campo `origen` de cada cuota (en `GET /tenants/:id/cuotas` y en la salud del 
 
 ### Planes iniciales
 
-| código        | usuarios | equipos | checklists / iperc | combustible | repuestos | documentos | backups |
-| ------------- | -------: | ------: | -----------------: | ----------: | --------: | ---------: | ------: |
-| `mype`        |       10 |      20 |             40.000 |      20.000 |    10.000 |      5.000 |   1 GiB |
-| `pequena`     |       50 |     100 |            200.000 |     100.000 |    50.000 |     20.000 |   5 GiB |
-| `mediana`     |      200 |     500 |          1.000.000 |     500.000 |   200.000 |     50.000 |  20 GiB |
-| `corporativo` |        ∞ |       ∞ |                  ∞ |           ∞ |         ∞ |          ∞ | 100 GiB |
+| código        | usuarios | equipos | checklists / iperc | combustible | repuestos | ordenes_trabajo | documentos | backups |
+| ------------- | -------: | ------: | -----------------: | ----------: | --------: | ---------------: | ---------: | ------: |
+| `mype`        |       10 |      20 |             40.000 |      20.000 |    10.000 |             2.000 |      5.000 |   1 GiB |
+| `pequena`     |       50 |     100 |            200.000 |     100.000 |    50.000 |            10.000 |     20.000 |   5 GiB |
+| `mediana`     |      200 |     500 |          1.000.000 |     500.000 |   200.000 |            50.000 |     50.000 |  20 GiB |
+| `corporativo` |        ∞ |       ∞ |                  ∞ |           ∞ |         ∞ |                 ∞ |          ∞ | 100 GiB |
+
+`ordenes_trabajo` no escala como el resto de la tabla (que sigue el
+criterio de `equipos` × frecuencia diaria/turno) -- una OT es un evento de
+mantenimiento (correctivo + preventivo), no una rutina por turno. Estimado
+en ~2 OT por equipo por mes, con la misma holgura de varios años que el
+resto: ver el comentario de `migrations/0052_ordenes_trabajo_plan_limites.sql`
+para la cuenta completa.
 
 Los números salen de que **casi todo escala con la cantidad de equipos**: un checklist de pre-uso es ~1 por equipo por turno, así que 20 equipos × 2 turnos × 365 días ≈ 14.600/año. Por eso `equipos` define cada segmento y el resto se deriva con holgura de varios años. Son un punto de partida ajustable desde el panel sin tocar código.
 

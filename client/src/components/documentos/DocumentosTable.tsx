@@ -191,6 +191,11 @@ export default function DocumentosTable() {
   // 🟡 MODAL CONTROL
   const [openModal, setOpenModal] = useState(false);
 
+  // Vínculo opcional a una Orden de Trabajo (evidencia del trabajo -- ver
+  // migrations/0049). Catálogo cargado una sola vez al montar, igual que
+  // el selector de equipos en Checklists/IPERC.
+  const [ordenesDeTrabajo, setOrdenesDeTrabajo] = useState<{ id: number; titulo: string }[]>([]);
+
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
@@ -226,6 +231,13 @@ export default function DocumentosTable() {
   useEffect(() => {
     load(page);
   }, [page, load]);
+
+  useEffect(() => {
+    apiFetch("/api/erp/ordenes_trabajo?page=1&pageSize=200")
+      .then((r) => r.json())
+      .then((body) => setOrdenesDeTrabajo(Array.isArray(body.data) ? body.data : []))
+      .catch(() => setOrdenesDeTrabajo([]));
+  }, []);
 
   const getStatusStyle = (estado: string) => {
     switch (estado) {
@@ -621,6 +633,33 @@ export default function DocumentosTable() {
               value={form.fecha_vencimiento || ""}
               onChange={(e) => setForm({ ...form, fecha_vencimiento: e.target.value })}
             />
+
+            <div className="space-y-1">
+              <label
+                htmlFor="documento-orden-trabajo"
+                className="text-xs font-bold text-slate-500 uppercase"
+              >
+                Vincular a Orden de Trabajo (opcional)
+              </label>
+              <select
+                id="documento-orden-trabajo"
+                className="border p-2 border border-zinc-400 rounded-[0.5rem] w-full bg-white"
+                value={form.orden_trabajo_id || ""}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    orden_trabajo_id: e.target.value ? Number(e.target.value) : undefined,
+                  })
+                }
+              >
+                <option value="">Sin vincular</option>
+                {ordenesDeTrabajo.map((ot) => (
+                  <option key={ot.id} value={ot.id}>
+                    #{ot.id} — {ot.titulo}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             <div className="flex gap-2">
               {editId ? (

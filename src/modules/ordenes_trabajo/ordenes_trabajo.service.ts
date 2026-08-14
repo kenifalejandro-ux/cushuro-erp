@@ -1,0 +1,72 @@
+/** src/modules/ordenes_trabajo/ordenes_trabajo.service.ts */
+
+import type { PoolClient } from "pg";
+import type { Paginacion } from "../../server/shared/utils/pagination";
+import type {
+  CrearOrdenTrabajoInput,
+  ActualizarOrdenTrabajoInput,
+} from "../../server/schemas/ordenes_trabajo.schema";
+import { idempotentInsert } from "../../server/shared/utils/idempotentInsert";
+import { OrdenesTrabajoRepository } from "./ordenes_trabajo.repository";
+
+export const OrdenesTrabajoService = {
+  getAll(
+    client: PoolClient,
+    tenantId: string,
+    paginacion: Paginacion,
+    filtros: { estado?: string; equipoId?: number; asignadoA?: string }
+  ) {
+    return OrdenesTrabajoRepository.findAll(client, tenantId, paginacion, filtros);
+  },
+
+  getById(client: PoolClient, tenantId: string, id: number) {
+    return OrdenesTrabajoRepository.findById(client, tenantId, id);
+  },
+
+  /** Devuelve `creado: false` cuando esta OT ya se había creado con el
+   *  mismo `cliente_uuid` -- el reintento de un envío cuya respuesta se
+   *  perdió (online u offline: la creación de OT participa de la cola
+   *  offline, ver src/modules/registry.ts). El controller usa ese flag
+   *  para no auditar ni publicar el evento dos veces. */
+  crear(client: PoolClient, tenantId: string, usuarioId: string, data: CrearOrdenTrabajoInput) {
+    return idempotentInsert({
+      client,
+      tenantId,
+      modulo: "ordenes_trabajo",
+      clienteUuid: data.cliente_uuid,
+      insertar: async () => {
+        const fila = await OrdenesTrabajoRepository.crear(client, tenantId, usuarioId, data);
+        return { id: fila.id as number, fila };
+      },
+      recuperar: (filaId) => OrdenesTrabajoRepository.findById(client, tenantId, filaId),
+    });
+  },
+
+  actualizar(client: PoolClient, tenantId: string, id: number, data: ActualizarOrdenTrabajoInput) {
+    return OrdenesTrabajoRepository.actualizar(client, tenantId, id, data);
+  },
+
+  cambiarEstado(
+    client: PoolClient,
+    tenantId: string,
+    id: number,
+    estado: "en_progreso" | "completada" | "cancelada",
+    observacionesCierre?: string
+  ) {
+    return OrdenesTrabajoRepository.cambiarEstado(
+      client,
+      tenantId,
+      id,
+      estado,
+      observacionesCierre
+    );
+  },
+
+  eliminar(client: PoolClient, tenantId: string, id: number) {
+    return OrdenesTrabajoRepository.eliminar(client, tenantId, id);
+  },
+
+  getUsuariosAsignables(client: PoolClient, tenantId: string) {
+    return OrdenesTrabajoRepository.findUsuariosAsignables(client, tenantId);
+  },
+};

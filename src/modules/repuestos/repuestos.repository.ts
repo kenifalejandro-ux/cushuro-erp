@@ -207,6 +207,7 @@ export const RepuestosRepository = {
       registradoEn: string;
       usuarioId: string | null;
       metadata: Record<string, unknown>;
+      ordenTrabajoId: number | null;
     }
   ) {
     const repuestoExiste = await client.query<{ id: number }>(
@@ -215,6 +216,20 @@ export const RepuestosRepository = {
     );
     if (repuestoExiste.rows.length === 0) {
       throw new Error(`repuesto_id ${data.repuestoId} no existe en este tenant`);
+    }
+
+    // Mismo patrón que equipo_id/iperc_id en OrdenesTrabajoRepository.crear:
+    // SELECT previo con mensaje distinguible, para que el controller
+    // responda 400 en vez de dejar pasar la violación de FK cruda de
+    // Postgres como un 500 genérico.
+    if (data.ordenTrabajoId !== null) {
+      const otExiste = await client.query<{ id: number }>(
+        `SELECT id FROM ordenes_trabajo WHERE id = $1 AND tenant_id = $2`,
+        [data.ordenTrabajoId, tenantId]
+      );
+      if (otExiste.rows.length === 0) {
+        throw new Error(`orden_trabajo_id ${data.ordenTrabajoId} no existe en este tenant`);
+      }
     }
 
     const delta = data.tipo === "entrada" ? data.cantidad : -data.cantidad;
@@ -247,9 +262,9 @@ export const RepuestosRepository = {
     const movimiento = await client.query(
       `
       INSERT INTO repuestos_movimientos
-        (tenant_id, repuesto_id, tipo, cantidad, motivo, registrado_en, usuario_id, metadata, estado)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING id, repuesto_id, tipo, cantidad, motivo, registrado_en, usuario_id, origen, metadata, creado_en, estado
+        (tenant_id, repuesto_id, tipo, cantidad, motivo, registrado_en, usuario_id, metadata, estado, orden_trabajo_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING id, repuesto_id, tipo, cantidad, motivo, registrado_en, usuario_id, origen, metadata, creado_en, estado, orden_trabajo_id
       `,
       [
         tenantId,
@@ -261,6 +276,7 @@ export const RepuestosRepository = {
         data.usuarioId,
         JSON.stringify(data.metadata),
         aplicado ? "aplicado" : "rechazado",
+        data.ordenTrabajoId,
       ]
     );
 
@@ -272,7 +288,7 @@ export const RepuestosRepository = {
    *  a tocar `stock`. */
   async findMovimientoConRepuesto(client: PoolClient, tenantId: string, movimientoId: number) {
     const movimiento = await client.query(
-      `SELECT id, repuesto_id, tipo, cantidad, motivo, registrado_en, usuario_id, origen, metadata, creado_en, estado
+      `SELECT id, repuesto_id, tipo, cantidad, motivo, registrado_en, usuario_id, origen, metadata, creado_en, estado, orden_trabajo_id
        FROM repuestos_movimientos
        WHERE id = $1 AND tenant_id = $2`,
       [movimientoId, tenantId]

@@ -68,6 +68,7 @@ export const RepuestosService = {
           registradoEn: data.registrado_en ?? new Date().toISOString(),
           usuarioId,
           metadata: data.metadata ?? {},
+          ordenTrabajoId: data.orden_trabajo_id ?? null,
         });
         return { id: Number(fila.movimiento.id), fila };
       },

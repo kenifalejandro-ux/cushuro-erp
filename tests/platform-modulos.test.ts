@@ -3,6 +3,7 @@ import request from "supertest";
 import { app, crearTenantDePrueba, borrarTenantDePrueba, idUnico } from "./helpers";
 import { env } from "../src/server/config/env";
 import { closeDatabase } from "../src/server/config/database";
+import { MODULOS_ERP } from "../src/modules/registry";
 
 const BEARER = `Bearer ${env.platformAdminToken}`;
 
@@ -16,7 +17,7 @@ describe("panel de plataforma: módulos por tenant y por usuario", () => {
     await closeDatabase();
   });
 
-  it("un tenant nuevo arranca con los 7 módulos habilitados", async () => {
+  it("un tenant nuevo arranca con todos los módulos del registry habilitados", async () => {
     const creado = await crearTenantDePrueba(password);
     tenantId = creado.tenant.id;
     tenantSlug = creado.tenant.slug;
@@ -25,7 +26,9 @@ describe("panel de plataforma: módulos por tenant y por usuario", () => {
       .get(`/api/platform/tenants/${tenantId}/modulos`)
       .set("Authorization", BEARER);
     expect(res.status).toBe(200);
-    expect(res.body.modulos).toHaveLength(7);
+    // Contra el registry y no un número fijo -- un módulo nuevo no debe
+    // romper este test, solo agregarse a la cuenta.
+    expect(res.body.modulos).toHaveLength(MODULOS_ERP.length);
     expect(res.body.modulos.every((m: { estado: string }) => m.estado === "habilitado")).toBe(true);
   });
 

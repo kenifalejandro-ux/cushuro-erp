@@ -73,4 +73,12 @@ export const ESCRITURAS_OFFLINE: Record<string, EscrituraOffline[]> = {
   // están acá a propósito: editar sobreescribe campos existentes -- ver
   // ADR-0002 §8.
   repuestos: [{ metodo: "POST", ruta: "/movimientos" }],
+
+  // Solo crear la orden de trabajo. Es de los casos más claros del ERP
+  // para trabajar sin señal (el equipo se rompe en cancha, se abre la OT
+  // ahí mismo). Iniciar/completar/cancelar (`PATCH /:id/estado`) y editar
+  // (`PUT /:id`) NO están acá a propósito: son transición de estado y
+  // sobreescritura de campos existentes respectivamente, mismo criterio
+  // que aprobar/rechazar en IPERC y editar en Documentos -- ver ADR-0002 §8.
+  ordenes_trabajo: [{ metodo: "POST", ruta: "/" }],
 };

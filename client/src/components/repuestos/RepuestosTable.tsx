@@ -19,6 +19,11 @@ interface Repuesto {
   fecha: string; // <-- Agrega esta línea para que reconozca r.fecha
 }
 
+interface OrdenTrabajoResumen {
+  id: number;
+  titulo: string;
+}
+
 /** Espejo de MAX_FILAS_CARGA_MASIVA en server/schemas/repuestos.schema.ts.
  *  Duplicarlo permite avisar ANTES de mandar miles de filas al servidor
  *  para que las rechace; el servidor sigue siendo el que decide (esto es
@@ -102,6 +107,11 @@ export default function RepuestosTable() {
   const [movCantidad, setMovCantidad] = useState("");
   const [movMotivo, setMovMotivo] = useState("");
   const [movRegistradoEn, setMovRegistradoEn] = useState(ahoraParaInputLocal());
+  // Vínculo opcional a la Orden de Trabajo que motivó el movimiento (ver
+  // migrations/0050) -- solo trazabilidad, sin exigir ningún estado de la
+  // OT en este PR.
+  const [movOrdenTrabajoId, setMovOrdenTrabajoId] = useState("");
+  const [ordenesDeTrabajo, setOrdenesDeTrabajo] = useState<OrdenTrabajoResumen[]>([]);
   const [movEnviando, setMovEnviando] = useState(false);
   // El cliente_uuid se fija al ABRIR el modal, no al apretar el botón --
   // mismo motivo que en CombustiblePanel/ChecklistsView: si los dos taps
@@ -132,6 +142,16 @@ export default function RepuestosTable() {
     fetchRepuestos(page);
   }, [page, fetchRepuestos]);
 
+  // Catálogo para el selector opcional de Orden de Trabajo -- best-effort:
+  // si el módulo OT no está habilitado para este tenant, el select queda
+  // vacío sin romper el resto del formulario.
+  useEffect(() => {
+    apiFetch("/api/erp/ordenes_trabajo?page=1&pageSize=200")
+      .then((r) => r.json())
+      .then((body) => setOrdenesDeTrabajo(Array.isArray(body.data) ? body.data : []))
+      .catch(() => setOrdenesDeTrabajo([]));
+  }, []);
+
   // Cuando la cola offline termina de drenar, recargar pone el stock al
   // día sin que el operario tenga que refrescar a mano -- tanto si el
   // movimiento se aplicó (mismo hook que usa CombustiblePanel.tsx) como si
@@ -154,6 +174,7 @@ export default function RepuestosTable() {
     setMovCantidad("");
     setMovMotivo("");
     setMovRegistradoEn(ahoraParaInputLocal());
+    setMovOrdenTrabajoId("");
     // Se regenera en cada apertura: si no, el segundo movimiento legítimo
     // del turno reusaría la clave del primero y el servidor devolvería
     // aquel en silencio -- se perdería un movimiento, que es peor que el
@@ -181,6 +202,7 @@ export default function RepuestosTable() {
           cantidad: Number(movCantidad),
           motivo: movMotivo || undefined,
           registrado_en: new Date(movRegistradoEn).toISOString(),
+          orden_trabajo_id: movOrdenTrabajoId ? Number(movOrdenTrabajoId) : undefined,
         }),
       });
 
@@ -779,6 +801,28 @@ export default function RepuestosTable() {
                   value={movMotivo}
                   onChange={(e) => setMovMotivo(e.target.value)}
                 />
+              </div>
+
+              <div className="space-y-1">
+                <label
+                  htmlFor="movimiento-orden-trabajo"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Orden de Trabajo (opcional)
+                </label>
+                <select
+                  id="movimiento-orden-trabajo"
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
+                  value={movOrdenTrabajoId}
+                  onChange={(e) => setMovOrdenTrabajoId(e.target.value)}
+                >
+                  <option value="">Sin vincular</option>
+                  {ordenesDeTrabajo.map((ot) => (
+                    <option key={ot.id} value={ot.id}>
+                      #{ot.id} — {ot.titulo}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="space-y-1">

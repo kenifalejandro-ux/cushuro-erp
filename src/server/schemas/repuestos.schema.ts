@@ -72,6 +72,10 @@ export const registrarMovimientoRepuestoSchema = z.object({
   // el service usa now().
   registrado_en: z.string().datetime().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  // Vínculo opcional a la OT que motivó el movimiento (ver migrations/0050).
+  // Sin exigir ningún estado de la OT en este PR -- eso es regla de negocio
+  // a evaluar después si hace falta.
+  orden_trabajo_id: z.number().int().positive().optional(),
 });
 
 export type RegistrarMovimientoRepuestoInput = z.infer<typeof registrarMovimientoRepuestoSchema>;
