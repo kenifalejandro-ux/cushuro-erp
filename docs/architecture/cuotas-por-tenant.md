@@ -78,12 +78,18 @@ El campo `origen` de cada cuota (en `GET /tenants/:id/cuotas` y en la salud del 
 
 ### Planes iniciales
 
-| código        | usuarios | equipos | checklists / iperc | combustible | repuestos | ordenes_trabajo | documentos | backups |
-| ------------- | -------: | ------: | -----------------: | ----------: | --------: | ---------------: | ---------: | ------: |
-| `mype`        |       10 |      20 |             40.000 |      20.000 |    10.000 |             2.000 |      5.000 |   1 GiB |
-| `pequena`     |       50 |     100 |            200.000 |     100.000 |    50.000 |            10.000 |     20.000 |   5 GiB |
-| `mediana`     |      200 |     500 |          1.000.000 |     500.000 |   200.000 |            50.000 |     50.000 |  20 GiB |
-| `corporativo` |        ∞ |       ∞ |                  ∞ |           ∞ |         ∞ |                 ∞ |          ∞ | 100 GiB |
+| código        | usuarios | equipos | checklists / iperc | combustible | repuestos | repuestos_movimientos | ordenes_trabajo | documentos | backups |
+| ------------- | -------: | ------: | -----------------: | ----------: | --------: | ---------------------: | ---------------: | ---------: | ------: |
+| `mype`        |       10 |      20 |             40.000 |      20.000 |    10.000 |                  20.000 |             2.000 |      5.000 |   1 GiB |
+| `pequena`     |       50 |     100 |            200.000 |     100.000 |    50.000 |                 100.000 |            10.000 |     20.000 |   5 GiB |
+| `mediana`     |      200 |     500 |          1.000.000 |     500.000 |   200.000 |                 500.000 |            50.000 |     50.000 |  20 GiB |
+| `corporativo` |        ∞ |       ∞ |                  ∞ |           ∞ |         ∞ |                       ∞ |                 ∞ |          ∞ | 100 GiB |
+
+`repuestos_movimientos` no escala como `repuestos` (catálogo, pocas altas):
+es el histórico de entradas/salidas de stock de campo, mismo orden de
+magnitud que `combustible_lecturas`/`checklists`, no que el catálogo -- ver
+el comentario de `migrations/0047_repuestos_movimientos_cuota.sql` y
+`cuotasPorRuta` más arriba.
 
 `ordenes_trabajo` no escala como el resto de la tabla (que sigue el
 criterio de `equipos` × frecuencia diaria/turno) -- una OT es un evento de
