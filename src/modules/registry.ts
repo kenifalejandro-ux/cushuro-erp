@@ -89,6 +89,12 @@ export const MODULOS: ModuloDefinicion[] = [
     tablas: [{ nombre: "equipos", pk: "serial" }],
     raices: ["equipos"],
     cuota: { tabla: "equipos", porDefecto: 2_000 },
+    // Solo crear el equipo califica para offline -- ver ADR-0002 §8. Dar de
+    // alta un equipo nuevo en cancha, sin señal, es un caso de campo real
+    // (mismo criterio que checklists/iperc/ordenes_trabajo). `PUT`/`DELETE`
+    // NO están acá a propósito: editar sobreescribe campos existentes y
+    // borrar no debe reintentarse a ciegas.
+    offline: { escrituras: [{ metodo: "POST", ruta: "/" }] },
   },
   {
     id: "checklists",
