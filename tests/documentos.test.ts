@@ -606,6 +606,77 @@ describe("documentos: validación de entrada (Zod)", () => {
   });
 });
 
+describe("documentos: vínculo opcional a una Orden de Trabajo (evidencia)", () => {
+  let tenantId: string;
+  const password = "ClaveDePrueba123";
+  const agent = request.agent(app);
+  let ordenTrabajoId: number;
+
+  beforeAll(async () => {
+    const creado = await crearTenantDePrueba(password);
+    tenantId = creado.tenant.id;
+    await agent
+      .post("/api/auth/login")
+      .send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
+
+    const equipo = await agent
+      .post("/api/erp/equipos")
+      .send({ placa_codigo: `DOC-OT-${Date.now()}`, tipo: "Camioneta" });
+    const ot = await agent
+      .post("/api/erp/ordenes_trabajo")
+      .send({ equipo_id: equipo.body.id, titulo: "Cambio de motor" });
+    ordenTrabajoId = ot.body.id;
+  });
+
+  afterAll(async () => {
+    await borrarTenantDePrueba(tenantId);
+  });
+
+  it("crea un documento vinculado a una OT", async () => {
+    const res = await agent.post("/api/erp/documentos").send({
+      nombre_documento: "Informe de trabajo",
+      fecha_vencimiento: fechaEn(30),
+      orden_trabajo_id: ordenTrabajoId,
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.orden_trabajo_id).toBe(ordenTrabajoId);
+  });
+
+  it("un documento sin orden_trabajo_id sigue quedando suelto, como siempre", async () => {
+    const res = await agent.post("/api/erp/documentos").send({
+      nombre_documento: "SOAT",
+      fecha_vencimiento: fechaEn(30),
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.orden_trabajo_id).toBeNull();
+  });
+
+  it("filtra el listado por orden_trabajo_id", async () => {
+    const res = await agent.get(`/api/erp/documentos?orden_trabajo_id=${ordenTrabajoId}`);
+    expect(res.status).toBe(200);
+    const ids = (res.body.data as { id: number; orden_trabajo_id: number | null }[]).map(
+      (d) => d.orden_trabajo_id
+    );
+    expect(ids.every((id) => id === ordenTrabajoId)).toBe(true);
+    expect(ids.length).toBeGreaterThan(0);
+  });
+
+  it("editar con PUT y omitir orden_trabajo_id lo deja en NULL (desvincula)", async () => {
+    const creado = await agent.post("/api/erp/documentos").send({
+      nombre_documento: "Para desvincular",
+      fecha_vencimiento: fechaEn(30),
+      orden_trabajo_id: ordenTrabajoId,
+    });
+
+    const editado = await agent.put(`/api/erp/documentos/${creado.body.id}`).send({
+      nombre_documento: "Para desvincular",
+      fecha_vencimiento: fechaEn(30),
+    });
+    expect(editado.status).toBe(200);
+    expect(editado.body.orden_trabajo_id).toBeNull();
+  });
+});
+
 // Un solo cierre de pool para todo el archivo -- ver el mismo comentario en
 // equipos-checklist-iperc.test.ts / combustible.test.ts.
 afterAll(async () => {

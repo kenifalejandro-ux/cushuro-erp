@@ -21,8 +21,13 @@ export const DocumentosController = {
     try {
       const tenantId = getTenantId(req);
       const paginacion = parsePaginacion(req.query);
+      const ordenTrabajoIdRaw = req.query.orden_trabajo_id;
+      const ordenTrabajoId =
+        typeof ordenTrabajoIdRaw === "string" && ordenTrabajoIdRaw.trim() !== ""
+          ? Number(ordenTrabajoIdRaw)
+          : undefined;
       const filas = await withTenant(tenantId, (client) =>
-        DocumentosService.getAll(client, tenantId, paginacion)
+        DocumentosService.getAll(client, tenantId, paginacion, ordenTrabajoId)
       );
       res.json(armarRespuestaPaginada(filas, paginacion));
     } catch {

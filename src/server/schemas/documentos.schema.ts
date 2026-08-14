@@ -9,6 +9,9 @@ export const crearDocumentoSchema = z.object({
   nombre_documento: z.string().trim().min(1).max(200),
   responsable: z.string().trim().max(150).optional(),
   fecha_vencimiento: z.string().min(1),
+  // Evidencia del trabajo (informe, fotos) -- opcional, un documento sigue
+  // pudiendo quedar suelto como siempre. Ver migrations/0049.
+  orden_trabajo_id: z.number().int().positive().optional(),
 });
 
 export type CrearDocumentoInput = z.infer<typeof crearDocumentoSchema>;
@@ -32,6 +35,10 @@ export const actualizarDocumentoSchema = z.object({
   responsable: z.string().trim().max(150).optional(),
   fecha_vencimiento: z.string().min(1),
   estado: z.string().trim().max(50).optional(),
+  // Omitirlo en un PUT lo deja en NULL (desvincula), mismo criterio que el
+  // resto de los campos opcionales de este schema -- ver el comentario del
+  // repository.
+  orden_trabajo_id: z.number().int().positive().optional(),
 });
 
 export type ActualizarDocumentoInput = z.infer<typeof actualizarDocumentoSchema>;

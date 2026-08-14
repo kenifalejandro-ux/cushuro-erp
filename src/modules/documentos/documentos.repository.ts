@@ -15,6 +15,7 @@ export type DocumentoPayload = {
   responsable?: string | null;
   fecha_vencimiento: string;
   estado?: string;
+  orden_trabajo_id?: number | null;
 };
 
 export type DocumentoVersionPayload = {
@@ -42,7 +43,20 @@ export const DocumentosRepository = {
   // 📄 GET /documentos
   // LISTAR DOCUMENTOS (del tenant activo, paginado)
   // ============================================================
-  async findAll(client: PoolClient, tenantId: string, { pageSize, offset }: Paginacion) {
+  async findAll(
+    client: PoolClient,
+    tenantId: string,
+    { pageSize, offset }: Paginacion,
+    ordenTrabajoId?: number
+  ) {
+    const params: (string | number)[] = [tenantId];
+    let filtro = "";
+    if (ordenTrabajoId) {
+      params.push(ordenTrabajoId);
+      filtro = ` AND orden_trabajo_id = $${params.length}`;
+    }
+    params.push(pageSize, offset);
+
     const result = await client.query(
       `
         SELECT *,
@@ -53,11 +67,11 @@ export const DocumentosRepository = {
           END AS estado_alerta,
           COUNT(*) OVER() AS total_count
         FROM documentos
-        WHERE tenant_id = $1
+        WHERE tenant_id = $1${filtro}
         ORDER BY fecha_vencimiento ASC NULLS LAST
-        LIMIT $2 OFFSET $3
+        LIMIT $${params.length - 1} OFFSET $${params.length}
       `,
-      [tenantId, pageSize, offset]
+      params
     );
 
     return result.rows;
@@ -68,16 +82,16 @@ export const DocumentosRepository = {
   // CREAR DOCUMENTO
   // ============================================================
   async create(client: PoolClient, tenantId: string, data: DocumentoPayload) {
-    const { nombre_documento, responsable, fecha_vencimiento } = data;
+    const { nombre_documento, responsable, fecha_vencimiento, orden_trabajo_id } = data;
 
     const result = await client.query(
       `
       INSERT INTO documentos
-      (tenant_id, nombre_documento, responsable, fecha_vencimiento)
-      VALUES ($1, $2, $3, $4)
+      (tenant_id, nombre_documento, responsable, fecha_vencimiento, orden_trabajo_id)
+      VALUES ($1, $2, $3, $4, $5)
       RETURNING *
     `,
-      [tenantId, nombre_documento, responsable, fecha_vencimiento]
+      [tenantId, nombre_documento, responsable, fecha_vencimiento, orden_trabajo_id ?? null]
     );
 
     return result.rows[0];
@@ -88,7 +102,7 @@ export const DocumentosRepository = {
   // ACTUALIZAR DOCUMENTO (solo si pertenece al tenant activo)
   // ============================================================
   async update(client: PoolClient, tenantId: string, id: number, data: DocumentoPayload) {
-    const { nombre_documento, responsable, fecha_vencimiento, estado } = data;
+    const { nombre_documento, responsable, fecha_vencimiento, estado, orden_trabajo_id } = data;
 
     const result = await client.query(
       `
@@ -97,11 +111,20 @@ export const DocumentosRepository = {
         nombre_documento = $1,
         responsable = $2,
         fecha_vencimiento = $3,
-        estado = $4
-      WHERE id = $5 AND tenant_id = $6
+        estado = $4,
+        orden_trabajo_id = $5
+      WHERE id = $6 AND tenant_id = $7
       RETURNING *
     `,
-      [nombre_documento, responsable ?? null, fecha_vencimiento, estado ?? null, id, tenantId]
+      [
+        nombre_documento,
+        responsable ?? null,
+        fecha_vencimiento,
+        estado ?? null,
+        orden_trabajo_id ?? null,
+        id,
+        tenantId,
+      ]
     );
 
     return result.rows[0] ?? null;

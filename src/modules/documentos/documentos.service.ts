@@ -16,8 +16,8 @@ import {
 import { DocumentosRepository, type DocumentoPayload } from "./documentos.repository";
 
 export const DocumentosService = {
-  getAll(client: PoolClient, tenantId: string, paginacion: Paginacion) {
-    return DocumentosRepository.findAll(client, tenantId, paginacion);
+  getAll(client: PoolClient, tenantId: string, paginacion: Paginacion, ordenTrabajoId?: number) {
+    return DocumentosRepository.findAll(client, tenantId, paginacion, ordenTrabajoId);
   },
 
   verificarDuplicado(
@@ -45,6 +45,7 @@ export const DocumentosService = {
           nombre_documento: data.nombre_documento,
           responsable: data.responsable ?? null,
           fecha_vencimiento: data.fecha_vencimiento,
+          orden_trabajo_id: data.orden_trabajo_id ?? null,
         });
         return { id: fila.id as number, fila };
       },

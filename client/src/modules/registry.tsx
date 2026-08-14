@@ -72,4 +72,10 @@ export const MODULOS_CLIENTE: ModuloCliente[] = [
     icono: "⚠️",
     componente: lazy(() => import("../components/iperc/IpercView")),
   },
+  {
+    id: "ordenes_trabajo",
+    label: "Órdenes de Trabajo",
+    icono: "🛠️",
+    componente: lazy(() => import("../components/ordenes_trabajo/OrdenesTrabajoView")),
+  },
 ];
