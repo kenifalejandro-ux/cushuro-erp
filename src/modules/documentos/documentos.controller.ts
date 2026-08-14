@@ -4,6 +4,8 @@ import { Request, Response } from "express";
 import { withTenant } from "../../server/config/database";
 import { getTenantId } from "../../server/shared/utils/request";
 import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/utils/pagination";
+import { contextoAuditoriaModulo } from "../../server/shared/utils/moduleAudit";
+import { registrarAuditoria } from "../../server/services/platformAudit.service";
 import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
 import { sanearNombreArchivo } from "../../server/services/documentStorage";
 import { leerClaveIdempotencia } from "../../server/shared/utils/idempotencyKey";
@@ -80,6 +82,13 @@ export const DocumentosController = {
         return;
       }
 
+      await registrarAuditoria({
+        accion: "documentos.crear",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { documentoId: fila!.id },
+        contexto: contextoAuditoriaModulo(req),
+      });
       await publicarEventoTenant(tenantId, "documentos.creado", { documentoId: fila!.id });
       res.status(201).json(fila);
     } catch {
@@ -101,6 +110,13 @@ export const DocumentosController = {
         return;
       }
 
+      await registrarAuditoria({
+        accion: "documentos.actualizar",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { documentoId: data.id },
+        contexto: contextoAuditoriaModulo(req),
+      });
       await publicarEventoTenant(tenantId, "documentos.actualizado", { documentoId: data.id });
       res.json(data);
     } catch {
@@ -123,6 +139,13 @@ export const DocumentosController = {
         return;
       }
 
+      await registrarAuditoria({
+        accion: "documentos.eliminar",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { documentoId: id },
+        contexto: contextoAuditoriaModulo(req),
+      });
       await publicarEventoTenant(tenantId, "documentos.eliminado", { documentoId: id });
       res.json({ message: "Eliminado correctamente" });
     } catch {
@@ -154,6 +177,15 @@ export const DocumentosController = {
         return;
       }
 
+      // UNA fila con el conteo, no una por documento -- mismo criterio que
+      // el bulk de repuestos (ver el comentario en repuestos.controller.ts).
+      await registrarAuditoria({
+        accion: "documentos.carga_masiva",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { cantidad: resultado },
+        contexto: contextoAuditoriaModulo(req),
+      });
       await publicarEventoTenant(tenantId, "documentos.carga_masiva", {
         cantidad: resultado,
       });
@@ -215,6 +247,13 @@ export const DocumentosController = {
         return;
       }
 
+      await registrarAuditoria({
+        accion: "documentos.subir_version",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { documentoId, versionId: fila!.id },
+        contexto: contextoAuditoriaModulo(req),
+      });
       await publicarEventoTenant(tenantId, "documentos.version_subida", {
         documentoId,
         versionId: fila!.id,

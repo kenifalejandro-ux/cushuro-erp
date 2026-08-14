@@ -3,6 +3,8 @@
 import { Request, Response } from "express";
 import { withTenant } from "../../server/config/database";
 import { getTenantId } from "../../server/shared/utils/request";
+import { contextoAuditoriaModulo } from "../../server/shared/utils/moduleAudit";
+import { registrarAuditoria } from "../../server/services/platformAudit.service";
 import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
 import type {
   RegistrarLecturaCombustibleInput,
@@ -56,6 +58,13 @@ export class CombustibleController {
         return res.status(404).json({ error: "No encontrado" });
       }
 
+      await registrarAuditoria({
+        accion: "combustible.actualizar_nivel",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { combustibleId: id },
+        contexto: contextoAuditoriaModulo(req),
+      });
       await publicarEventoTenant(tenantId, "combustible.nivel_actualizado", {
         combustibleId: id,
         nivelActual: nivel_actual,
@@ -98,6 +107,13 @@ export class CombustibleController {
         return;
       }
 
+      await registrarAuditoria({
+        accion: "combustible.registrar_lectura",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { lecturaId: fila!.lectura.id, combustibleId: data.combustible_id },
+        contexto: contextoAuditoriaModulo(req),
+      });
       await publicarEventoTenant(tenantId, "combustible.lectura_registrada", {
         lecturaId: fila!.lectura.id,
         combustibleId: data.combustible_id,
