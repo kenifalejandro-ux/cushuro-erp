@@ -64,6 +64,7 @@ import {
   platformAdminLoginSchema,
   crearPlatformAdminSchema,
   cambiarEstadoPlatformAdminSchema,
+  cambiarPasswordPlatformAdminSchema,
   restaurarBackupSchema,
   restaurarBackupPlataformaSchema,
   fijarCuotaTenantSchema,
@@ -124,6 +125,7 @@ import {
   listarPlatformAdminsService,
   crearPlatformAdminService,
   cambiarEstadoPlatformAdminService,
+  cambiarPasswordPropioPlatformAdminService,
   esSuperAdminVigente,
 } from "../services/platformAdminAccount.service";
 import {
@@ -509,6 +511,47 @@ export function createPlatformRouter() {
           detalle: { sessionId: req.params.sessionId, revocada },
         });
         res.status(200).json({ ok: true, revocada });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  // Cambio de contraseña self-service — solo para actorType "platform_admin"
+  // (una cuenta individual real). El secreto compartido no tiene contraseña
+  // propia que cambiar: sigue siendo el fallback de emergencia, se rota
+  // regenerando PLATFORM_ADMIN_TOKEN, no desde acá.
+  router.patch(
+    "/mi-cuenta/password",
+    validarConAuditoria(cambiarPasswordPlatformAdminSchema, "cambiar_password_propio"),
+    asyncHandler(async (req, res, next) => {
+      try {
+        const actor = getPlatformActor(req);
+        if (actor?.actorType !== "platform_admin") {
+          return res.status(400).json({
+            ok: false,
+            message: "El acceso de emergencia no tiene contraseña individual para cambiar",
+          });
+        }
+
+        const { passwordActual, passwordNueva } = req.validatedBody as {
+          passwordActual: string;
+          passwordNueva: string;
+        };
+        await cambiarPasswordPropioPlatformAdminService(
+          actor.actorId,
+          passwordActual,
+          passwordNueva
+        );
+
+        await registrarAuditoria({
+          accion: "cambiar_password_propio",
+          contexto: contextoDe(req),
+          detalle: { email: actor.actorLabel },
+        });
+
+        res.clearCookie(PLATFORM_SESSION_COOKIE, { path: "/api/platform" });
+        res.status(200).json({ ok: true });
       } catch (err) {
         next(err);
       }

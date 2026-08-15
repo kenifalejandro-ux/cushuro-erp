@@ -39,6 +39,21 @@ export async function cerrarSesionPlataformaApi(): Promise<void> {
   await platformFetch("/sesion/salir", { method: "POST" });
 }
 
+/** Solo disponible para actorType "platform_admin" (cuenta individual) —
+ *  el acceso de emergencia no tiene contraseña propia. Al confirmar, el
+ *  backend revoca la sesión actual también, así que el caller debe mandar
+ *  al login después de un 200. */
+export async function cambiarPasswordPropioApi(
+  passwordActual: string,
+  passwordNueva: string
+): Promise<void> {
+  const res = await platformFetch(
+    "/mi-cuenta/password",
+    jsonInit("PATCH", { passwordActual, passwordNueva })
+  );
+  await parseOrThrow(res);
+}
+
 export interface QuienSoy {
   actorType: "platform_admin" | "emergency_shared_secret" | "unauthenticated";
   actorLabel: string | null;

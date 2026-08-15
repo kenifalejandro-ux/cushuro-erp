@@ -159,6 +159,40 @@ export async function cambiarEstadoPlatformAdminService(
   }
 }
 
+/** Cambio de contraseña self-service (el propio admin, no otro super_admin
+ *  actuando sobre él — para eso no hay endpoint, mismo criterio que
+ *  usuarios de tenant: nadie más puede fijarle la contraseña a otro).
+ *  Exige la contraseña actual para evitar que una sesión robada (cookie
+ *  filtrada, navegador compartido) alcance para tomar la cuenta entera.
+ *  Revoca todas las sesiones del admin al terminar, la que hizo el cambio
+ *  incluida — mismo motivo que forzar un logout tras cambiar contraseña en
+ *  cualquier sistema: una sesión vieja no debería sobrevivir al secreto
+ *  que la respalda. */
+export async function cambiarPasswordPropioPlatformAdminService(
+  id: string,
+  passwordActual: string,
+  passwordNueva: string
+): Promise<void> {
+  const result = await pool.query(
+    `SELECT password_hash FROM platform_admins WHERE id = $1 AND activo = true`,
+    [id]
+  );
+  const fila = result.rows[0];
+
+  const passwordValido = await bcrypt.compare(passwordActual, fila?.password_hash ?? HASH_SEÑUELO);
+  if (!fila || !passwordValido) {
+    throw new AppError(401, "Contraseña actual incorrecta");
+  }
+
+  const passwordHash = await bcrypt.hash(passwordNueva, 12);
+  await pool.query(
+    `UPDATE platform_admins SET password_hash = $1, actualizado_en = now() WHERE id = $2`,
+    [passwordHash, id]
+  );
+
+  await revocarSesionesDeAdmin(id);
+}
+
 /** true si el actor autenticado puede gestionar otras cuentas de Platform
  *  Admin: el secreto compartido siempre puede (es el fallback de
  *  emergencia, con más poder que cualquier cuenta individual — así se

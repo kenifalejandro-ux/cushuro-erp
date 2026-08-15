@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 
 import AuditoriaView from "./AuditoriaView";
+import CambiarPasswordDialog from "./CambiarPasswordDialog";
 import PlatformAdminsView from "./PlatformAdminsView";
 import {
   whoamiApi,
@@ -25,6 +26,7 @@ export default function PlatformApp() {
   const [quienSoy, setQuienSoy] = useState<QuienSoy | null | undefined>(undefined);
   const [seccion, setSeccion] = useState<Seccion>("tenants");
   const [tenantSeleccionado, setTenantSeleccionado] = useState<TenantPlataforma | null>(null);
+  const [cambiandoPassword, setCambiandoPassword] = useState(false);
 
   useEffect(() => {
     whoamiApi()
@@ -51,13 +53,13 @@ export default function PlatformApp() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950">
-      <header className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-6">
+    <div className="min-h-screen bg-[#0A1014]">
+      <header className="border-b border-slate-800 px-4 sm:px-6 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <span className="text-slate-100 font-light text-sm tracking-tight">
             MinCore ERP · Plataforma
           </span>
-          <nav className="flex items-center gap-4">
+          <nav className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <button
               onClick={() => {
                 setSeccion("tenants");
@@ -83,26 +85,45 @@ export default function PlatformApp() {
             )}
           </nav>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <span
-            className={`text-xs ${
+            className={`text-xs truncate max-w-[220px] sm:max-w-none ${
               quienSoy.actorType === "emergency_shared_secret" ? "text-amber-400" : "text-slate-500"
             }`}
             title={
               quienSoy.actorType === "emergency_shared_secret"
                 ? "Acceso de emergencia (secreto compartido)"
-                : ""
+                : (quienSoy.actorLabel ?? "")
             }
           >
             {quienSoy.actorLabel}
           </span>
+          {quienSoy.actorType === "platform_admin" && (
+            <button
+              onClick={() => setCambiandoPassword(true)}
+              className="text-sm text-slate-500 hover:text-slate-300"
+            >
+              Cambiar contraseña
+            </button>
+          )}
           <button onClick={salir} className="text-sm text-slate-500 hover:text-slate-300">
             Salir
           </button>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-6 py-8">
+      {cambiandoPassword && (
+        <CambiarPasswordDialog
+          onCancelar={() => setCambiandoPassword(false)}
+          onExito={() => {
+            setCambiandoPassword(false);
+            setQuienSoy(null);
+            setTenantSeleccionado(null);
+          }}
+        />
+      )}
+
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {seccion === "tenants" &&
           (tenantSeleccionado ? (
             <TenantDetalleView

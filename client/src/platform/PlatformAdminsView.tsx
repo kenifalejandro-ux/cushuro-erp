@@ -48,11 +48,11 @@ export default function PlatformAdminsView() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-1">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
         <h2 className="text-lg font-light text-slate-100">Admins de plataforma</h2>
         <button
           onClick={() => setMostrarForm((v) => !v)}
-          className="px-4 py-2 rounded-lg bg-slate-100 text-slate-900 text-sm font-medium hover:bg-white transition-colors"
+          className="shrink-0 px-4 py-2 rounded-lg bg-slate-100 text-slate-900 text-sm font-medium hover:bg-white transition-colors"
         >
           {mostrarForm ? "Cancelar" : "+ Nuevo admin"}
         </button>
@@ -100,14 +100,14 @@ export default function PlatformAdminsView() {
         <div className="border border-slate-800 rounded-xl overflow-hidden">
           {admins.map((a) => (
             <div key={a.id} className="border-t border-slate-800 first:border-t-0">
-              <div className="px-4 py-3 flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-200">{a.nombre}</p>
-                  <p className="text-xs text-slate-500">
+              <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm text-slate-200 truncate">{a.nombre}</p>
+                  <p className="text-xs text-slate-500 truncate">
                     {a.email} · {a.rol === "super_admin" ? "Super-admin" : "Admin"}
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <span
                     className={`px-2 py-0.5 rounded-full text-xs ${
                       a.activo ? "bg-emerald-950 text-emerald-400" : "bg-slate-800 text-slate-400"
@@ -193,14 +193,14 @@ function SesionesDeAdmin({
           {sesiones.map((s) => (
             <li
               key={s.sessionId}
-              className="flex items-center justify-between text-xs text-slate-400"
+              className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-xs text-slate-400"
             >
               <span>
                 {s.ip} · desde {new Date(s.creadaEn).toLocaleString()}
               </span>
               <button
                 onClick={() => revocar(s.sessionId)}
-                className="text-red-400 hover:text-red-300 font-medium"
+                className="self-start sm:self-auto text-red-400 hover:text-red-300 font-medium"
               >
                 Revocar
               </button>

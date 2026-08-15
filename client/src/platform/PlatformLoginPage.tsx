@@ -33,12 +33,10 @@ export default function PlatformLoginPage({ onExito }: { onExito: () => void }) 
   }, []);
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-[#0A1014] flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center gap-3 mb-8">
-          <div className="w-11 h-11 bg-slate-100 rounded-lg flex items-center justify-center">
-            <span className="text-slate-900 font-semibold text-base">M</span>
-          </div>
+          <img src="/mincore-mark.png" alt="MinCore" className="w-11 h-11" />
           <h1 className="text-xl font-light text-slate-100 tracking-tight">Panel de plataforma</h1>
           <p className="text-xs text-slate-400 text-center">
             No es el login del ERP — esto administra todos los tenants a la vez.
@@ -104,7 +102,7 @@ function AdminLoginForm({ onExito }: { onExito: () => void }) {
   return (
     <form
       onSubmit={handleSubmit}
-      className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4"
+      className="bg-[#0A1014] border border-slate-300 rounded-xl p-6 space-y-4"
     >
       <div>
         <label className="block text-sm font-light text-slate-300 mb-1.5" htmlFor="email">
@@ -146,7 +144,7 @@ function AdminLoginForm({ onExito }: { onExito: () => void }) {
       <button
         type="submit"
         disabled={enviando}
-        className="w-full py-2.5 rounded-lg bg-slate-100 text-slate-900 text-sm font-medium hover:bg-white disabled:opacity-50 transition-colors"
+        className="w-full py-2.5 rounded-lg bg-[#C9E600]/80 text-slate-900 text-sm font-medium hover:bg-[#C9E600] disabled:opacity-50 transition-colors"
       >
         {enviando ? "Verificando..." : "Entrar"}
       </button>

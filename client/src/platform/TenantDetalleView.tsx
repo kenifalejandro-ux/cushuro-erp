@@ -90,14 +90,14 @@ export default function TenantDetalleView({
         ← Volver a empresas
       </button>
 
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-lg font-light text-slate-100">{tenant.nombre}</h2>
-          <p className="text-xs text-slate-500">{tenant.slug}</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+        <div className="min-w-0">
+          <h2 className="text-lg font-light text-slate-100 truncate">{tenant.nombre}</h2>
+          <p className="text-xs text-slate-500 truncate">{tenant.slug}</p>
         </div>
         <button
           onClick={() => setDialogTenantAbierto(true)}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+          className={`shrink-0 self-start sm:self-auto px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
             tenant.activo
               ? "bg-red-950 text-red-400 hover:bg-red-900"
               : "bg-emerald-950 text-emerald-400 hover:bg-emerald-900"
@@ -160,7 +160,7 @@ export default function TenantDetalleView({
         onError={setError}
       />
 
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
         <h3 className="text-sm font-light text-slate-400">Usuarios</h3>
         <button
           onClick={() => setMostrarFormUsuario((v) => !v)}
@@ -183,14 +183,14 @@ export default function TenantDetalleView({
       <div className="border border-slate-800 rounded-xl overflow-hidden">
         {usuarios.map((u) => (
           <div key={u.id} className="border-t border-slate-800 first:border-t-0">
-            <div className="px-4 py-3 flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-200">{u.nombre}</p>
-                <p className="text-xs text-slate-500">
+            <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-sm text-slate-200 truncate">{u.nombre}</p>
+                <p className="text-xs text-slate-500 truncate">
                   {u.email} · {u.rol}
                 </p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <span
                   className={`px-2 py-0.5 rounded-full text-xs ${
                     u.activo ? "bg-emerald-950 text-emerald-400" : "bg-slate-800 text-slate-400"
@@ -378,7 +378,7 @@ function SaludTenant({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <h3 className="text-sm font-light text-slate-400">Salud (últimas 24h)</h3>
         <button
           onClick={cargar}
@@ -499,7 +499,7 @@ function BackupsTenant({
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <h3 className="text-sm font-light text-slate-400">Backups</h3>
         <button
           onClick={crear}
@@ -519,7 +519,10 @@ function BackupsTenant({
           {backups.map((b) => {
             const totalFilas = Object.values(b.tablas).reduce((a, x) => a + x, 0);
             return (
-              <li key={b.id} className="flex items-center justify-between text-xs text-slate-400">
+              <li
+                key={b.id}
+                className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-xs text-slate-400"
+              >
                 <span>
                   {new Date(b.creadoEn).toLocaleString()} · {totalFilas} filas ·{" "}
                   {(b.tamanoBytes / 1024).toFixed(0)} KB
@@ -527,7 +530,7 @@ function BackupsTenant({
                 <button
                   onClick={() => restaurar(b)}
                   disabled={restaurandoId === b.id}
-                  className="text-red-400 hover:text-red-300 font-medium disabled:opacity-50"
+                  className="self-start sm:self-auto text-red-400 hover:text-red-300 font-medium disabled:opacity-50"
                 >
                   {restaurandoId === b.id ? "Restaurando..." : "Restaurar sobre este tenant"}
                 </button>
@@ -604,7 +607,7 @@ function DominioTenant({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <h3 className="text-sm font-light text-slate-400">Dominio propio</h3>
         {!cargando && (
           <span className={`px-2 py-0.5 rounded-full text-xs ${badge[estado]}`}>
@@ -613,17 +616,17 @@ function DominioTenant({ tenantId }: { tenantId: string }) {
         )}
       </div>
 
-      <form onSubmit={guardar} className="flex gap-3 mb-3">
+      <form onSubmit={guardar} className="flex flex-col sm:flex-row gap-3 mb-3">
         <input
           value={valorInput}
           onChange={(e) => setValorInput(e.target.value)}
           placeholder="dominio propio (ej. cushuro.pe) — vacío para quitarlo"
-          className="flex-1 px-3 py-2 rounded-lg border border-slate-700 bg-slate-950 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-500/30"
+          className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-slate-700 bg-slate-950 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-500/30"
         />
         <button
           type="submit"
           disabled={guardando}
-          className="px-4 py-2 rounded-lg bg-slate-800 text-slate-100 text-sm font-medium hover:bg-slate-700 disabled:opacity-50 transition-colors"
+          className="shrink-0 px-4 py-2 rounded-lg bg-slate-800 text-slate-100 text-sm font-medium hover:bg-slate-700 disabled:opacity-50 transition-colors"
         >
           {guardando ? "Guardando..." : "Guardar dominio"}
         </button>
@@ -727,7 +730,7 @@ function SsoTenant({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <h3 className="text-sm font-light text-slate-400">SSO (OIDC)</h3>
         {!cargando && config?.configurado && (
           <span
@@ -746,13 +749,13 @@ function SsoTenant({ tenantId }: { tenantId: string }) {
           required
           className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-950 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-500/30"
         />
-        <div className="flex gap-3">
+        <div className="flex flex-col sm:flex-row gap-3">
           <input
             value={clientId}
             onChange={(e) => setClientId(e.target.value)}
             placeholder="Client ID"
             required
-            className="flex-1 px-3 py-2 rounded-lg border border-slate-700 bg-slate-950 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-500/30"
+            className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-slate-700 bg-slate-950 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-500/30"
           />
           <input
             value={clientSecret}
@@ -760,7 +763,7 @@ function SsoTenant({ tenantId }: { tenantId: string }) {
             placeholder="Client secret"
             type="password"
             required
-            className="flex-1 px-3 py-2 rounded-lg border border-slate-700 bg-slate-950 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-500/30"
+            className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-slate-700 bg-slate-950 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-500/30"
           />
         </div>
         {config?.configurado && (
@@ -849,7 +852,7 @@ function ScimTenant({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <h3 className="text-sm font-light text-slate-400">SCIM (provisioning automático)</h3>
         {!cargando && config?.configurado && (
           <span

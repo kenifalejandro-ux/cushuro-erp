@@ -36,11 +36,11 @@ export default function TenantsView({
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h2 className="text-lg font-light text-slate-100">Empresas (tenants)</h2>
         <button
           onClick={() => setMostrarForm((v) => !v)}
-          className="px-4 py-2 rounded-lg bg-slate-100 text-slate-900 text-sm font-medium hover:bg-white transition-colors"
+          className="shrink-0 px-4 py-2 rounded-lg bg-slate-100 text-slate-900 text-sm font-medium hover:bg-white transition-colors"
         >
           {mostrarForm ? "Cancelar" : "+ Nueva empresa"}
         </button>
@@ -64,8 +64,8 @@ export default function TenantsView({
       {cargando ? (
         <p className="text-sm text-slate-400">Cargando...</p>
       ) : (
-        <div className="border border-slate-800 rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="border border-slate-800 rounded-xl overflow-hidden overflow-x-auto">
+          <table className="w-full text-sm min-w-[560px]">
             <thead>
               <tr className="bg-slate-900 text-slate-400 text-left">
                 <th className="px-4 py-3 font-light">Nombre</th>
