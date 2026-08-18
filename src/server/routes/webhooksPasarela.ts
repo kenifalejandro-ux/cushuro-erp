@@ -10,6 +10,7 @@
  * /api/facturacion (ver facturacion.ts).
  */
 import { Router, type Request, type Response, type NextFunction } from "express";
+import rateLimiter from "../middleware/rateLimiter";
 import { asyncHandler } from "../shared/utils/asyncHandler";
 import { getClientIp } from "../shared/utils/request";
 import { logger } from "../config/logger";
@@ -18,6 +19,11 @@ import { obtenerPasarelaPago } from "../services/pasarelaPago";
 import { aplicarEventoWebhookService } from "../services/platformBilling.service";
 
 export const webhooksPasarelaRouter = Router();
+
+// Sin esto, alguien podía probar firmas sin límite contra este endpoint
+// público -- mismo criterio que scim.ts: rateLimiter ANTES de la
+// verificación (que ya hace su propio trabajo de crypto), no después.
+webhooksPasarelaRouter.use(rateLimiter);
 
 webhooksPasarelaRouter.post(
   "/culqi",
