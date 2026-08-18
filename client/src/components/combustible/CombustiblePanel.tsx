@@ -35,6 +35,38 @@ const ETIQUETA_TIPO_PUNTO: Record<Tanque["tipo_punto"], string> = {
   surtidor: "Surtidor",
 };
 
+/** Espejo de MAX_FILAS_CARGA_MASIVA_TANQUES en
+ *  server/schemas/combustible.schema.ts -- mismo motivo que
+ *  MAX_FILAS_IMPORTACION en RepuestosTable.tsx: avisa antes de mandar
+ *  miles de filas al servidor para que las rechace. */
+const MAX_FILAS_IMPORTACION = 5000;
+
+/** Traduce la respuesta de error a algo accionable -- mismo criterio que
+ *  RepuestosTable.tsx/DocumentosTable.tsx. */
+async function mensajeDeErrorDelServidor(res: Response, filas: number): Promise<string> {
+  if (res.status === 413) {
+    return `El archivo es demasiado grande para enviarlo de una vez (${filas} filas). Dividilo en varios archivos.`;
+  }
+  if (res.status === 403) {
+    const body = await res.json().catch(() => null);
+    if (body?.error === "cuota_excedida") {
+      return `Se alcanzó el límite de tanques del plan (${body.uso} de ${body.limite}). Importar ${filas} más lo superaría.`;
+    }
+    return "No tenés permiso para importar tanques.";
+  }
+  if (res.status === 400) {
+    const body = await res.json().catch(() => null);
+    const primero = body?.errors?.[0];
+    if (primero) {
+      const indice = Number(String(primero.field).split(".")[0]);
+      const ubicacion = Number.isInteger(indice) ? `Fila ${indice + 2}: ` : "";
+      return `${ubicacion}${primero.message}`;
+    }
+    return "El archivo tiene filas con datos inválidos.";
+  }
+  return "El servidor rechazó la importación. Intentalo de nuevo.";
+}
+
 const FORM_INICIAL = {
   codigo: "",
   tanque_nombre: "",
@@ -72,6 +104,11 @@ export default function CombustiblePanel() {
   // de la cola offline (alta de tanque es tarea de oficina, con red), así
   // que no hace falta cliente_uuid, solo esta guarda contra el doble clic.
   const [guardando, setGuardando] = useState(false);
+
+  // --- Importación masiva ---
+  const [importando, setImportando] = useState(false);
+  const [errorImportacion, setErrorImportacion] = useState<string | null>(null);
+  const [resultadoImportacion, setResultadoImportacion] = useState<string | null>(null);
 
   // --- Registrar lectura (offline-capaz, como antes) ---
   const [tanqueLectura, setTanqueLectura] = useState<Tanque | null>(null);
@@ -192,6 +229,67 @@ export default function CombustiblePanel() {
     await cargarTanques();
   };
 
+  // --- Importación masiva -- xlsx se carga on-demand (import dinámico)
+  // para que su chunk no viaje en el bundle inicial, mismo patrón que
+  // RepuestosTable.tsx. ---
+  const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Sin esto, elegir el MISMO archivo dos veces seguidas no dispara
+    // onChange -- justo lo que querría hacer alguien que corrigió su
+    // planilla y la vuelve a subir con el mismo nombre.
+    e.target.value = "";
+    if (!file) return;
+
+    setErrorImportacion(null);
+    setResultadoImportacion(null);
+    setImportando(true);
+
+    const reader = new FileReader();
+    reader.onerror = () => {
+      setImportando(false);
+      setErrorImportacion("No se pudo leer el archivo.");
+    };
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const XLSX = await import("xlsx");
+        const wb = XLSX.read(bstr, { type: "binary" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        if (!ws) throw new Error("El archivo no tiene ninguna hoja de cálculo.");
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        if (data.length === 0) throw new Error("La primera hoja está vacía.");
+        if (data.length > MAX_FILAS_IMPORTACION) {
+          throw new Error(
+            `El archivo tiene ${data.length} filas y el máximo es ${MAX_FILAS_IMPORTACION}. Dividilo en varios archivos.`
+          );
+        }
+
+        const res = await apiFetch("/api/erp/combustible/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+
+        if (!res.ok) {
+          setErrorImportacion(await mensajeDeErrorDelServidor(res, data.length));
+          return;
+        }
+
+        const body = await res.json().catch(() => ({}));
+        setResultadoImportacion(
+          `Se importaron ${body.insertados ?? data.length} tanques correctamente.`
+        );
+        await cargarTanques();
+      } catch (err) {
+        setErrorImportacion(err instanceof Error ? err.message : "Error al procesar el archivo.");
+      } finally {
+        setImportando(false);
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
   // --- Registrar lectura ---
 
   const abrirModalLectura = (t: Tanque) => {
@@ -253,13 +351,56 @@ export default function CombustiblePanel() {
           <h1 className="text-3xl font-bold text-slate-800">Control de Combustible</h1>
           <p className="text-slate-500">Tanques y puntos de abastecimiento</p>
         </div>
-        <button
-          onClick={abrirModalNuevo}
-          className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl transition-all"
-        >
-          + Nuevo Tanque
-        </button>
+        <div className="flex items-center gap-3">
+          <label
+            className={`px-4 py-2.5 border rounded-xl flex items-center gap-2 transition-all ${
+              importando
+                ? "bg-emerald-100 text-emerald-400 border-emerald-200 cursor-wait"
+                : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 cursor-pointer"
+            }`}
+          >
+            <span>📊 {importando ? "Importando..." : "Importar Excel"}</span>
+            <input
+              type="file"
+              accept=".xlsx, .xls"
+              className="hidden"
+              disabled={importando}
+              onChange={handleExcelUpload}
+            />
+          </label>
+          <button
+            onClick={abrirModalNuevo}
+            className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl transition-all"
+          >
+            + Nuevo Tanque
+          </button>
+        </div>
       </div>
+
+      {errorImportacion && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+          <p className="text-sm text-red-900 font-light flex-1">{errorImportacion}</p>
+          <button
+            className="text-red-400 hover:text-red-600 text-sm shrink-0"
+            onClick={() => setErrorImportacion(null)}
+            aria-label="Cerrar aviso de error"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {resultadoImportacion && (
+        <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4 flex items-start gap-3">
+          <p className="text-sm text-green-900 font-light flex-1">{resultadoImportacion}</p>
+          <button
+            className="text-green-500 hover:text-green-700 text-sm shrink-0"
+            onClick={() => setResultadoImportacion(null)}
+            aria-label="Cerrar aviso de importación"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {tanques.length === 0 ? (
         <div className="bg-slate-50 border border-slate-200 border-dashed rounded-xl p-10 text-center text-slate-500">
