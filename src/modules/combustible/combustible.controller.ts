@@ -3,12 +3,16 @@
 import { Request, Response } from "express";
 import { withTenant } from "../../server/config/database";
 import { getTenantId } from "../../server/shared/utils/request";
+import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/utils/pagination";
 import { contextoAuditoriaModulo } from "../../server/shared/utils/moduleAudit";
 import { registrarAuditoria } from "../../server/services/platformAudit.service";
 import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
 import type {
   RegistrarLecturaCombustibleInput,
   ActualizarNivelCombustibleInput,
+  CrearTanqueCombustibleInput,
+  ActualizarTanqueCombustibleInput,
+  CargaMasivaTanquesCombustibleInput,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleService } from "./combustible.service";
 
@@ -38,6 +42,134 @@ export class CombustibleController {
       res.json(data);
     } catch {
       res.status(500).json({ error: "Error al obtener combustible" });
+    }
+  }
+
+  async create(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const data = req.validatedBody as CrearTanqueCombustibleInput;
+      const nuevo = await withTenant(tenantId, (client) => service.create(client, tenantId, data));
+      await registrarAuditoria({
+        accion: "combustible.tanque_crear",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { combustibleId: nuevo.id, codigo: nuevo.codigo },
+        contexto: contextoAuditoriaModulo(req),
+      });
+      await publicarEventoTenant(tenantId, "combustible.tanque_creado", {
+        combustibleId: nuevo.id,
+      });
+      res.status(201).json(nuevo);
+    } catch {
+      res.status(500).json({ error: "Error al crear el tanque" });
+    }
+  }
+
+  async update(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const id = Number(req.params.id);
+      const data = req.validatedBody as ActualizarTanqueCombustibleInput;
+      const actualizado = await withTenant(tenantId, (client) =>
+        service.update(client, tenantId, id, data)
+      );
+
+      if (!actualizado) {
+        return res.status(404).json({ error: "No encontrado" });
+      }
+
+      await registrarAuditoria({
+        accion: "combustible.tanque_actualizar",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { combustibleId: id },
+        contexto: contextoAuditoriaModulo(req),
+      });
+      await publicarEventoTenant(tenantId, "combustible.tanque_actualizado", {
+        combustibleId: id,
+      });
+      res.json(actualizado);
+    } catch {
+      res.status(500).json({ error: "Error al actualizar el tanque" });
+    }
+  }
+
+  /** Soft-delete exclusivamente -- ver CombustibleRepository.softDelete: un
+   *  DELETE real borraría en cascada el historial de combustible_lecturas. */
+  async delete(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const id = Number(req.params.id);
+      const desactivado = await withTenant(tenantId, (client) =>
+        service.softDelete(client, tenantId, id)
+      );
+
+      if (!desactivado) {
+        return res.status(404).json({ error: "No encontrado" });
+      }
+
+      await registrarAuditoria({
+        accion: "combustible.tanque_eliminar",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { combustibleId: id },
+        contexto: contextoAuditoriaModulo(req),
+      });
+      await publicarEventoTenant(tenantId, "combustible.tanque_eliminado", {
+        combustibleId: id,
+      });
+      res.json({ message: "Tanque desactivado" });
+    } catch {
+      res.status(500).json({ error: "Error al desactivar el tanque" });
+    }
+  }
+
+  async bulk(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const rows = req.validatedBody as CargaMasivaTanquesCombustibleInput;
+      const result = await withTenant(tenantId, (client) =>
+        service.createBulk(client, tenantId, rows)
+      );
+      // UNA fila de auditoría con el conteo, no una por tanque -- mismo
+      // criterio que repuestos.carga_masiva (RepuestosController.bulk).
+      await registrarAuditoria({
+        accion: "combustible.tanques_carga_masiva",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { cantidad: result.length },
+        contexto: contextoAuditoriaModulo(req),
+      });
+      await publicarEventoTenant(tenantId, "combustible.tanques_carga_masiva", {
+        cantidad: result.length,
+      });
+      res.status(201).json({ insertados: result.length, data: result });
+    } catch {
+      res.status(500).json({ error: "Error en importación masiva" });
+    }
+  }
+
+  /** GET /:id/lecturas -- el histórico de aforos del tanque, que hasta acá
+   *  era dato muerto (se guardaba en cada lectura pero no había forma de
+   *  consultarlo salvo entrar a la base directo). */
+  async getLecturas(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const id = Number(req.params.id);
+
+      const tanque = await withTenant(tenantId, (client) => service.getById(client, tenantId, id));
+      if (!tanque) {
+        return res.status(404).json({ error: "No encontrado" });
+      }
+
+      const paginacion = parsePaginacion(req.query);
+      const filas = await withTenant(tenantId, (client) =>
+        service.getLecturas(client, tenantId, id, paginacion)
+      );
+      res.json(armarRespuestaPaginada(filas, paginacion));
+    } catch {
+      res.status(500).json({ error: "Error al obtener el histórico de lecturas" });
     }
   }
 

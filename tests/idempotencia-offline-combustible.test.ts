@@ -21,8 +21,11 @@ async function crearTanque(
 ): Promise<number> {
   const fila = await withTenant(tenantId, (client) =>
     client.query(
-      `INSERT INTO combustible (tenant_id, tanque_nombre, capacidad_total, nivel_actual)
-       VALUES ($1, $2, $3, $4) RETURNING id`,
+      `INSERT INTO combustible (
+         tenant_id, codigo, tanque_nombre, tipo_combustible, unidad, tipo_punto,
+         capacidad_total, nivel_actual
+       )
+       VALUES ($1, 'TQ-TEST', $2, 'diesel_b5', 'gal', 'fijo', $3, $4) RETURNING id`,
       [tenantId, data.tanqueNombre, data.capacidadTotal, data.nivelActual]
     )
   );

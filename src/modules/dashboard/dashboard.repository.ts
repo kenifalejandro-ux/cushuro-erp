@@ -40,8 +40,13 @@ export const DashboardRepository = {
 
 
         -- ⛽ COMBUSTIBLE
-        (SELECT ROUND((nivel_actual / capacidad_total) * 100, 2)
-         FROM combustible WHERE tenant_id = $1 LIMIT 1) AS combustible_porcentaje,
+        -- Antes: LIMIT 1 sobre un tenant con más de un tanque devolvía el
+        -- porcentaje de una fila arbitraria (según ORDER BY implícito de
+        -- Postgres), no un dato representativo. Ahora agrega TODOS los
+        -- tanques activos del tenant: nivel total sobre capacidad total.
+        (SELECT ROUND(
+           (SUM(nivel_actual) / NULLIF(SUM(capacidad_total), 0)) * 100, 2)
+         FROM combustible WHERE tenant_id = $1 AND activo) AS combustible_porcentaje,
 
         -- 📄 DOCUMENTOS
         (SELECT COUNT(*) FROM documentos
