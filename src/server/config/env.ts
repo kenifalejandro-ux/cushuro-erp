@@ -309,6 +309,14 @@ export const env = {
   sentryEnvironment:
     process.env.SENTRY_ENVIRONMENT ||
     (process.env.NODE_ENV === "production" ? "production" : "development"),
+  // Pasarela de pago (billing, migración 0041). Vacío = obtenerPasarelaPago()
+  // devuelve StubPasarela (desarrollo/tests, cero llamadas externas) —
+  // mismo criterio "modo degradado sin config" que Redis/Sentry acá arriba.
+  // culqiPublicKey no se usa todavía (no hay checkout de tarjeta en el
+  // frontend en este P0), se documenta para cuando exista.
+  culqiSecretKey: process.env.CULQI_SECRET_KEY || "",
+  culqiPublicKey: process.env.CULQI_PUBLIC_KEY || "",
+  culqiWebhookSecret: process.env.CULQI_WEBHOOK_SECRET || "",
 };
 
 // Si hay DATABASE_URL (Railway u otro proveedor gestionado), las variables

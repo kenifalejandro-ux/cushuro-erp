@@ -37,6 +37,7 @@ import {
   generarTokenScimApi,
   revocarTokenScimApi,
 } from "./platformApi";
+import SuscripcionTenant from "./SuscripcionTenant";
 
 export default function TenantDetalleView({
   tenant,
@@ -149,6 +150,8 @@ export default function TenantDetalleView({
       <SaludTenant tenantId={tenant.id} />
 
       <BackupsTenant tenantId={tenant.id} onError={setError} />
+
+      <SuscripcionTenant tenantId={tenant.id} tenantActivo={tenant.activo} />
 
       <h3 className="text-sm font-light text-slate-400 mb-2">Módulos contratados</h3>
       <PlanYCuotasTenant tenantId={tenant.id} onError={setError} />

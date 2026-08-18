@@ -50,6 +50,14 @@ const handlers: Record<TipoEventoOutbox, Handler> = {
   alerta_rafaga: async (evento) => {
     logger.warn({ payload: evento.payload }, "Alerta de plataforma: ráfaga detectada");
   },
+  // Mismo criterio que alerta_rafaga: stub a propósito. El job de
+  // vencimientos (platformBillingVencimientos.service.ts) escribe acá al
+  // mover una suscripción a en_gracia/suspendida — el punto de extensión
+  // para mandar el mail real es este handler, el resto del pipeline ya
+  // está listo.
+  notificacion_billing: async (evento) => {
+    logger.warn({ payload: evento.payload }, "Notificación de billing pendiente de enviar");
+  },
 };
 
 /** Exportado aparte de la lógica de arranque para que los tests puedan

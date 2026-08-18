@@ -210,3 +210,112 @@ export const asignarPlanTenantSchema = z.object({
 });
 
 export type AsignarPlanTenantInput = z.infer<typeof asignarPlanTenantSchema>;
+
+// ── Billing / suscripciones (migración 0041) ────────────────────────────
+
+export const crearSuscripcionSchema = z.object({
+  plan: z.string().trim().min(1, "Plan requerido").max(80),
+  ciclo: z.enum(["mensual", "anual"]),
+  metodoFacturacion: z.enum(["tarjeta", "transferencia"]),
+  // Ausente = usa el precio de lista del plan (planes.precio_*_referencia).
+  precioReferencia: z.number().min(0).optional(),
+  // No es un trial de producto (nadie se autosuscribe al ERP) -- es una
+  // exoneración comercial negociada caso por caso con un cliente que YA
+  // contrató (ej. cobró la implementación aparte y exoneró la suscripción
+  // mensual por un tiempo). En MESES (no días): así es como se negocia
+  // ("le exonero 6 meses"), y evita el redondeo de aproximar un mes a 30
+  // días -- make_interval(months => N) calcula el calendario real.
+  trialMeses: z.number().int().min(0).max(12).optional(),
+  // Tasa pactada fija para este cliente -- excepción, no la norma. Ausente
+  // = usa el TC global de plataforma. El service rechaza esto si
+  // metodoFacturacion no es 'tarjeta'.
+  tipoCambioOverride: z.number().positive().optional(),
+});
+
+export type CrearSuscripcionInput = z.infer<typeof crearSuscripcionSchema>;
+
+export const cambiarPlanSuscripcionSchema = z.object({
+  plan: z.string().trim().min(1, "Plan requerido").max(80),
+  precioReferencia: z.number().min(0).optional(),
+  motivo: z.string().trim().max(500).optional(),
+});
+
+export type CambiarPlanSuscripcionInput = z.infer<typeof cambiarPlanSuscripcionSchema>;
+
+export const extenderGraciaSchema = z.object({
+  dias: z.number().int().min(1).max(90),
+  motivo: z.string().trim().max(500).optional(),
+});
+
+export type ExtenderGraciaInput = z.infer<typeof extenderGraciaSchema>;
+
+export const motivoOpcionalSchema = z.object({
+  motivo: z.string().trim().max(500).optional(),
+});
+
+// Cobro único de implementación, independiente de la suscripción -- ver
+// registrarCobroImplementacionService. estado ausente = 'exitoso' (ya se
+// cobró); 'pendiente' es para cuotas pactadas todavía no cobradas (ej. el
+// saldo que se abona cuando el tenant arranca en producción).
+export const registrarCobroImplementacionSchema = z.object({
+  monto: z.number().positive(),
+  moneda: z.enum(["USD", "PEN"]),
+  descripcion: z.string().trim().max(200).optional(),
+  estado: z.enum(["pendiente", "exitoso"]).optional(),
+  // Cuándo pasó el pago (YYYY-MM-DD) -- default hoy si no se manda.
+  fecha: z.string().trim().min(1).optional(),
+  // Obligatorio si moneda='PEN', rechazado si 'USD' (el servicio lo valida).
+  tipoCambioAplicado: z.number().positive().optional(),
+});
+
+export type RegistrarCobroImplementacionInput = z.infer<typeof registrarCobroImplementacionSchema>;
+
+export type MotivoOpcionalInput = z.infer<typeof motivoOpcionalSchema>;
+
+// Recalcula el arranque de la cortesía desde hoy -- ver iniciarCortesiaService.
+export const iniciarCortesiaSchema = z.object({
+  trialMeses: z.number().int().min(1).max(12),
+});
+
+export type IniciarCortesiaInput = z.infer<typeof iniciarCortesiaSchema>;
+
+// Editar un cobro ya cargado -- ver editarCobroService (monto/moneda solo
+// se aceptan si el cobro sigue 'pendiente', el servicio lo valida).
+export const editarCobroSchema = z.object({
+  monto: z.number().positive().optional(),
+  moneda: z.enum(["USD", "PEN"]).optional(),
+  descripcion: z.string().trim().max(200).optional(),
+  fecha: z.string().trim().min(1).optional(),
+  tipoCambioAplicado: z.number().positive().nullable().optional(),
+});
+
+export type EditarCobroInput = z.infer<typeof editarCobroSchema>;
+
+// Pago parcial o total sobre un cobro 'pendiente' -- ver
+// registrarPagoCobroService (el servicio valida que no supere el saldo).
+export const registrarPagoCobroSchema = z.object({
+  montoPagado: z.number().positive(),
+  // Cuándo pasó ESTE pago -- default hoy si no se manda.
+  fecha: z.string().trim().min(1).optional(),
+});
+
+export type RegistrarPagoCobroInput = z.infer<typeof registrarPagoCobroSchema>;
+
+// Tipo de cambio USD -> PEN, global de plataforma (migración 0053) -- ver
+// platformTipoCambio.service.ts.
+export const actualizarTipoCambioSchema = z.object({
+  valor: z.number().positive(),
+});
+
+export type ActualizarTipoCambioInput = z.infer<typeof actualizarTipoCambioSchema>;
+
+// Override de tipo de cambio de UNA suscripción puntual -- `valor: null`
+// lo quita y vuelve a usar el TC global. Se distingue de "ausente" (que
+// también valdría "no cambiar nada") exigiendo la clave siempre presente,
+// para que el frontend tenga que decidir explícitamente entre un número o
+// null en vez de poder omitir el campo por error.
+export const actualizarTipoCambioOverrideSchema = z.object({
+  valor: z.number().positive().nullable(),
+});
+
+export type ActualizarTipoCambioOverrideInput = z.infer<typeof actualizarTipoCambioOverrideSchema>;

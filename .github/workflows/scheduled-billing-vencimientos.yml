@@ -1,0 +1,50 @@
+name: Scheduled Billing Vencimientos
+
+# Job diario de vencimientos de suscripción (migración 0041_billing.sql,
+# platformBillingVencimientos.service.ts): pasa a en_gracia las
+# suscripciones vencidas y, tras 7 días de gracia, suspende el tenant.
+# Mismo patrón que scheduled-backup.yml -- corre en infraestructura de
+# GitHub, separada del proceso de Node, y llama al endpoint interno en vez
+# de tocar la base directo.
+
+on:
+  schedule:
+    - cron: "30 3 * * *" # Todos los días 03:30 UTC, después del backup (03:00 UTC)
+  workflow_dispatch: # Para poder dispararlo a mano desde la pestaña Actions
+
+jobs:
+  procesar-vencimientos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Procesar vencimientos de suscripción
+        env:
+          PROD_API_URL: ${{ vars.PRODUCTION_URL }}
+          PLATFORM_ADMIN_TOKEN: ${{ secrets.PLATFORM_ADMIN_TOKEN }}
+        run: |
+          echo "=== Procesando vencimientos de suscripción ==="
+
+          if [ -z "$PROD_API_URL" ] || [ -z "$PLATFORM_ADMIN_TOKEN" ]; then
+            echo "Error: faltan vars.PRODUCTION_URL o secrets.PLATFORM_ADMIN_TOKEN en el repositorio."
+            exit 1
+          fi
+
+          API="${PROD_API_URL}/api/platform"
+
+          http_ok() {
+            [ "$1" -ge 200 ] && [ "$1" -lt 300 ]
+          }
+
+          RESPONSE=$(curl -sS --max-time 30 -w "\n%{http_code}" -X POST "${API}/billing/procesar-vencimientos" \
+            -H "Authorization: Bearer ${PLATFORM_ADMIN_TOKEN}")
+          HTTP_BODY=$(echo "$RESPONSE" | head -n -1)
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+
+          if ! http_ok "$HTTP_CODE"; then
+            echo "Error: no se pudo procesar vencimientos (HTTP $HTTP_CODE)"
+            echo "$HTTP_BODY"
+            exit 1
+          fi
+
+          echo "$HTTP_BODY"
+          echo "=== Vencimientos procesados correctamente ==="

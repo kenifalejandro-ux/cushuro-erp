@@ -68,7 +68,24 @@ import {
   restaurarBackupPlataformaSchema,
   fijarCuotaTenantSchema,
   asignarPlanTenantSchema,
+  crearSuscripcionSchema,
+  cambiarPlanSuscripcionSchema,
+  extenderGraciaSchema,
+  motivoOpcionalSchema,
+  registrarCobroImplementacionSchema,
+  iniciarCortesiaSchema,
+  editarCobroSchema,
+  registrarPagoCobroSchema,
+  actualizarTipoCambioSchema,
+  actualizarTipoCambioOverrideSchema,
   type ActualizarModuloGlobalInput,
+  type CrearSuscripcionInput,
+  type RegistrarCobroImplementacionInput,
+  type IniciarCortesiaInput,
+  type EditarCobroInput,
+  type RegistrarPagoCobroInput,
+  type ActualizarTipoCambioInput,
+  type ActualizarTipoCambioOverrideInput,
   type CrearTenantInput,
   type OnboardTenantInput,
   type CrearUsuarioEnTenantInput,
@@ -114,6 +131,33 @@ import {
   obtenerPlanDeTenantService,
   asignarPlanATenantService,
 } from "../services/platformPlanes.service";
+import {
+  obtenerSuscripcionTenantService,
+  crearSuscripcionService,
+  cambiarPlanSuscripcionService,
+  extenderGraciaService,
+  cancelarSuscripcionService,
+  reactivarSuscripcionService,
+  forzarCobroService,
+  crearMetodoPagoPruebaService,
+  registrarCobroImplementacionService,
+  marcarCobroPagadoService,
+  iniciarCortesiaService,
+  iniciarFacturacionService,
+  editarCobroService,
+  eliminarCobroService,
+  eliminarSuscripcionService,
+  actualizarTipoCambioOverrideSuscripcionService,
+  registrarPagoCobroService,
+  obtenerAlertasBillingService,
+} from "../services/platformBilling.service";
+import {
+  obtenerTipoCambioActualService,
+  actualizarTipoCambioService,
+  actualizarTipoCambioDesdeBcrpService,
+} from "../services/platformTipoCambio.service";
+import { procesarVencimientosService } from "../services/platformBillingVencimientos.service";
+import { obtenerPasarelaPago } from "../services/pasarelaPago";
 import {
   exportarPlataformaService,
   listarBackupsPlataformaService,
@@ -837,6 +881,437 @@ export function createPlatformRouter() {
 
         const cuotas = await resumenCuotasTenant(req.params.id);
         res.status(200).json({ ok: true, cuotas });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  // ── Suscripción / billing (migración 0041) ────────────────────────────
+  // Todas las mutaciones van a super_admin: mismo criterio que cuotas/plan
+  // (cambian lo que un cliente paga o puede consumir), acá con dinero real
+  // de por medio. La lectura queda abierta a cualquier platform admin.
+
+  // Le permite a la UI mostrar el botón de "Agregar método de pago de
+  // prueba" (ver crearMetodoPagoPruebaService) solo cuando corresponde --
+  // esa ruta ya se autoprotege igual, esto es nomás para no ofrecer un
+  // botón que va a terminar en 400.
+  router.get(
+    "/billing/pasarela",
+    asyncHandler(async (_req, res, next) => {
+      try {
+        res.status(200).json({ ok: true, nombre: obtenerPasarelaPago().nombre });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  // Vencidas/fallidas/próximas de TODOS los tenants en un solo query -- ver
+  // obtenerAlertasBillingService. Lectura, sin super_admin (mismo criterio
+  // que el resto de las lecturas de este bloque).
+  router.get(
+    "/billing/alertas",
+    asyncHandler(async (_req, res, next) => {
+      try {
+        const alertas = await obtenerAlertasBillingService();
+        res.status(200).json({ ok: true, alertas });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  // Tipo de cambio USD -> PEN, global de plataforma (migración 0053) --
+  // dato de mercado compartido por todos los tenants, no algo por tenant.
+  // Lectura abierta a cualquier platform admin; actualizarlo va a
+  // super_admin (afecta el monto que se cobra a TODOS los tenants con
+  // tarjeta, no solo a uno).
+  router.get(
+    "/billing/tipo-cambio",
+    asyncHandler(async (_req, res, next) => {
+      try {
+        const tipoCambio = await obtenerTipoCambioActualService();
+        res.status(200).json({ ok: true, tipoCambio });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  router.put(
+    "/billing/tipo-cambio",
+    platformSuperAdminMiddleware,
+    validarConAuditoria(actualizarTipoCambioSchema, "billing.actualizar_tipo_cambio"),
+    asyncHandler(async (req, res, next) => {
+      try {
+        const { valor } = req.validatedBody as ActualizarTipoCambioInput;
+        const tipoCambio = await actualizarTipoCambioService(valor, contextoDe(req));
+        res.status(200).json({ ok: true, tipoCambio });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  router.get(
+    "/tenants/:id/suscripcion",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const estado = await obtenerSuscripcionTenantService(req.params.id);
+        res.status(200).json({ ok: true, suscripcion: estado });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  router.post(
+    "/tenants/:id/suscripcion",
+    platformSuperAdminMiddleware,
+    validarConAuditoria(crearSuscripcionSchema, "billing.crear_suscripcion", (req) => ({
+      tenantId: req.params.id,
+    })),
+    asyncHandler(async (req, res, next) => {
+      try {
+        const estado = await crearSuscripcionService(
+          req.params.id,
+          req.validatedBody as CrearSuscripcionInput,
+          contextoDe(req)
+        );
+        res.status(201).json({ ok: true, suscripcion: estado });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  // Borra la suscripción por completo -- distinto de cancelar (ver el
+  // comentario de eliminarSuscripcionService). Pensado para corregir una
+  // alta mal hecha, no para el ciclo de vida normal de un cliente.
+  router.delete(
+    "/tenants/:id/suscripcion",
+    platformSuperAdminMiddleware,
+    asyncHandler(async (req, res, next) => {
+      try {
+        await eliminarSuscripcionService(req.params.id, contextoDe(req));
+        res.status(200).json({ ok: true });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  // Cobro único de implementación (ej. puesta en marcha del ERP),
+  // independiente de la suscripción -- ver el comentario de
+  // registrarCobroImplementacionService. A propósito NO cuelga de
+  // /suscripcion: puede cobrarse aunque el tenant todavía no tenga una.
+  router.post(
+    "/tenants/:id/cobros-implementacion",
+    platformSuperAdminMiddleware,
+    validarConAuditoria(
+      registrarCobroImplementacionSchema,
+      "billing.registrar_cobro_implementacion",
+      (req) => ({ tenantId: req.params.id })
+    ),
+    asyncHandler(async (req, res, next) => {
+      try {
+        const estado = await registrarCobroImplementacionService(
+          req.params.id,
+          req.validatedBody as RegistrarCobroImplementacionInput,
+          contextoDe(req)
+        );
+        res.status(201).json({ ok: true, suscripcion: estado });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  // Editar un cobro ya cargado -- ver editarCobroService (descripción
+  // siempre editable, monto/moneda solo mientras sigue 'pendiente').
+  router.put(
+    "/tenants/:id/cobros/:cobroId",
+    platformSuperAdminMiddleware,
+    validarConAuditoria(editarCobroSchema, "billing.editar_cobro", (req) => ({
+      tenantId: req.params.id,
+    })),
+    asyncHandler(async (req, res, next) => {
+      try {
+        const estado = await editarCobroService(
+          req.params.id,
+          req.params.cobroId,
+          req.validatedBody as EditarCobroInput,
+          contextoDe(req)
+        );
+        res.status(200).json({ ok: true, suscripcion: estado });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  // Borra un cobro entero -- SOLO 'implementacion' (ver
+  // eliminarCobroService). Los de 'suscripcion' no se pueden borrar.
+  router.delete(
+    "/tenants/:id/cobros/:cobroId",
+    platformSuperAdminMiddleware,
+    asyncHandler(async (req, res, next) => {
+      try {
+        const estado = await eliminarCobroService(
+          req.params.id,
+          req.params.cobroId,
+          contextoDe(req)
+        );
+        res.status(200).json({ ok: true, suscripcion: estado });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  // Cierra una cuota pendiente de cobros-implementacion (ej. el saldo de
+  // implementación) cuando la plata efectivamente llega -- ver
+  // marcarCobroPagadoService.
+  router.post(
+    "/tenants/:id/cobros/:cobroId/marcar-pagado",
+    platformSuperAdminMiddleware,
+    asyncHandler(async (req, res, next) => {
+      try {
+        const estado = await marcarCobroPagadoService(
+          req.params.id,
+          req.params.cobroId,
+          contextoDe(req)
+        );
+        res.status(200).json({ ok: true, suscripcion: estado });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  // Pago parcial (o total, con montoPagado = saldo completo) sobre un
+  // cobro 'pendiente' -- ver registrarPagoCobroService.
+  router.post(
+    "/tenants/:id/cobros/:cobroId/pago",
+    platformSuperAdminMiddleware,
+    validarConAuditoria(registrarPagoCobroSchema, "billing.registrar_pago_cobro", (req) => ({
+      tenantId: req.params.id,
+    })),
+    asyncHandler(async (req, res, next) => {
+      try {
+        const { montoPagado, fecha } = req.validatedBody as RegistrarPagoCobroInput;
+        const estado = await registrarPagoCobroService(
+          req.params.id,
+          req.params.cobroId,
+          montoPagado,
+          contextoDe(req),
+          fecha
+        );
+        res.status(200).json({ ok: true, suscripcion: estado });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  // Recalcula el arranque de la cortesía desde hoy -- para cuando el alta
+  // se hizo antes de que el tenant esté operando de verdad en producción.
+  // Ver iniciarCortesiaService.
+  router.post(
+    "/tenants/:id/suscripcion/iniciar-cortesia",
+    platformSuperAdminMiddleware,
+    validarConAuditoria(iniciarCortesiaSchema, "billing.iniciar_cortesia", (req) => ({
+      tenantId: req.params.id,
+    })),
+    asyncHandler(async (req, res, next) => {
+      try {
+        const { trialMeses } = req.validatedBody as IniciarCortesiaInput;
+        const estado = await iniciarCortesiaService(req.params.id, trialMeses, contextoDe(req));
+        res.status(200).json({ ok: true, suscripcion: estado });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  // El paso que le faltaba a "iniciar-cortesia": resetea el período a
+  // partir de HOY y pasa a 'activa' -- el momento en que la facturación
+  // arranca de verdad, desacoplado de cuándo se cargó el registro. Ver
+  // iniciarFacturacionService.
+  router.post(
+    "/tenants/:id/suscripcion/iniciar-facturacion",
+    platformSuperAdminMiddleware,
+    asyncHandler(async (req, res, next) => {
+      try {
+        const estado = await iniciarFacturacionService(req.params.id, contextoDe(req));
+        res.status(200).json({ ok: true, suscripcion: estado });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  // Fija (o quita, con valor: null) la tasa pactada fija de ESTA
+  // suscripción -- excepción puntual, no la norma. Ver
+  // actualizarTipoCambioOverrideSuscripcionService.
+  router.put(
+    "/tenants/:id/suscripcion/tipo-cambio",
+    platformSuperAdminMiddleware,
+    validarConAuditoria(
+      actualizarTipoCambioOverrideSchema,
+      "billing.actualizar_tipo_cambio_override",
+      (req) => ({ tenantId: req.params.id })
+    ),
+    asyncHandler(async (req, res, next) => {
+      try {
+        const { valor } = req.validatedBody as ActualizarTipoCambioOverrideInput;
+        const estado = await actualizarTipoCambioOverrideSuscripcionService(
+          req.params.id,
+          valor,
+          contextoDe(req)
+        );
+        res.status(200).json({ ok: true, suscripcion: estado });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  router.put(
+    "/tenants/:id/suscripcion/plan",
+    platformSuperAdminMiddleware,
+    validarConAuditoria(cambiarPlanSuscripcionSchema, "billing.cambiar_plan", (req) => ({
+      tenantId: req.params.id,
+    })),
+    asyncHandler(async (req, res, next) => {
+      try {
+        const { plan, precioReferencia, motivo } = req.validatedBody as {
+          plan: string;
+          precioReferencia?: number;
+          motivo?: string;
+        };
+        const estado = await cambiarPlanSuscripcionService(
+          req.params.id,
+          plan,
+          precioReferencia,
+          motivo,
+          contextoDe(req)
+        );
+        res.status(200).json({ ok: true, suscripcion: estado });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  router.post(
+    "/tenants/:id/suscripcion/gracia",
+    platformSuperAdminMiddleware,
+    validarConAuditoria(extenderGraciaSchema, "billing.extender_gracia", (req) => ({
+      tenantId: req.params.id,
+    })),
+    asyncHandler(async (req, res, next) => {
+      try {
+        const { dias, motivo } = req.validatedBody as { dias: number; motivo?: string };
+        const estado = await extenderGraciaService(req.params.id, dias, motivo, contextoDe(req));
+        res.status(200).json({ ok: true, suscripcion: estado });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  router.post(
+    "/tenants/:id/suscripcion/cancelar",
+    platformSuperAdminMiddleware,
+    validarConAuditoria(motivoOpcionalSchema, "billing.cancelar_suscripcion", (req) => ({
+      tenantId: req.params.id,
+    })),
+    asyncHandler(async (req, res, next) => {
+      try {
+        const { motivo } = req.validatedBody as { motivo?: string };
+        const estado = await cancelarSuscripcionService(req.params.id, motivo, contextoDe(req));
+        res.status(200).json({ ok: true, suscripcion: estado });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  router.post(
+    "/tenants/:id/suscripcion/reactivar",
+    platformSuperAdminMiddleware,
+    asyncHandler(async (req, res, next) => {
+      try {
+        const estado = await reactivarSuscripcionService(req.params.id, contextoDe(req));
+        res.status(200).json({ ok: true, suscripcion: estado });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  router.post(
+    "/tenants/:id/suscripcion/cobrar",
+    platformSuperAdminMiddleware,
+    asyncHandler(async (req, res, next) => {
+      try {
+        const estado = await forzarCobroService(req.params.id, contextoDe(req));
+        res.status(200).json({ ok: true, suscripcion: estado });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  // Sin super_admin: el propio servicio se autoprotege (400 si la pasarela
+  // activa no es la Stub), así que no hace falta el gate extra de dinero
+  // real que sí llevan el resto de las mutaciones de acá arriba.
+  router.post(
+    "/tenants/:id/suscripcion/metodo-pago-prueba",
+    asyncHandler(async (req, res, next) => {
+      try {
+        const estado = await crearMetodoPagoPruebaService(req.params.id, contextoDe(req));
+        res.status(201).json({ ok: true, suscripcion: estado });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  // Job diario de vencimientos (.github/workflows/scheduled-billing-vencimientos.yml,
+  // mismo patrón que scheduled-backup.yml) — mismo nivel de protección que
+  // las rutas de backup que ese otro workflow llama: platformAdminMiddleware
+  // ya cubre el token compartido vía Authorization Bearer, no hace falta
+  // super_admin acá (el workflow no tiene una cuenta individual).
+  router.post(
+    "/billing/procesar-vencimientos",
+    asyncHandler(async (_req, res, next) => {
+      try {
+        const resultado = await procesarVencimientosService();
+        res.status(200).json({ ok: true, ...resultado });
+      } catch (err) {
+        next(err);
+      }
+    })
+  );
+
+  // Job diario (.github/workflows/scheduled-billing-tc-bcrp.yml) Y botón
+  // manual "Actualizar desde API" en el panel -- ambos disparan lo mismo.
+  // super_admin porque, igual que el PUT manual, termina escribiendo el
+  // TC global; el secreto compartido que usa el workflow cuenta como
+  // super_admin (ver platformSuperAdmin.middleware.ts), así que el cron
+  // no se rompe. Si el BCRP no responde o no publicó nada en la ventana,
+  // el servicio tira 502 y falla visiblemente en vez de dejar el TC
+  // global desactualizado en silencio.
+  router.post(
+    "/billing/tipo-cambio/actualizar-desde-bcrp",
+    platformSuperAdminMiddleware,
+    asyncHandler(async (_req, res, next) => {
+      try {
+        const tipoCambio = await actualizarTipoCambioDesdeBcrpService();
+        res.status(200).json({ ok: true, tipoCambio });
       } catch (err) {
         next(err);
       }

@@ -6,12 +6,14 @@
 
 import { useEffect, useState } from "react";
 
+import AlertasBillingView from "./AlertasBillingView";
 import AuditoriaView from "./AuditoriaView";
 import PlatformAdminsView from "./PlatformAdminsView";
 import {
   whoamiApi,
   cerrarSesionPlataformaApi,
   listarTenantsApi,
+  obtenerAlertasBillingApi,
   type TenantPlataforma,
   type QuienSoy,
 } from "./platformApi";
@@ -19,18 +21,36 @@ import PlatformLoginPage from "./PlatformLoginPage";
 import TenantDetalleView from "./TenantDetalleView";
 import TenantsView from "./TenantsView";
 
-type Seccion = "tenants" | "auditoria" | "admins";
+type Seccion = "tenants" | "auditoria" | "admins" | "alertas";
 
 export default function PlatformApp() {
   const [quienSoy, setQuienSoy] = useState<QuienSoy | null | undefined>(undefined);
   const [seccion, setSeccion] = useState<Seccion>("tenants");
   const [tenantSeleccionado, setTenantSeleccionado] = useState<TenantPlataforma | null>(null);
+  const [vencidasCount, setVencidasCount] = useState(0);
 
   useEffect(() => {
     whoamiApi()
       .then(setQuienSoy)
       .catch(() => setQuienSoy(null));
   }, []);
+
+  useEffect(() => {
+    if (!quienSoy) return;
+    // Best-effort: solo alimenta el badge del nav, no bloquea nada si falla.
+    obtenerAlertasBillingApi()
+      .then((a) => setVencidasCount(a.vencidas.length))
+      .catch(() => {});
+  }, [quienSoy, seccion]);
+
+  async function irATenant(tenantId: string) {
+    const tenants = await listarTenantsApi();
+    const tenant = tenants.find((t) => t.id === tenantId);
+    if (tenant) {
+      setTenantSeleccionado(tenant);
+      setSeccion("tenants");
+    }
+  }
 
   if (quienSoy === undefined) {
     return (
@@ -66,6 +86,17 @@ export default function PlatformApp() {
               className={`text-sm ${seccion === "tenants" ? "text-slate-100" : "text-slate-500 hover:text-slate-300"}`}
             >
               Empresas
+            </button>
+            <button
+              onClick={() => setSeccion("alertas")}
+              className={`text-sm flex items-center gap-1.5 ${seccion === "alertas" ? "text-slate-100" : "text-slate-500 hover:text-slate-300"}`}
+            >
+              Alertas
+              {vencidasCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-red-950 text-red-400 text-xs">
+                  {vencidasCount}
+                </span>
+              )}
             </button>
             <button
               onClick={() => setSeccion("auditoria")}
@@ -117,6 +148,8 @@ export default function PlatformApp() {
           ) : (
             <TenantsView onSeleccionar={setTenantSeleccionado} />
           ))}
+
+        {seccion === "alertas" && <AlertasBillingView onSeleccionarTenant={irATenant} />}
 
         {seccion === "auditoria" && <AuditoriaView />}
 
