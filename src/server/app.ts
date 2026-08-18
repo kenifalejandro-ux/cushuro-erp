@@ -15,6 +15,7 @@ import { corsOptions } from "./middleware/originGuard";
 import { authRouter } from "./routes/auth";
 import { facturacionRouter } from "./routes/facturacion";
 import { eventosRouter } from "./routes/events";
+import { webhooksPasarelaRouter } from "./routes/webhooksPasarela";
 import { createPublicRouter } from "./routes/public";
 import { createSystemRouter } from "./routes/system";
 import { createPlatformRouter } from "./routes/platform";
@@ -206,6 +207,11 @@ export function createApp() {
   // Tiempo real (SSE + Redis pub/sub, ver realtimeEvents.service.ts):
   // transversal como /api/facturacion, ningún módulo lo activa/desactiva.
   app.use("/api/eventos", eventosRouter);
+
+  // Webhooks de pasarela de pago (ver routes/webhooksPasarela.ts) —
+  // PÚBLICO, nunca pasa por platformAdminMiddleware: se autentica con la
+  // verificación de firma de la pasarela, no con una sesión de plataforma.
+  app.use("/api/webhooks", webhooksPasarelaRouter);
 
   // Manejo de rutas no encontradas
   app.use("/api", notFoundApiHandler);

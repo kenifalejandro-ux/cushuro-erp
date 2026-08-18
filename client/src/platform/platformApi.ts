@@ -536,3 +536,354 @@ export async function fijarCuotaTenantApi(
   const res = await platformFetch(`/tenants/${tenantId}/cuotas`, jsonInit("PUT", body));
   return (await parseOrThrow(res)).cuotas;
 }
+
+// ── Suscripción / billing (migración 0041) ────────────────────────────
+// suscripciones.plan_id (precio) y tenants.plan_id (cuotas, ver arriba) son
+// columnas distintas pero el backend las mantiene sincronizadas en cada
+// cambio de plan de acá -- nunca hace falta llamar asignarPlanTenantApi por
+// separado después de cambiarPlanSuscripcionApi.
+
+export type EstadoSuscripcion = "trialing" | "activa" | "en_gracia" | "suspendida" | "cancelada";
+
+export interface Suscripcion {
+  id: string;
+  tenantId: string;
+  planId: string;
+  planCodigo: string;
+  planNombre: string;
+  estado: EstadoSuscripcion;
+  ciclo: "mensual" | "anual";
+  metodoFacturacion: "tarjeta" | "transferencia";
+  precioReferencia: number;
+  // Tasa pactada fija para este cliente -- null = usa el TC global de
+  // plataforma (ver obtenerTipoCambioApi). Solo aplica con
+  // metodoFacturacion 'tarjeta'.
+  tipoCambioOverride: number | null;
+  trialTerminaEn: string | null;
+  periodoActualInicio: string;
+  periodoActualFin: string;
+  graciaTerminaEn: string | null;
+  canceladaEn: string | null;
+}
+
+export interface MetodoPagoTenant {
+  id: string;
+  pasarela: string;
+  marca: string | null;
+  ultimos4: string | null;
+  venceMes: number | null;
+  venceAnio: number | null;
+  esDefault: boolean;
+}
+
+export interface CobroTenant {
+  id: string;
+  tipo: "suscripcion" | "implementacion";
+  descripcion: string | null;
+  moneda: "USD" | "PEN";
+  monto: number;
+  // Acumulado recibido hasta ahora -- el saldo pendiente es monto - montoPagado.
+  montoPagado: number;
+  estado: "pendiente" | "exitoso" | "fallido";
+  motivoFallo: string | null;
+  intentoNumero: number;
+  // NULL en cobros de implementación sin fecha pactada y en filas viejas.
+  // "Vencido" se calcula acá (o en el backend para Alertas), no se guarda.
+  fechaVencimiento: string | null;
+  // Cuándo pasó el pago (solo tipo='implementacion') -- distinto de
+  // creadoEn, que es cuándo se cargó el registro. NULL en cobros de
+  // suscripción y en filas viejas de antes de la migración 0056.
+  fechaPago: string | null;
+  // Solo se completa en cobros de implementación en PEN (ver
+  // registrarCobroImplementacionApi) o en cobros de suscripción por
+  // tarjeta -- el TC que se aplicó, para dejarlo grabado con el pactado.
+  tipoCambioAplicado: number | null;
+  creadoEn: string;
+}
+
+export interface EstadoBilling {
+  // `null` = el tenant todavía no tiene suscripción -- pero puede tener
+  // cobros de implementación igual (se cobran antes de que exista la
+  // suscripción, ver registrarCobroImplementacionApi). La UI usa esto para
+  // decidir entre el panel de suscripción activa y el form de alta, pero
+  // la sección de cobros/implementación se muestra siempre.
+  suscripcion: Suscripcion | null;
+  metodoPago: MetodoPagoTenant | null;
+  cobrosRecientes: CobroTenant[];
+}
+
+export async function obtenerSuscripcionTenantApi(tenantId: string): Promise<EstadoBilling> {
+  const res = await platformFetch(`/tenants/${tenantId}/suscripcion`);
+  return (await parseOrThrow(res)).suscripcion;
+}
+
+/** Cobro único de implementación (ej. puesta en marcha), independiente de
+ *  la suscripción -- puede registrarse aunque el tenant todavía no tenga
+ *  una. `estado` ausente = 'exitoso' (transferencia/efectivo ya
+ *  confirmado, el admin es la fuente de verdad); 'pendiente' para una
+ *  cuota pactada todavía no cobrada (ej. saldo que se abona al arrancar
+ *  en producción -- ver registrarPagoCobroApi). */
+export async function registrarCobroImplementacionApi(
+  tenantId: string,
+  input: {
+    monto: number;
+    moneda: "USD" | "PEN";
+    descripcion?: string;
+    estado?: "pendiente" | "exitoso";
+    fecha?: string;
+    tipoCambioAplicado?: number;
+  }
+): Promise<EstadoBilling> {
+  const res = await platformFetch(
+    `/tenants/${tenantId}/cobros-implementacion`,
+    jsonInit("POST", input)
+  );
+  return (await parseOrThrow(res)).suscripcion;
+}
+
+/** Pago parcial (o total, mandando montoPagado = saldo completo) sobre un
+ *  cobro 'pendiente' -- el backend rechaza (400) un monto mayor al saldo
+ *  restante. Único camino de "pagar" en la UI (el atajo de un clic
+ *  `marcarCobroPagadoService`/`/marcar-pagado` sigue existiendo en el
+ *  backend, pero el panel ya no lo usa: este endpoint con
+ *  montoPagado = saldo completo hace exactamente lo mismo). */
+export async function registrarPagoCobroApi(
+  tenantId: string,
+  cobroId: string,
+  montoPagado: number,
+  fecha?: string
+): Promise<EstadoBilling> {
+  const res = await platformFetch(
+    `/tenants/${tenantId}/cobros/${cobroId}/pago`,
+    jsonInit("POST", { montoPagado, fecha })
+  );
+  return (await parseOrThrow(res)).suscripcion;
+}
+
+/** Descripción siempre editable; monto/moneda solo si el cobro sigue
+ *  'pendiente' -- el backend rechaza (400) intentar cambiarlos en uno ya
+ *  'exitoso' (registro contable confirmado). */
+export async function editarCobroApi(
+  tenantId: string,
+  cobroId: string,
+  input: {
+    monto?: number;
+    moneda?: "USD" | "PEN";
+    descripcion?: string;
+    fecha?: string;
+    tipoCambioAplicado?: number | null;
+  }
+): Promise<EstadoBilling> {
+  const res = await platformFetch(`/tenants/${tenantId}/cobros/${cobroId}`, jsonInit("PUT", input));
+  return (await parseOrThrow(res)).suscripcion;
+}
+
+/** El paso que le faltaba a "iniciar cortesía desde hoy": resetea el
+ *  período a partir de HOY y pasa a 'activa' -- desacopla "cuándo se dio
+ *  de alta el registro" de "cuándo arranca a facturar de verdad". Válido
+ *  desde 'trialing' o 'activa' (esto último para corregir una suscripción
+ *  ya activa pero con la fecha mal anclada). */
+export async function iniciarFacturacionApi(tenantId: string): Promise<EstadoBilling> {
+  const res = await platformFetch(`/tenants/${tenantId}/suscripcion/iniciar-facturacion`, {
+    method: "POST",
+  });
+  return (await parseOrThrow(res)).suscripcion;
+}
+
+/** Borra un cobro entero -- SOLO funciona con tipo 'implementacion' (el
+ *  backend rechaza 404 si es 'suscripcion': esos son subproducto
+ *  automático de forzar cobro/webhook, no un ledger manual). */
+export async function eliminarCobroApi(tenantId: string, cobroId: string): Promise<EstadoBilling> {
+  const res = await platformFetch(`/tenants/${tenantId}/cobros/${cobroId}`, { method: "DELETE" });
+  return (await parseOrThrow(res)).suscripcion;
+}
+
+export interface AlertaBilling {
+  cobroId: string;
+  tenantId: string;
+  tenantNombre: string;
+  tenantSlug: string;
+  tipo: "suscripcion" | "implementacion";
+  descripcion: string | null;
+  moneda: "USD" | "PEN";
+  monto: number;
+  montoPagado: number;
+  saldo: number;
+  fechaVencimiento: string | null;
+  diasAtraso: number;
+  motivoFallo: string | null;
+  creadoEn: string;
+}
+
+export interface AlertasBilling {
+  vencidas: AlertaBilling[];
+  fallidas: AlertaBilling[];
+  proximas: AlertaBilling[];
+}
+
+/** Vencidas/fallidas/próximas de TODOS los tenants en una sola llamada --
+ *  lo que alimenta la vista "Alertas" del panel, para no tener que entrar
+ *  tenant por tenant a buscar quién debe o a quién le rebotó la tarjeta. */
+export async function obtenerAlertasBillingApi(): Promise<AlertasBilling> {
+  const res = await platformFetch("/billing/alertas");
+  return (await parseOrThrow(res)).alertas;
+}
+
+export interface ResultadoProcesarVencimientos {
+  cobrosGenerados: number;
+  cobrosAutomaticosExitosos: number;
+  cobrosAutomaticosFallidos: number;
+  entraronEnGracia: number;
+  suspendidas: number;
+}
+
+/** Dispara el mismo motor que corre solo por cron todos los días (ver
+ *  platformBillingVencimientos.service.ts) -- para probarlo a demanda en
+ *  vez de esperar a la corrida diaria: genera los cobros próximos a
+ *  vencer, cobra tarjetas vencidas, y mueve a gracia/suspendida lo que
+ *  corresponda. Corre para TODOS los tenants, no solo uno. */
+export async function procesarVencimientosBillingApi(): Promise<ResultadoProcesarVencimientos> {
+  const res = await platformFetch("/billing/procesar-vencimientos", { method: "POST" });
+  return parseOrThrow(res);
+}
+
+/** Recalcula el arranque de la cortesía desde HOY -- para cuando el alta
+ *  se hizo antes de que el tenant esté operando de verdad en producción
+ *  (ver iniciarCortesiaService). Solo válido con estado 'trialing'. */
+export async function iniciarCortesiaApi(
+  tenantId: string,
+  trialMeses: number
+): Promise<EstadoBilling> {
+  const res = await platformFetch(
+    `/tenants/${tenantId}/suscripcion/iniciar-cortesia`,
+    jsonInit("POST", { trialMeses })
+  );
+  return (await parseOrThrow(res)).suscripcion;
+}
+
+export async function crearSuscripcionApi(
+  tenantId: string,
+  input: {
+    plan: string;
+    ciclo: "mensual" | "anual";
+    metodoFacturacion: "tarjeta" | "transferencia";
+    precioReferencia?: number;
+    trialMeses?: number;
+    tipoCambioOverride?: number;
+  }
+): Promise<EstadoBilling> {
+  const res = await platformFetch(`/tenants/${tenantId}/suscripcion`, jsonInit("POST", input));
+  return (await parseOrThrow(res)).suscripcion;
+}
+
+export interface TipoCambio {
+  id: string;
+  valor: number;
+  creadoEn: string;
+  creadoPor: string;
+}
+
+/** TC global de plataforma (migración 0053) -- dato de mercado compartido
+ *  por todos los tenants, no algo por tenant. */
+export async function obtenerTipoCambioApi(): Promise<TipoCambio> {
+  const res = await platformFetch("/billing/tipo-cambio");
+  return (await parseOrThrow(res)).tipoCambio;
+}
+
+export async function actualizarTipoCambioApi(valor: number): Promise<TipoCambio> {
+  const res = await platformFetch("/billing/tipo-cambio", jsonInit("PUT", { valor }));
+  return (await parseOrThrow(res)).tipoCambio;
+}
+
+/** Dispara el mismo job que corre solo por cron (scheduled-billing-tc-bcrp.yml)
+ *  pero al toque -- para cuando el admin quiere el TC del momento antes de
+ *  registrar un pago, sin esperar a la corrida diaria. */
+export async function actualizarTipoCambioDesdeBcrpApi(): Promise<TipoCambio> {
+  const res = await platformFetch("/billing/tipo-cambio/actualizar-desde-bcrp", {
+    method: "POST",
+  });
+  return (await parseOrThrow(res)).tipoCambio;
+}
+
+/** `valor: null` quita el override y vuelve a usar el TC global. */
+export async function actualizarTipoCambioOverrideApi(
+  tenantId: string,
+  valor: number | null
+): Promise<EstadoBilling> {
+  const res = await platformFetch(
+    `/tenants/${tenantId}/suscripcion/tipo-cambio`,
+    jsonInit("PUT", { valor })
+  );
+  return (await parseOrThrow(res)).suscripcion;
+}
+
+/** Borra la suscripción por completo (no solo cancelarla) -- para corregir
+ *  una alta mal hecha. Los cobros pasados NO se borran, quedan huérfanos
+ *  como registro contable (ver eliminarSuscripcionService). */
+export async function eliminarSuscripcionApi(tenantId: string): Promise<void> {
+  const res = await platformFetch(`/tenants/${tenantId}/suscripcion`, { method: "DELETE" });
+  await parseOrThrow(res);
+}
+
+export async function cambiarPlanSuscripcionApi(
+  tenantId: string,
+  plan: string,
+  precioReferencia?: number,
+  motivo?: string
+): Promise<EstadoBilling> {
+  const res = await platformFetch(
+    `/tenants/${tenantId}/suscripcion/plan`,
+    jsonInit("PUT", { plan, precioReferencia, motivo })
+  );
+  return (await parseOrThrow(res)).suscripcion;
+}
+
+export async function extenderGraciaSuscripcionApi(
+  tenantId: string,
+  dias: number,
+  motivo?: string
+): Promise<EstadoBilling> {
+  const res = await platformFetch(
+    `/tenants/${tenantId}/suscripcion/gracia`,
+    jsonInit("POST", { dias, motivo })
+  );
+  return (await parseOrThrow(res)).suscripcion;
+}
+
+export async function cancelarSuscripcionApi(
+  tenantId: string,
+  motivo?: string
+): Promise<EstadoBilling> {
+  const res = await platformFetch(
+    `/tenants/${tenantId}/suscripcion/cancelar`,
+    jsonInit("POST", { motivo })
+  );
+  return (await parseOrThrow(res)).suscripcion;
+}
+
+export async function reactivarSuscripcionApi(tenantId: string): Promise<EstadoBilling> {
+  const res = await platformFetch(`/tenants/${tenantId}/suscripcion/reactivar`, { method: "POST" });
+  return (await parseOrThrow(res)).suscripcion;
+}
+
+export async function forzarCobroSuscripcionApi(tenantId: string): Promise<EstadoBilling> {
+  const res = await platformFetch(`/tenants/${tenantId}/suscripcion/cobrar`, { method: "POST" });
+  return (await parseOrThrow(res)).suscripcion;
+}
+
+/** "stub" en dev/tests (sin CULQI_SECRET_KEY) o "culqi" en producción con
+ *  claves reales -- determina si tiene sentido ofrecer el botón de
+ *  "Agregar método de pago de prueba" (crearMetodoPagoPruebaApi). */
+export async function obtenerPasarelaActivaApi(): Promise<"stub" | "culqi"> {
+  const res = await platformFetch("/billing/pasarela");
+  return (await parseOrThrow(res)).nombre;
+}
+
+/** Solo funciona cuando la pasarela activa es la Stub -- el backend se
+ *  autoprotege igual, esto es nomás para no mostrar un botón que 400ee. */
+export async function crearMetodoPagoPruebaApi(tenantId: string): Promise<EstadoBilling> {
+  const res = await platformFetch(`/tenants/${tenantId}/suscripcion/metodo-pago-prueba`, {
+    method: "POST",
+  });
+  return (await parseOrThrow(res)).suscripcion;
+}
