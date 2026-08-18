@@ -1,7 +1,12 @@
 /**src/modules/combutible/combustible.service.ts */
 
 import type { PoolClient } from "pg";
-import type { RegistrarLecturaCombustibleInput } from "../../server/schemas/combustible.schema";
+import type { Paginacion } from "../../server/shared/utils/pagination";
+import type {
+  RegistrarLecturaCombustibleInput,
+  CrearTanqueCombustibleInput,
+  ActualizarTanqueCombustibleInput,
+} from "../../server/schemas/combustible.schema";
 import { idempotentInsert } from "../../server/shared/utils/idempotentInsert";
 import { CombustibleRepository } from "./combustible.repository";
 
@@ -14,6 +19,36 @@ export class CombustibleService {
 
   async getById(client: PoolClient, tenantId: string, id: number) {
     return this.repository.findById(client, tenantId, id);
+  }
+
+  async create(client: PoolClient, tenantId: string, data: CrearTanqueCombustibleInput) {
+    return this.repository.create(client, tenantId, data);
+  }
+
+  async update(
+    client: PoolClient,
+    tenantId: string,
+    id: number,
+    data: ActualizarTanqueCombustibleInput
+  ) {
+    return this.repository.update(client, tenantId, id, data);
+  }
+
+  async softDelete(client: PoolClient, tenantId: string, id: number) {
+    return this.repository.softDelete(client, tenantId, id);
+  }
+
+  async createBulk(client: PoolClient, tenantId: string, items: CrearTanqueCombustibleInput[]) {
+    return this.repository.createBulk(client, tenantId, items);
+  }
+
+  async getLecturas(
+    client: PoolClient,
+    tenantId: string,
+    combustibleId: number,
+    paginacion: Paginacion
+  ) {
+    return this.repository.findLecturas(client, tenantId, combustibleId, paginacion);
   }
 
   /** Devuelve `creado: false` cuando esta lectura ya se había registrado con
