@@ -1,6 +1,7 @@
 // client/src/components/equipos/EquiposTable.tsx
 import { useState, useEffect, useCallback } from "react";
 
+import { suscribirseASincronizacion } from "../../offline/offlineSync";
 import { apiFetch } from "../../services/apiClient";
 
 interface Equipo {
@@ -30,6 +31,16 @@ export default function EquiposTable() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [enviando, setEnviando] = useState(false);
+
+  // El cliente_uuid se fija al ABRIR el modal para CREAR (no al apretar el
+  // botón): un doble tap en la tablet antes del re-render mandaría DOS
+  // claves distintas si se generara en el submit, y el servidor no tendría
+  // forma de distinguir eso de dos equipos legítimos. Editar no usa
+  // idempotencia (sobreescribe campos existentes), así que abrir el modal
+  // para editar no toca este valor -- ver el mismo comentario en
+  // CombustiblePanel.tsx.
+  const [clienteUuid, setClienteUuid] = useState("");
 
   const [formData, setFormData] = useState({
     placa_codigo: "",
@@ -56,6 +67,16 @@ export default function EquiposTable() {
     // -> fetch -> setLoading(false)), usado en toda la app.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchEquipos(page);
+  }, [page, fetchEquipos]);
+
+  // Cuando la cola offline termina de drenar, los equipos que se dieron de
+  // alta sin señal ya existen del lado del servidor -- recargar es lo que
+  // hace que aparezcan en el listado sin que el operario tenga que
+  // refrescar a mano.
+  useEffect(() => {
+    return suscribirseASincronizacion(({ sincronizadas }) => {
+      if (sincronizadas > 0) fetchEquipos(page);
+    });
   }, [page, fetchEquipos]);
 
   const openEditModal = (e: Equipo) => {
@@ -85,24 +106,47 @@ export default function EquiposTable() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (enviando) return;
     const url = editingId ? `/api/erp/equipos/${editingId}` : "/api/erp/equipos";
     const method = editingId ? "PUT" : "POST";
+    // cliente_uuid solo viaja al crear -- editar no pasa por
+    // idempotentInsert() del lado del servidor.
+    const body = editingId ? formData : { ...formData, cliente_uuid: clienteUuid };
+    setEnviando(true);
     try {
       const res = await apiFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(body),
       });
-      if (res.ok) {
-        setIsModalOpen(false);
-        setEditingId(null);
-        setFormData({ placa_codigo: "", tipo: TIPOS_COMUNES[0], marca: "", modelo: "" });
-        fetchEquipos(page);
-      } else {
+      if (!res.ok) {
         alert("Error: revisa los datos del equipo.");
+        return;
       }
+
+      setIsModalOpen(false);
+      setEditingId(null);
+      setFormData({ placa_codigo: "", tipo: TIPOS_COMUNES[0], marca: "", modelo: "" });
+
+      // 202 = no había red y quedó en la cola del dispositivo (ver
+      // apiFetch). No se recarga: sin señal el GET también falla, y el
+      // equipo todavía no existe del lado del servidor.
+      if (res.status === 202) {
+        // "en este dispositivo" y no "en este equipo" -- acá "equipo" es el
+        // propio recurso que se está creando, "guardado en este equipo"
+        // sería ambiguo. Mismo mensaje que el resto de los módulos, solo
+        // con ese sustituto.
+        alert(
+          "Sin conexión: el equipo quedó guardado en este dispositivo y se enviará solo cuando vuelva la señal."
+        );
+        return;
+      }
+
+      fetchEquipos(page);
     } catch {
       alert("Error de conexión con el backend.");
+    } finally {
+      setEnviando(false);
     }
   };
 
@@ -125,6 +169,11 @@ export default function EquiposTable() {
           onClick={() => {
             setEditingId(null);
             setFormData({ placa_codigo: "", tipo: TIPOS_COMUNES[0], marca: "", modelo: "" });
+            // Se regenera en cada apertura: si no, el segundo equipo
+            // legítimo que se registre reusaría la clave del primero y el
+            // servidor devolvería aquel en silencio -- se perdería un
+            // registro, que es peor que el duplicado que esto evita.
+            setClienteUuid(crypto.randomUUID());
             setIsModalOpen(true);
           }}
           className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl transition-all"
@@ -303,7 +352,8 @@ export default function EquiposTable() {
               </div>
               <button
                 type="submit"
-                className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4"
+                disabled={enviando}
+                className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4 disabled:opacity-50"
               >
                 {editingId ? "Guardar Cambios" : "Registrar Equipo"}
               </button>

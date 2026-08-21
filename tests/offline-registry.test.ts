@@ -80,7 +80,20 @@ describe("qué se encola y qué no", () => {
   });
 
   it("NO encola módulos que todavía no declararon offline", () => {
-    expect(moduloParaEncolar("/api/erp/equipos", "POST")).toBeNull();
+    // dashboard no tiene tablas propias ni escrituras -- no va a declarar
+    // offline nunca, buen caso estable para esta aserción.
+    expect(moduloParaEncolar("/api/erp/dashboard", "POST")).toBeNull();
+  });
+
+  it("encola el POST de dar de alta un equipo", () => {
+    expect(moduloParaEncolar("/api/erp/equipos", "POST")).toBe("equipos");
+  });
+
+  it("NO encola editar ni eliminar un equipo", () => {
+    // Editar sobreescribe campos existentes y eliminar no debe reintentarse
+    // a ciegas -- mismo criterio que el resto de los módulos.
+    expect(moduloParaEncolar("/api/erp/equipos/12", "PUT")).toBeNull();
+    expect(moduloParaEncolar("/api/erp/equipos/12", "DELETE")).toBeNull();
   });
 
   it("NO encola aprobar/rechazar un IPERC ni crear una línea base", () => {

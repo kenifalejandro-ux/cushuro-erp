@@ -4,6 +4,8 @@ import { Request, Response } from "express";
 import { withTenant } from "../../server/config/database";
 import { getTenantId } from "../../server/shared/utils/request";
 import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/utils/pagination";
+import { contextoAuditoriaModulo } from "../../server/shared/utils/moduleAudit";
+import { registrarAuditoria } from "../../server/services/platformAudit.service";
 import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
 import type {
   RegistrarMovimientoRepuestoInput,
@@ -40,6 +42,13 @@ export const RepuestosController = {
       const nuevo = await withTenant(tenantId, (client) =>
         RepuestosService.create(client, tenantId, data)
       );
+      await registrarAuditoria({
+        accion: "repuestos.crear",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { repuestoId: nuevo.id },
+        contexto: contextoAuditoriaModulo(req),
+      });
       await publicarEventoTenant(tenantId, "repuestos.creado", { repuestoId: nuevo.id });
       res.status(201).json(nuevo);
     } catch {
@@ -65,6 +74,13 @@ export const RepuestosController = {
         return;
       }
 
+      await registrarAuditoria({
+        accion: "repuestos.actualizar",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { repuestoId: id },
+        contexto: contextoAuditoriaModulo(req),
+      });
       await publicarEventoTenant(tenantId, "repuestos.actualizado", { repuestoId: id });
       res.json(actualizado);
     } catch {
@@ -88,6 +104,13 @@ export const RepuestosController = {
         return;
       }
 
+      await registrarAuditoria({
+        accion: "repuestos.eliminar",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { repuestoId: id },
+        contexto: contextoAuditoriaModulo(req),
+      });
       await publicarEventoTenant(tenantId, "repuestos.eliminado", { repuestoId: id });
       res.json({ message: "Eliminado" });
     } catch {
@@ -108,6 +131,19 @@ export const RepuestosController = {
       const result = await withTenant(tenantId, (client) =>
         RepuestosService.createBulk(client, tenantId, rows)
       );
+      // UNA fila de auditoría con el conteo, no una por repuesto: una carga
+      // de MAX_FILAS_CARGA_MASIVA filas inundaría platform_audit_log con
+      // ruido y la pregunta que se le hace después a la auditoría es "quién
+      // importó y cuánto", no el detalle fila por fila (eso ya está en la
+      // tabla del módulo). Mismo criterio que el evento de tiempo real de
+      // acá al lado y que `incremento` en cuota.middleware.ts.
+      await registrarAuditoria({
+        accion: "repuestos.carga_masiva",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { cantidad: result.length },
+        contexto: contextoAuditoriaModulo(req),
+      });
       await publicarEventoTenant(tenantId, "repuestos.carga_masiva", { cantidad: result.length });
       res.status(201).json({ insertados: result.length, data: result });
     } catch {
@@ -177,10 +213,41 @@ export const RepuestosController = {
       }
 
       if (rechazado) {
+        // El rechazo SÍ se audita, con resultado "failure": el movimiento
+        // quedó persistido (estado "rechazado", ver migrations/0048), así
+        // que es una mutación real, y que alguien choque contra el stock
+        // disponible es justamente la señal operativa que hay que poder ver
+        // después -- mismo criterio que `cuota.bloqueo` en
+        // cuota.middleware.ts.
+        await registrarAuditoria({
+          accion: "repuestos.registrar_movimiento",
+          tenantId,
+          usuarioId: req.usuario!.id,
+          detalle: {
+            movimientoId: fila.movimiento.id,
+            repuestoId: data.repuesto_id,
+            tipo: data.tipo,
+            estado: fila.movimiento.estado,
+          },
+          contexto: contextoAuditoriaModulo(req),
+          resultado: "failure",
+        });
         res.status(409).json({ ...fila, message: "Stock insuficiente para este movimiento" });
         return;
       }
 
+      await registrarAuditoria({
+        accion: "repuestos.registrar_movimiento",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: {
+          movimientoId: fila.movimiento.id,
+          repuestoId: data.repuesto_id,
+          tipo: data.tipo,
+          estado: fila.movimiento.estado,
+        },
+        contexto: contextoAuditoriaModulo(req),
+      });
       await publicarEventoTenant(tenantId, "repuestos.movimiento_registrado", {
         movimientoId: fila.movimiento.id,
         repuestoId: data.repuesto_id,

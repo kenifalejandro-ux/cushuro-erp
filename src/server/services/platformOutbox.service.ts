@@ -15,7 +15,7 @@ import type { Pool, PoolClient } from "pg";
 import { pool } from "../config/database";
 import { capturarError } from "../config/sentry";
 
-export type TipoEventoOutbox = "idempotency_response" | "alerta_rafaga";
+export type TipoEventoOutbox = "idempotency_response" | "alerta_rafaga" | "notificacion_billing";
 
 export interface EventoOutbox {
   id: string;

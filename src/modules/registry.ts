@@ -59,15 +59,35 @@ export const MODULOS: ModuloDefinicion[] = [
     // combustible_lecturas cascadea desde su padre (ON DELETE CASCADE, ver
     // migrations/0045) -- no necesita DELETE propio.
     raices: ["combustible"],
-    // Se cuenta el histórico de LECTURAS, no los tanques: los tanques son
-    // configuración (unos pocos por tenant, se cargan directo en la base),
-    // las lecturas crecen con cada carga en campo -- mismo criterio que
-    // checklists (llenados, no plantillas) e iperc (creaciones, no líneas
-    // base).
-    cuota: { tabla: "combustible_lecturas", porDefecto: 100_000 },
+    // Fase A (migrations/0057) le dio a Combustible su propio POST / y
+    // POST /bulk que crean el recurso base -- un solo `cuota.tabla`
+    // compartido con las lecturas habría dejado esas altas sin límite real,
+    // mismo problema que ya resolvió Repuestos (ver el comentario largo en
+    // su entrada, más abajo). Se aplica el mismo remedio en vez de inventar
+    // uno nuevo: `cuota` vuelve a ser el recurso propio del módulo (los
+    // tanques), y el histórico de lecturas pasa a `cuotasPorRuta` como
+    // recurso aparte.
+    // Un tanque real es configuración de planta (unos pocos por tenant),
+    // pero el techo del plan no tiene por qué reflejar ese número exacto --
+    // mismo criterio que equipos/repuestos: se fija cómodamente por encima
+    // de MAX_FILAS_CARGA_MASIVA_TANQUES (5.000, combustible.schema.ts) para
+    // que el límite real de la carga masiva lo ponga la validación de Zod,
+    // no la cuota.
+    cuota: { tabla: "combustible", porDefecto: 10_000 },
+    cuotasPorRuta: [
+      {
+        ruta: "/lecturas",
+        metodo: "POST",
+        recurso: "combustible_lecturas",
+        tabla: "combustible_lecturas",
+        porDefecto: 100_000,
+      },
+    ],
     // Solo registrar una lectura califica para offline -- ver ADR-0002 §8.
     // combustible_id viaja en el body porque rutasOffline.ts solo matchea
-    // rutas literales, sin parámetros de URL.
+    // rutas literales, sin parámetros de URL. Alta/edición/baja de tanques
+    // NO están acá a propósito: es configuración de planta, se hace desde
+    // la oficina con red (mismo criterio que las plantillas de Checklists).
     offline: { escrituras: [{ metodo: "POST", ruta: "/lecturas" }] },
   },
   {
@@ -89,6 +109,12 @@ export const MODULOS: ModuloDefinicion[] = [
     tablas: [{ nombre: "equipos", pk: "serial" }],
     raices: ["equipos"],
     cuota: { tabla: "equipos", porDefecto: 2_000 },
+    // Solo crear el equipo califica para offline -- ver ADR-0002 §8. Dar de
+    // alta un equipo nuevo en cancha, sin señal, es un caso de campo real
+    // (mismo criterio que checklists/iperc/ordenes_trabajo). `PUT`/`DELETE`
+    // NO están acá a propósito: editar sobreescribe campos existentes y
+    // borrar no debe reintentarse a ciegas.
+    offline: { escrituras: [{ metodo: "POST", ruta: "/" }] },
   },
   {
     id: "checklists",

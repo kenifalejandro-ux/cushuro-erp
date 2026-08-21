@@ -7,6 +7,10 @@ import { asyncHandler } from "../../server/shared/utils/asyncHandler";
 import {
   registrarLecturaCombustibleSchema,
   actualizarNivelCombustibleSchema,
+  crearTanqueCombustibleSchema,
+  actualizarTanqueCombustibleSchema,
+  cargaMasivaTanquesCombustibleSchema,
+  anularLecturaCombustibleSchema,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleController } from "./combustible.controller";
 
@@ -15,6 +19,37 @@ const controller = new CombustibleController();
 
 router.get("/", asyncHandler(controller.getAll.bind(controller)));
 router.get("/:id", asyncHandler(controller.getById.bind(controller)));
+router.get("/:id/lecturas", asyncHandler(controller.getLecturas.bind(controller)));
+
+// ➕ crear tanque -- admin únicamente: dar de alta un punto de
+// abastecimiento es configuración de planta, no trabajo de campo (mismo
+// criterio que las plantillas de Checklists, no las OT/movimientos).
+router.post(
+  "/",
+  requireRole("admin"),
+  validate(crearTanqueCombustibleSchema),
+  asyncHandler(controller.create.bind(controller))
+);
+
+// ✏️ actualizar tanque
+router.put(
+  "/:id",
+  requireRole("admin"),
+  validate(actualizarTanqueCombustibleSchema),
+  asyncHandler(controller.update.bind(controller))
+);
+
+// 🗑 soft-delete -- ver CombustibleController.delete
+router.delete("/:id", requireRole("admin"), asyncHandler(controller.delete.bind(controller)));
+
+// 📦 importación masiva -- el límite de tamaño del cuerpo ya lo amplía
+// app.ts de forma genérica para cualquier ruta que termine en /bulk.
+router.post(
+  "/bulk",
+  requireRole("admin"),
+  validate(cargaMasivaTanquesCombustibleSchema),
+  asyncHandler(controller.bulk.bind(controller))
+);
 
 // Ruta literal, sin `:id` -- el combustible_id viaja en el body a propósito
 // (ver el comentario en el controller). Definida antes de /:id/nivel por
@@ -24,6 +59,19 @@ router.post(
   requireRole("admin", "operador"),
   validate(registrarLecturaCombustibleSchema),
   asyncHandler(controller.registrarLectura.bind(controller))
+);
+
+// 🚫 anular una lectura mal cargada -- admin y operador, los mismos que
+// pueden registrarla: quien se equivoca al tipear tiene que poder
+// corregirlo en el momento, sin depender de nadie más (ver el punto 3 de
+// docs/architecture/control-de-combustible.md). Va ANTES de /:id/nivel
+// porque "lecturas" es un segmento literal: si /:id lo capturara primero,
+// nunca llegaría acá.
+router.patch(
+  "/lecturas/:lecturaId/anular",
+  requireRole("admin", "operador"),
+  validate(anularLecturaCombustibleSchema),
+  asyncHandler(controller.anularLectura.bind(controller))
 );
 
 router.put(
