@@ -485,84 +485,90 @@ export default function CombustiblePanel() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {tanques.map((t) => (
-                <tr key={t.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="p-4 font-mono text-sm text-slate-500">{t.codigo}</td>
-                  <td className="p-4 text-sm font-semibold text-slate-800">
-                    {t.tanque_nombre}
-                    {t.ubicacion && <p className="text-xs text-slate-400">{t.ubicacion}</p>}
-                  </td>
-                  <td className="p-4 text-sm text-slate-600">
-                    {ETIQUETA_TIPO_COMBUSTIBLE[t.tipo_combustible]}
-                  </td>
-                  <td className="p-4 text-sm text-slate-600">
-                    {ETIQUETA_TIPO_PUNTO[t.tipo_punto]}
-                  </td>
-                  <td className="p-4 text-sm text-slate-600">
-                    {t.nivel_minimo} {t.unidad}
-                  </td>
-                  <td className="p-4 text-sm">
-                    <span
-                      className={`font-bold ${
-                        Number(t.nivel_actual) <= Number(t.nivel_minimo)
-                          ? "text-red-500"
-                          : "text-emerald-600"
-                      }`}
-                    >
-                      {Number(t.nivel_actual).toLocaleString("es-PE")}
-                    </span>
-                    <span className="text-slate-400">
-                      {" "}
-                      / {Number(t.capacidad_total).toLocaleString("es-PE")} {t.unidad} (
-                      {t.porcentaje}%)
-                    </span>
-                    <p className="text-xs text-slate-400">
-                      Última lectura: {formatearFecha(t.fecha_actualizacion)}
-                    </p>
-                  </td>
-                  <td className="p-4 text-sm">
-                    <span
-                      className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        t.activo ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
-                      }`}
-                    >
-                      {t.activo ? "Activo" : "Desactivado"}
-                    </span>
-                  </td>
-                  <td className="p-4 text-right space-x-2">
-                    <button
-                      onClick={() => abrirModalHistorial(t)}
-                      className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                      title="Ver historial de lecturas"
-                    >
-                      📋
-                    </button>
-                    <button
-                      onClick={() => abrirModalLectura(t)}
-                      className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                      title="Registrar lectura"
-                    >
-                      ⛽
-                    </button>
-                    <button
-                      onClick={() => abrirModalEditar(t)}
-                      className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                      title="Editar"
-                    >
-                      ✏️
-                    </button>
-                    {t.activo && (
-                      <button
-                        onClick={() => handleDesactivar(t)}
-                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                        title="Desactivar"
+              {tanques.map((t) => {
+                // Una sola fuente de verdad para el color: el umbral y el
+                // nivel tienen que pintarse SIEMPRE igual -- si viven
+                // separados, un cambio futuro en la regla los deja
+                // contradiciéndose en la misma fila.
+                const bajoUmbral = Number(t.nivel_actual) <= Number(t.nivel_minimo);
+                const colorNivel = bajoUmbral ? "text-red-500" : "text-emerald-600";
+                return (
+                  <tr key={t.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="p-4 font-mono text-sm text-slate-500">{t.codigo}</td>
+                    <td className="p-4 text-sm font-semibold text-slate-800">
+                      {t.tanque_nombre}
+                      {t.ubicacion && <p className="text-xs text-slate-400">{t.ubicacion}</p>}
+                    </td>
+                    <td className="p-4 text-sm text-slate-600">
+                      {ETIQUETA_TIPO_COMBUSTIBLE[t.tipo_combustible]}
+                    </td>
+                    <td className="p-4 text-sm text-slate-600">
+                      {ETIQUETA_TIPO_PUNTO[t.tipo_punto]}
+                    </td>
+                    <td className="p-4 text-sm">
+                      <span className={`font-medium ${colorNivel}`}>
+                        {Number(t.nivel_minimo).toLocaleString("es-PE")} {t.unidad}
+                      </span>
+                    </td>
+                    <td className="p-4 text-sm">
+                      <span className={`font-bold ${colorNivel}`}>
+                        {Number(t.nivel_actual).toLocaleString("es-PE")}
+                      </span>
+                      <span className="text-slate-400">
+                        {" "}
+                        / {Number(t.capacidad_total).toLocaleString("es-PE")} {t.unidad} (
+                        {t.porcentaje}%)
+                      </span>
+                      <p className="text-xs text-slate-400">
+                        Última lectura: {formatearFecha(t.fecha_actualizacion)}
+                      </p>
+                    </td>
+                    <td className="p-4 text-sm">
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          t.activo
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-slate-100 text-slate-500"
+                        }`}
                       >
-                        🗑️
+                        {t.activo ? "Activo" : "Desactivado"}
+                      </span>
+                    </td>
+                    <td className="p-4 text-right space-x-2">
+                      <button
+                        onClick={() => abrirModalHistorial(t)}
+                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                        title="Ver historial de lecturas"
+                      >
+                        📋
                       </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                      <button
+                        onClick={() => abrirModalLectura(t)}
+                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                        title="Registrar lectura"
+                      >
+                        ⛽
+                      </button>
+                      <button
+                        onClick={() => abrirModalEditar(t)}
+                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                        title="Editar"
+                      >
+                        ✏️
+                      </button>
+                      {t.activo && (
+                        <button
+                          onClick={() => handleDesactivar(t)}
+                          className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                          title="Desactivar"
+                        >
+                          🗑️
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
