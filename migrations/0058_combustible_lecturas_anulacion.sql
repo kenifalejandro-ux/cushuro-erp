@@ -56,3 +56,14 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_combustible_lecturas_vigentes
   ON combustible_lecturas(combustible_id, leido_en DESC)
   WHERE anulada_en IS NULL;
+
+-- Toda FK necesita un índice que la cubra, si no un DELETE sobre la tabla
+-- padre obliga a Postgres a escanear esta entera para validar el constraint
+-- (ver docs/architecture/database-performance-guidelines.md y la migración
+-- 0031; tests/db-index-coverage.test.ts lo hace fallar en CI si falta).
+-- Acá el padre es `usuarios`: borrar un usuario dispara el ON DELETE SET
+-- NULL sobre esta columna. Parcial por el mismo motivo que
+-- idx_combustible_lecturas_usuario: las anulaciones son la excepción, no
+-- tiene sentido indexar los NULL de todas las lecturas vigentes.
+CREATE INDEX IF NOT EXISTS idx_combustible_lecturas_anulada_por
+  ON combustible_lecturas(anulada_por) WHERE anulada_por IS NOT NULL;
