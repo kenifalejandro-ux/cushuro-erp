@@ -13,6 +13,7 @@ import type {
   CrearTanqueCombustibleInput,
   ActualizarTanqueCombustibleInput,
   CargaMasivaTanquesCombustibleInput,
+  AnularLecturaCombustibleInput,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleService } from "./combustible.service";
 
@@ -170,6 +171,69 @@ export class CombustibleController {
       res.json(armarRespuestaPaginada(filas, paginacion));
     } catch {
       res.status(500).json({ error: "Error al obtener el histórico de lecturas" });
+    }
+  }
+
+  /** PATCH /lecturas/:lecturaId/anular -- marca una lectura mal cargada
+   *  como anulada (con motivo obligatorio) y recalcula el nivel del tanque.
+   *  La fila NUNCA se borra ni se edita: queda como evidencia de que hubo
+   *  un error y quién lo corrigió. Ver migrations/0058. */
+  async anularLectura(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const lecturaId = Number(req.params.lecturaId);
+      const { motivo } = req.validatedBody as AnularLecturaCombustibleInput;
+
+      const resultado = await withTenant(tenantId, async (client) => {
+        const anulada = await service.anularLectura(
+          client,
+          tenantId,
+          lecturaId,
+          req.usuario!.id,
+          motivo
+        );
+        if (anulada) return { estado: "anulada" as const, ...anulada };
+
+        // El UPDATE no afectó nada: o la lectura no existe en este tenant,
+        // o ya estaba anulada. Hay que distinguirlo para no responder 404
+        // ante algo que sí existe (y viceversa).
+        const existente = await service.getLecturaPorId(client, tenantId, lecturaId);
+        return existente ? { estado: "ya_anulada" as const } : { estado: "inexistente" as const };
+      });
+
+      if (resultado.estado === "inexistente") {
+        return res.status(404).json({ error: "Lectura no encontrada" });
+      }
+      if (resultado.estado === "ya_anulada") {
+        // 409 y no 400: no es un dato mal formado, es un rechazo por el
+        // ESTADO actual del recurso -- mismo criterio que el stock
+        // insuficiente de repuestos.
+        return res.status(409).json({ error: "Esta lectura ya estaba anulada" });
+      }
+
+      await registrarAuditoria({
+        accion: "combustible.anular_lectura",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        // Solo ids y la referencia, nunca el contenido de negocio -- mismo
+        // criterio que el resto de moduleAudit. El motivo SÍ va: es la
+        // razón de una acción correctiva, justo lo que la auditoría tiene
+        // que poder responder después.
+        detalle: {
+          lecturaId,
+          combustibleId: resultado.lectura.combustible_id,
+          motivo,
+        },
+        contexto: contextoAuditoriaModulo(req),
+      });
+      await publicarEventoTenant(tenantId, "combustible.lectura_anulada", {
+        lecturaId,
+        combustibleId: resultado.lectura.combustible_id,
+      });
+
+      res.json({ lectura: resultado.lectura, tanque: resultado.tanque });
+    } catch {
+      res.status(500).json({ error: "Error al anular la lectura" });
     }
   }
 
