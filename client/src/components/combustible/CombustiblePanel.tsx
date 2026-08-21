@@ -15,12 +15,15 @@ interface Tanque {
   tipo_punto: "fijo" | "cisterna" | "surtidor";
   ubicacion: string | null;
   capacidad_total: string;
-  nivel_actual: string;
+  // null cuando el tanque no tiene ninguna lectura vigente (todas anuladas):
+  // el nivel es DESCONOCIDO, no cero. Desde la migración 0059 estos tres
+  // campos no son columnas, se derivan de la última lectura vigente.
+  nivel_actual: string | null;
   nivel_minimo: string;
   moneda: string;
   activo: boolean;
-  porcentaje: string;
-  fecha_actualizacion: string;
+  porcentaje: string | null;
+  fecha_actualizacion: string | null;
 }
 
 /** Una fila del histórico de aforos (combustible_lecturas, migración
@@ -236,7 +239,11 @@ export default function CombustiblePanel() {
       tipo_punto: t.tipo_punto,
       ubicacion: t.ubicacion ?? "",
       capacidad_total: t.capacidad_total,
-      nivel_actual: t.nivel_actual,
+      // El formulario de edición no muestra el nivel (se corrige por
+      // "Registrar lectura", no por acá), así que este valor solo llena el
+      // estado. Un tanque sin lecturas cae a "0" nada más para que el campo
+      // controlado no quede sin valor.
+      nivel_actual: t.nivel_actual ?? "0",
       nivel_minimo: t.nivel_minimo,
       moneda: t.moneda,
       activo: t.activo,
@@ -620,12 +627,20 @@ export default function CombustiblePanel() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {tanques.map((t) => {
+                // Sin lecturas vigentes el nivel es desconocido: no se pinta
+                // ni de rojo ni de verde, porque las dos afirmarían algo que
+                // nadie midió.
+                const sinNivel = t.nivel_actual === null;
                 // Una sola fuente de verdad para el color: el umbral y el
                 // nivel tienen que pintarse SIEMPRE igual -- si viven
                 // separados, un cambio futuro en la regla los deja
                 // contradiciéndose en la misma fila.
                 const bajoUmbral = Number(t.nivel_actual) <= Number(t.nivel_minimo);
-                const colorNivel = bajoUmbral ? "text-red-500" : "text-emerald-600";
+                const colorNivel = sinNivel
+                  ? "text-slate-400"
+                  : bajoUmbral
+                    ? "text-red-500"
+                    : "text-emerald-600";
                 return (
                   <tr key={t.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="p-4 font-mono text-sm text-slate-500">{t.codigo}</td>
@@ -645,17 +660,29 @@ export default function CombustiblePanel() {
                       </span>
                     </td>
                     <td className="p-4 text-sm">
-                      <span className={`font-bold ${colorNivel}`}>
-                        {Number(t.nivel_actual).toLocaleString("es-PE")}
-                      </span>
-                      <span className="text-slate-400">
-                        {" "}
-                        / {Number(t.capacidad_total).toLocaleString("es-PE")} {t.unidad} (
-                        {t.porcentaje}%)
-                      </span>
-                      <p className="text-xs text-slate-400">
-                        Última lectura: {formatearFecha(t.fecha_actualizacion)}
-                      </p>
+                      {sinNivel ? (
+                        <>
+                          <span className="text-slate-400 italic">Sin lecturas</span>
+                          <p className="text-xs text-slate-400">
+                            Capacidad: {Number(t.capacidad_total).toLocaleString("es-PE")}{" "}
+                            {t.unidad}
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <span className={`font-bold ${colorNivel}`}>
+                            {Number(t.nivel_actual).toLocaleString("es-PE")}
+                          </span>
+                          <span className="text-slate-400">
+                            {" "}
+                            / {Number(t.capacidad_total).toLocaleString("es-PE")} {t.unidad} (
+                            {t.porcentaje}%)
+                          </span>
+                          <p className="text-xs text-slate-400">
+                            Última lectura: {formatearFecha(t.fecha_actualizacion!)}
+                          </p>
+                        </>
+                      )}
                     </td>
                     <td className="p-4 text-sm">
                       <span

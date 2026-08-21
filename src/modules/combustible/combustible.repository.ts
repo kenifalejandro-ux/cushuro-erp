@@ -10,17 +10,51 @@ import type { Paginacion } from "../../server/shared/utils/pagination";
 // Columnas comunes a findAll/findById/create/update/delete -- un tanque es
 // el punto de abastecimiento completo, no solo el medidor de antes de la
 // Fase A (ver docs/architecture/control-de-combustible.md).
+//
+// `nivel_actual`, `fecha_actualizacion` y `porcentaje` NO son columnas: se
+// calculan desde la última lectura vigente (migración 0059). Antes se
+// guardaban y se mantenían con un UPDATE condicional que fallaba en
+// silencio -- ver el comentario largo de esa migración. Ahora el desfase es
+// imposible: hay una sola fuente.
+//
+// Se devuelven con los mismos nombres de siempre para no romper el contrato
+// con el cliente, que no tiene por qué enterarse de dónde sale el número.
+//
+// NULL cuando el tanque no tiene ninguna lectura vigente (todas anuladas):
+// ahí el nivel es genuinamente desconocido, y decirlo es más honesto que
+// mostrar un 0 que nadie midió.
 const COLUMNAS_TANQUE = `
-  id, codigo, tanque_nombre, tipo_combustible, unidad, tipo_punto, ubicacion,
-  capacidad_total, nivel_actual, nivel_minimo, totalizador_actual,
-  costo_promedio, moneda, activo, fecha_actualizacion,
-  ROUND((nivel_actual / capacidad_total) * 100, 2) AS porcentaje
+  c.id, c.codigo, c.tanque_nombre, c.tipo_combustible, c.unidad, c.tipo_punto,
+  c.ubicacion, c.capacidad_total, c.nivel_minimo, c.totalizador_actual,
+  c.costo_promedio, c.moneda, c.activo,
+  ultima.nivel AS nivel_actual,
+  ultima.leido_en AS fecha_actualizacion,
+  ROUND((ultima.nivel / c.capacidad_total) * 100, 2) AS porcentaje
+`;
+
+// LEFT JOIN LATERAL y no un subquery por columna: así la última lectura se
+// busca UNA vez por tanque y de ahí salen nivel y fecha juntos. LEFT (no
+// INNER) para que un tanque sin lecturas vigentes siga apareciendo en el
+// listado, con el nivel en NULL.
+//
+// El desempate por id importa: dos lecturas con el MISMO leido_en (mismo
+// minuto, que es la precisión que manda el formulario) tienen que resolverse
+// siempre igual, si no el nivel dependería del plan del query.
+const JOIN_ULTIMA_LECTURA = `
+  LEFT JOIN LATERAL (
+    SELECT l.nivel, l.leido_en
+    FROM combustible_lecturas l
+    WHERE l.combustible_id = c.id AND l.anulada_en IS NULL
+    ORDER BY l.leido_en DESC, l.id DESC
+    LIMIT 1
+  ) ultima ON true
 `;
 
 export class CombustibleRepository {
   async findAll(client: PoolClient, tenantId: string) {
     const result = await client.query(
-      `SELECT ${COLUMNAS_TANQUE} FROM combustible WHERE tenant_id = $1 ORDER BY id ASC`,
+      `SELECT ${COLUMNAS_TANQUE} FROM combustible c ${JOIN_ULTIMA_LECTURA}
+       WHERE c.tenant_id = $1 ORDER BY c.id ASC`,
       [tenantId]
     );
 
@@ -29,29 +63,28 @@ export class CombustibleRepository {
 
   async findById(client: PoolClient, tenantId: string, id: number) {
     const result = await client.query(
-      `SELECT ${COLUMNAS_TANQUE} FROM combustible WHERE id = $1 AND tenant_id = $2`,
+      `SELECT ${COLUMNAS_TANQUE} FROM combustible c ${JOIN_ULTIMA_LECTURA}
+       WHERE c.id = $1 AND c.tenant_id = $2`,
       [id, tenantId]
     );
 
     return result.rows[0] || null;
   }
 
-  /** `nivel_actual` NO se toca acá -- nace en 0 y solo se mueve por
-   *  POST /lecturas (ver registrarLectura más abajo), igual que
-   *  `totalizador_actual` (Fase B) y `costo_promedio` (Fase C). Si el
-   *  alta trae un `nivel_actual` inicial (ver crearTanqueCombustibleSchema),
-   *  se aplica acá mismo porque todavía no existe ninguna lectura previa
-   *  que este INSERT pudiera pisar. */
+  /** El nivel inicial del alta se guarda como una LECTURA (`origen =
+   *  'inicial'`), no como una columna del tanque: desde la migración 0059 el
+   *  nivel se deriva del historial, así que un tanque sin ninguna lectura no
+   *  tendría nivel que mostrar. Además deja el arranque visible en el
+   *  historial, que antes no figuraba en ningún lado. */
   async create(client: PoolClient, tenantId: string, data: CrearTanqueCombustibleInput) {
-    const result = await client.query(
+    const creado = await client.query<{ id: number }>(
       `
       INSERT INTO combustible (
         tenant_id, codigo, tanque_nombre, tipo_combustible, unidad, tipo_punto,
-        ubicacion, capacidad_total, nivel_actual, nivel_minimo, moneda,
-        fecha_actualizacion
+        ubicacion, capacidad_total, nivel_minimo, moneda
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
-      RETURNING ${COLUMNAS_TANQUE}
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      RETURNING id
       `,
       [
         tenantId,
@@ -62,13 +95,21 @@ export class CombustibleRepository {
         data.tipo_punto,
         data.ubicacion ?? null,
         data.capacidad_total,
-        data.nivel_actual,
         data.nivel_minimo,
         data.moneda,
       ]
     );
 
-    return result.rows[0];
+    const id = creado.rows[0].id;
+    await client.query(
+      `INSERT INTO combustible_lecturas (tenant_id, combustible_id, nivel, leido_en, origen)
+       VALUES ($1, $2, $3, NOW(), 'inicial')`,
+      [tenantId, id, data.nivel_actual]
+    );
+
+    // Se relee en vez de usar RETURNING: el nivel sale de un LATERAL JOIN
+    // contra las lecturas, que RETURNING no puede hacer.
+    return this.findById(client, tenantId, id);
   }
 
   /** Reemplaza la fila entera salvo `nivel_actual`/`totalizador_actual`/
@@ -94,7 +135,7 @@ export class CombustibleRepository {
         moneda = $9,
         activo = $10
       WHERE id = $11 AND tenant_id = $12
-      RETURNING ${COLUMNAS_TANQUE}
+      RETURNING id
       `,
       [
         data.codigo,
@@ -112,7 +153,8 @@ export class CombustibleRepository {
       ]
     );
 
-    return result.rows[0] ?? null;
+    if (result.rows.length === 0) return null;
+    return this.findById(client, tenantId, id);
   }
 
   /** Soft-delete exclusivamente: `combustible_lecturas.combustible_id`
@@ -123,10 +165,11 @@ export class CombustibleRepository {
   async softDelete(client: PoolClient, tenantId: string, id: number) {
     const result = await client.query(
       `UPDATE combustible SET activo = false WHERE id = $1 AND tenant_id = $2
-       RETURNING ${COLUMNAS_TANQUE}`,
+       RETURNING id`,
       [id, tenantId]
     );
-    return result.rows[0] ?? null;
+    if (result.rows.length === 0) return null;
+    return this.findById(client, tenantId, id);
   }
 
   /** Mismo patrón de lote de 1.000 + dedupe por `codigo` DENTRO del lote
@@ -147,8 +190,8 @@ export class CombustibleRepository {
 
       const placeholders = filasUnicas
         .map((_, i) => {
-          const base = i * 10;
-          return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, NOW())`;
+          const base = i * 9;
+          return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9})`;
         })
         .join(", ");
 
@@ -161,14 +204,22 @@ export class CombustibleRepository {
         d.tipo_punto,
         d.ubicacion ?? null,
         d.capacidad_total,
-        d.nivel_actual,
         d.nivel_minimo,
       ]);
 
-      const result = await client.query(
+      // Qué códigos YA existían, antes de que el upsert los toque: es la
+      // única forma de distinguir después un alta nueva de una edición, y de
+      // eso depende si corresponde crearle su lectura inicial.
+      const preexistentes = await client.query<{ id: number }>(
+        `SELECT id FROM combustible WHERE tenant_id = $1 AND codigo = ANY($2::varchar[])`,
+        [tenantId, filasUnicas.map((d) => d.codigo)]
+      );
+      const idsPreexistentes = new Set(preexistentes.rows.map((f) => f.id));
+
+      const insertados = await client.query<{ id: number; codigo: string }>(
         `INSERT INTO combustible (
            tenant_id, codigo, tanque_nombre, tipo_combustible, unidad, tipo_punto,
-           ubicacion, capacidad_total, nivel_actual, nivel_minimo, fecha_actualizacion
+           ubicacion, capacidad_total, nivel_minimo
          )
          VALUES ${placeholders}
          ON CONFLICT (tenant_id, codigo) DO UPDATE SET
@@ -179,10 +230,27 @@ export class CombustibleRepository {
            ubicacion = EXCLUDED.ubicacion,
            capacidad_total = EXCLUDED.capacidad_total,
            nivel_minimo = EXCLUDED.nivel_minimo
-         RETURNING ${COLUMNAS_TANQUE}`,
+         RETURNING id, codigo`,
         valores
       );
-      results.push(...result.rows);
+
+      // Lectura `inicial` solo para los tanques NUEVOS: si el código ya
+      // existía, esto fue un upsert sobre un tanque con historial propio, y
+      // meterle una lectura del Excel le pisaría el nivel real medido en
+      // campo con un número de planilla.
+      const nivelPorCodigo = new Map(filasUnicas.map((d) => [d.codigo, d.nivel_actual]));
+      const nuevos = insertados.rows.filter((f) => !idsPreexistentes.has(f.id));
+      for (const fila of nuevos) {
+        await client.query(
+          `INSERT INTO combustible_lecturas (tenant_id, combustible_id, nivel, leido_en, origen)
+           VALUES ($1, $2, $3, NOW(), 'inicial')`,
+          [tenantId, fila.id, nivelPorCodigo.get(fila.codigo) ?? 0]
+        );
+      }
+
+      for (const fila of insertados.rows) {
+        results.push(await this.findById(client, tenantId, fila.id));
+      }
     }
 
     return results;
@@ -220,46 +288,12 @@ export class CombustibleRepository {
     return result.rows;
   }
 
-  /** Deja `nivel_actual` en la última lectura VIGENTE del tanque.
+  /** Marca una lectura como anulada.
    *
-   *  Hace falta porque anular puede hacer RETROCEDER el nivel: si se anula
-   *  la lectura más reciente, el tanque tiene que volver a mostrar la
-   *  anterior. El UPDATE condicional de `registrarLectura` no sirve para
-   *  esto -- solo sabe avanzar hacia adelante en el tiempo (por diseño, ver
-   *  el comentario ahí: es lo que hace que dos lecturas offline llegando
-   *  desordenadas no se pisen).
-   *
-   *  Si NO queda ninguna lectura vigente, el subquery no devuelve filas, el
-   *  UPDATE no afecta nada y `nivel_actual` queda como estaba. Es
-   *  deliberado: poner el tanque en 0 sería inventar una medición que nadie
-   *  tomó, y además borraría el nivel inicial cargado al crear el tanque
-   *  (que no genera lectura propia). */
-  async recalcularNivelDesdeUltimaLectura(
-    client: PoolClient,
-    tenantId: string,
-    combustibleId: number
-  ) {
-    await client.query(
-      `
-      UPDATE combustible c
-      SET nivel_actual = l.nivel, fecha_actualizacion = l.leido_en
-      FROM (
-        SELECT nivel, leido_en
-        FROM combustible_lecturas
-        WHERE combustible_id = $1 AND tenant_id = $2 AND anulada_en IS NULL
-        -- El desempate por id importa: dos lecturas con el MISMO leido_en
-        -- (mismo minuto, carga rápida) tienen que resolverse siempre igual,
-        -- si no el nivel del tanque dependería del plan del query.
-        ORDER BY leido_en DESC, id DESC
-        LIMIT 1
-      ) l
-      WHERE c.id = $1 AND c.tenant_id = $2
-      `,
-      [combustibleId, tenantId]
-    );
-  }
-
-  /** Marca una lectura como anulada y recalcula el nivel del tanque.
+   *  Ya no hace falta recalcular nada: desde la migración 0059 el nivel se
+   *  deriva de la última lectura vigente al leerlo, así que anular la más
+   *  reciente hace que el tanque vuelva solo a la anterior. Antes había un
+   *  `recalcularNivelDesdeUltimaLectura()` acá justamente para eso.
    *
    *  El UPDATE lleva `anulada_en IS NULL` en el WHERE: si la lectura ya
    *  estaba anulada no afecta ninguna fila y devuelve null, así el
@@ -289,7 +323,6 @@ export class CombustibleRepository {
     if (anulada.rows.length === 0) return null;
 
     const lectura = anulada.rows[0];
-    await this.recalcularNivelDesdeUltimaLectura(client, tenantId, lectura.combustible_id);
     const tanque = await this.findById(client, tenantId, lectura.combustible_id);
 
     return { lectura, tanque };
@@ -307,14 +340,17 @@ export class CombustibleRepository {
     return result.rows[0] ?? null;
   }
 
-  /** Registra una lectura histórica y actualiza `nivel_actual` SOLO si esta
-   *  lectura es más reciente que la ya aplicada -- compara contra
-   *  `fecha_actualizacion` (columna que ya existe en `combustible`, no se
-   *  crea una nueva). El UPDATE condicional es atómico: dos lecturas
-   *  sincronizando casi al mismo tiempo (offline, orden de llegada
-   *  arbitrario) nunca dejan `nivel_actual` en un valor más viejo que el
-   *  que ya tenía, sin necesidad de un lock explícito -- mismo criterio que
-   *  `IpercRepository.cambiarEstado` (UPDATE ... WHERE <condición> RETURNING).
+  /** Registra una lectura histórica. Nada más: el nivel del tanque sale de
+   *  la última lectura vigente al leerlo (migración 0059), así que insertar
+   *  la fila ES actualizar el nivel.
+   *
+   *  Antes había acá un UPDATE condicional sobre `combustible.nivel_actual`
+   *  (`WHERE fecha_actualizacion < <leido_en>`) para que dos lecturas
+   *  offline llegando desordenadas no se pisaran. Esa protección sigue
+   *  existiendo, pero ahora es estructural en vez de defensiva: el ORDER BY
+   *  del LATERAL JOIN elige la más reciente sin importar en qué orden se
+   *  hayan insertado. Y de paso desaparecen los tres casos en que aquel
+   *  UPDATE fallaba en silencio -- ver el comentario largo de 0059.
    *
    *  Lanza si `combustibleId` no existe en este tenant -- el controller lo
    *  distingue de un 500 genérico (mismo patrón que
@@ -369,15 +405,6 @@ export class CombustibleRepository {
         data.usuarioId,
         JSON.stringify(data.metadata),
       ]
-    );
-
-    await client.query(
-      `
-      UPDATE combustible
-      SET nivel_actual = $1, fecha_actualizacion = $2
-      WHERE id = $3 AND tenant_id = $4 AND fecha_actualizacion < $2
-    `,
-      [data.nivel, data.leidoEn, data.combustibleId, tenantId]
     );
 
     const tanque = await this.findById(client, tenantId, data.combustibleId);
