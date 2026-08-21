@@ -23,6 +23,16 @@ interface Tanque {
   fecha_actualizacion: string;
 }
 
+/** Una fila del histórico de aforos (combustible_lecturas, migración
+ *  0045). Llega de GET /combustible/:id/lecturas, ya ordenada de la más
+ *  reciente a la más vieja. */
+interface Lectura {
+  id: number;
+  nivel: string;
+  leido_en: string;
+  origen: string;
+}
+
 const ETIQUETA_TIPO_COMBUSTIBLE: Record<Tanque["tipo_combustible"], string> = {
   diesel_b5: "Diésel B5",
   gasolina_90: "Gasolina 90",
@@ -58,8 +68,16 @@ async function mensajeDeErrorDelServidor(res: Response, filas: number): Promise<
     const body = await res.json().catch(() => null);
     const primero = body?.errors?.[0];
     if (primero) {
-      const indice = Number(String(primero.field).split(".")[0]);
-      const ubicacion = Number.isInteger(indice) ? `Fila ${indice + 2}: ` : "";
+      // `field` viaja como "0.tanque_nombre" (índice de fila + columna, ver
+      // validate.ts: issue.path.join(".")) -- hay que quedarse también con
+      // la columna, no solo el índice: si no, el aviso dice "Fila 2:
+      // Required" sin decir QUÉ campo falta.
+      const partes = String(primero.field).split(".");
+      const indice = Number(partes[0]);
+      const campo = partes.slice(1).join(".");
+      const ubicacion = Number.isInteger(indice)
+        ? `Fila ${indice + 2}${campo ? ` (columna "${campo}")` : ""}: `
+        : "";
       return `${ubicacion}${primero.message}`;
     }
     return "El archivo tiene filas con datos inválidos.";
@@ -109,6 +127,11 @@ export default function CombustiblePanel() {
   const [importando, setImportando] = useState(false);
   const [errorImportacion, setErrorImportacion] = useState<string | null>(null);
   const [resultadoImportacion, setResultadoImportacion] = useState<string | null>(null);
+
+  // --- Historial de lecturas (solo lectura, GET /:id/lecturas) ---
+  const [tanqueHistorial, setTanqueHistorial] = useState<Tanque | null>(null);
+  const [lecturas, setLecturas] = useState<Lectura[]>([]);
+  const [cargandoLecturas, setCargandoLecturas] = useState(false);
 
   // --- Registrar lectura (offline-capaz, como antes) ---
   const [tanqueLectura, setTanqueLectura] = useState<Tanque | null>(null);
@@ -290,6 +313,31 @@ export default function CombustiblePanel() {
     reader.readAsBinaryString(file);
   };
 
+  // --- Historial de lecturas ---
+
+  /** Trae el histórico del tanque bajo demanda (al abrir el modal), no en
+   *  la carga inicial de la tabla: son datos que crecen con el trabajo de
+   *  campo y solo hacen falta cuando alguien los pide -- traerlos para
+   *  todos los tanques en cada render sería trabajo tirado. */
+  const abrirModalHistorial = async (t: Tanque) => {
+    setTanqueHistorial(t);
+    setLecturas([]);
+    setCargandoLecturas(true);
+    try {
+      const res = await apiFetch(`/api/erp/combustible/${t.id}/lecturas?pageSize=100`);
+      if (!res.ok) {
+        setLecturas([]);
+        return;
+      }
+      const body = await res.json();
+      setLecturas(Array.isArray(body.data) ? body.data : []);
+    } catch {
+      setLecturas([]);
+    } finally {
+      setCargandoLecturas(false);
+    }
+  };
+
   // --- Registrar lectura ---
 
   const abrirModalLectura = (t: Tanque) => {
@@ -376,7 +424,6 @@ export default function CombustiblePanel() {
           </button>
         </div>
       </div>
-
       {errorImportacion && (
         <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
           <p className="text-sm text-red-900 font-light flex-1">{errorImportacion}</p>
@@ -401,7 +448,7 @@ export default function CombustiblePanel() {
           </button>
         </div>
       )}
-
+      {/**AGREGAR MAS COLUMNAS  */}{" "}
       {tanques.length === 0 ? (
         <div className="bg-slate-50 border border-slate-200 border-dashed rounded-xl p-10 text-center text-slate-500">
           No hay tanques registrados todavía.
@@ -422,6 +469,9 @@ export default function CombustiblePanel() {
                 </th>
                 <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-widest">
                   Punto
+                </th>
+                <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                  Humbral minimo
                 </th>
                 <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-widest">
                   Nivel
@@ -447,6 +497,9 @@ export default function CombustiblePanel() {
                   </td>
                   <td className="p-4 text-sm text-slate-600">
                     {ETIQUETA_TIPO_PUNTO[t.tipo_punto]}
+                  </td>
+                  <td className="p-4 text-sm text-slate-600">
+                    {t.nivel_minimo} {t.unidad}
                   </td>
                   <td className="p-4 text-sm">
                     <span
@@ -478,6 +531,13 @@ export default function CombustiblePanel() {
                   </td>
                   <td className="p-4 text-right space-x-2">
                     <button
+                      onClick={() => abrirModalHistorial(t)}
+                      className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                      title="Ver historial de lecturas"
+                    >
+                      📋
+                    </button>
+                    <button
                       onClick={() => abrirModalLectura(t)}
                       className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                       title="Registrar lectura"
@@ -507,7 +567,6 @@ export default function CombustiblePanel() {
           </table>
         </div>
       )}
-
       {/* Modal: alta / edición de tanque */}
       {modalTanqueAbierto && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
@@ -710,7 +769,6 @@ export default function CombustiblePanel() {
                   />
                 </div>
               )}
-
               {editandoId !== null && (
                 <label className="flex items-center gap-2 text-sm text-slate-600">
                   <input
@@ -733,8 +791,95 @@ export default function CombustiblePanel() {
           </div>
         </div>
       )}
+      {/* Modal: historial de lecturas (solo lectura) */}
+      {tanqueHistorial && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="p-6 border-b flex justify-between items-center shrink-0">
+              <div>
+                <h3 className="text-xl font-bold">Historial — {tanqueHistorial.tanque_nombre}</h3>
+                <p className="text-sm text-slate-500">
+                  Lecturas registradas, de la más reciente a la más antigua
+                </p>
+              </div>
+              <button
+                onClick={() => setTanqueHistorial(null)}
+                className="text-slate-400 hover:text-slate-900 text-2xl"
+              >
+                ×
+              </button>
+            </div>
 
-      {/* Modal: registrar lectura */}
+            <div className="p-6 overflow-y-auto">
+              {cargandoLecturas ? (
+                <p className="text-center text-slate-500 py-8">Cargando historial...</p>
+              ) : lecturas.length === 0 ? (
+                <p className="text-center text-slate-500 py-8">
+                  Este tanque todavía no tiene lecturas registradas.
+                </p>
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        Fecha de la lectura
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
+                        Nivel
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
+                        Variación
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {lecturas.map((l, i) => {
+                      // Las lecturas llegan de la más reciente a la más
+                      // antigua, así que la ANTERIOR en el tiempo es la de
+                      // la fila siguiente. La última fila es la lectura más
+                      // vieja: no hay contra qué compararla.
+                      const anterior = lecturas[i + 1];
+                      const variacion = anterior ? Number(l.nivel) - Number(anterior.nivel) : null;
+                      return (
+                        <tr key={l.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="p-3 text-sm text-slate-600">
+                            {formatearFecha(l.leido_en)}
+                            {l.origen !== "manual" && (
+                              <span className="ml-2 text-xs text-slate-400">({l.origen})</span>
+                            )}
+                          </td>
+                          <td className="p-3 text-sm font-semibold text-slate-800 text-right">
+                            {Number(l.nivel).toLocaleString("es-PE")} {tanqueHistorial.unidad}
+                          </td>
+                          <td className="p-3 text-sm text-right">
+                            {variacion === null ? (
+                              <span className="text-slate-300">—</span>
+                            ) : (
+                              <span
+                                className={
+                                  variacion < 0
+                                    ? "text-red-500 font-medium"
+                                    : variacion > 0
+                                      ? "text-emerald-600 font-medium"
+                                      : "text-slate-400"
+                                }
+                              >
+                                {variacion > 0 ? "+" : ""}
+                                {variacion.toLocaleString("es-PE")} {tanqueHistorial.unidad}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal: registrar lectura - ícono de tanque*/}
       {tanqueLectura && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
           <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl">
@@ -747,6 +892,7 @@ export default function CombustiblePanel() {
                 ×
               </button>
             </div>
+
             <form onSubmit={handleRegistrarLectura} className="p-6 space-y-4">
               <div className="space-y-1">
                 <label
