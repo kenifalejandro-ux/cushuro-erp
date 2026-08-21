@@ -42,6 +42,23 @@ export class CombustibleService {
     return this.repository.createBulk(client, tenantId, items);
   }
 
+  /** Devuelve null si la lectura no existe en este tenant o si ya estaba
+   *  anulada -- el controller distingue los dos casos con
+   *  `findLecturaPorId` para responder 404 o 409. */
+  async anularLectura(
+    client: PoolClient,
+    tenantId: string,
+    lecturaId: number,
+    usuarioId: string,
+    motivo: string
+  ) {
+    return this.repository.anularLectura(client, tenantId, lecturaId, usuarioId, motivo);
+  }
+
+  async getLecturaPorId(client: PoolClient, tenantId: string, lecturaId: number) {
+    return this.repository.findLecturaPorId(client, tenantId, lecturaId);
+  }
+
   async getLecturas(
     client: PoolClient,
     tenantId: string,

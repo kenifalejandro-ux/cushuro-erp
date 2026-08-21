@@ -1,6 +1,6 @@
 /**client/src/components/combustible/CombustiblePanel */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 
 import { suscribirseASincronizacion } from "../../offline/offlineSync";
 import { apiFetch } from "../../services/apiClient";
@@ -31,6 +31,12 @@ interface Lectura {
   nivel: string;
   leido_en: string;
   origen: string;
+  // null = vigente. Una lectura anulada NUNCA se borra (ver migrations/0058):
+  // queda visible como evidencia de que hubo un error, pero deja de contar
+  // para el nivel del tanque y para la variación.
+  anulada_en: string | null;
+  motivo_anulacion: string | null;
+  anulada_por_nombre: string | null;
 }
 
 const ETIQUETA_TIPO_COMBUSTIBLE: Record<Tanque["tipo_combustible"], string> = {
@@ -132,6 +138,12 @@ export default function CombustiblePanel() {
   const [tanqueHistorial, setTanqueHistorial] = useState<Tanque | null>(null);
   const [lecturas, setLecturas] = useState<Lectura[]>([]);
   const [cargandoLecturas, setCargandoLecturas] = useState(false);
+  // Lectura que se está por anular (null = nadie). El motivo va en su propio
+  // formulario y no en un window.prompt(): es obligatorio y queda guardado
+  // como evidencia, así que merece un campo de verdad.
+  const [lecturaAAnular, setLecturaAAnular] = useState<Lectura | null>(null);
+  const [motivoAnulacion, setMotivoAnulacion] = useState("");
+  const [anulando, setAnulando] = useState(false);
 
   // --- Registrar lectura (offline-capaz, como antes) ---
   const [tanqueLectura, setTanqueLectura] = useState<Tanque | null>(null);
@@ -319,12 +331,30 @@ export default function CombustiblePanel() {
    *  la carga inicial de la tabla: son datos que crecen con el trabajo de
    *  campo y solo hacen falta cuando alguien los pide -- traerlos para
    *  todos los tanques en cada render sería trabajo tirado. */
-  const abrirModalHistorial = async (t: Tanque) => {
-    setTanqueHistorial(t);
-    setLecturas([]);
+  /** Variación de cada lectura contra la ANTERIOR VIGENTE, no contra la fila
+   *  de al lado. La diferencia importa: si una lectura anulada contara, un
+   *  error de tipeo (500 en vez de 19.000) dejaría para siempre un -18.500
+   *  seguido de un +18.500 en el historial -- exactamente el desbalance
+   *  fantasma que la anulación viene a limpiar.
+   *
+   *  Las anuladas no reciben variación propia: ya no representan una
+   *  medición del tanque. */
+  const variacionPorLectura = useMemo(() => {
+    const vigentes = lecturas.filter((l) => l.anulada_en === null);
+    const porId = new Map<number, number>();
+    // `lecturas` llega de la más reciente a la más vieja, así que la
+    // anterior en el tiempo es la siguiente del array.
+    vigentes.forEach((l, i) => {
+      const anterior = vigentes[i + 1];
+      if (anterior) porId.set(l.id, Number(l.nivel) - Number(anterior.nivel));
+    });
+    return porId;
+  }, [lecturas]);
+
+  const cargarLecturas = useCallback(async (tanqueId: number) => {
     setCargandoLecturas(true);
     try {
-      const res = await apiFetch(`/api/erp/combustible/${t.id}/lecturas?pageSize=100`);
+      const res = await apiFetch(`/api/erp/combustible/${tanqueId}/lecturas?pageSize=100`);
       if (!res.ok) {
         setLecturas([]);
         return;
@@ -335,6 +365,41 @@ export default function CombustiblePanel() {
       setLecturas([]);
     } finally {
       setCargandoLecturas(false);
+    }
+  }, []);
+
+  const abrirModalHistorial = async (t: Tanque) => {
+    setTanqueHistorial(t);
+    setLecturas([]);
+    await cargarLecturas(t.id);
+  };
+
+  const handleAnularLectura = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (anulando || !lecturaAAnular || !tanqueHistorial) return;
+    setAnulando(true);
+    try {
+      const res = await apiFetch(`/api/erp/combustible/lecturas/${lecturaAAnular.id}/anular`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ motivo: motivoAnulacion }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert(body.error || "No se pudo anular la lectura.");
+        return;
+      }
+
+      setLecturaAAnular(null);
+      setMotivoAnulacion("");
+      // Se recargan las DOS cosas: el historial (para ver la fila tachada) y
+      // la tabla de tanques -- anular puede hacer retroceder el nivel, así
+      // que la fila de afuera queda desactualizada si no se refresca.
+      await cargarLecturas(tanqueHistorial.id);
+      await cargarTanques();
+    } finally {
+      setAnulando(false);
     }
   };
 
@@ -830,25 +895,36 @@ export default function CombustiblePanel() {
                       <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
                         Variación
                       </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
+                        Acciones
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {lecturas.map((l, i) => {
-                      // Las lecturas llegan de la más reciente a la más
-                      // antigua, así que la ANTERIOR en el tiempo es la de
-                      // la fila siguiente. La última fila es la lectura más
-                      // vieja: no hay contra qué compararla.
-                      const anterior = lecturas[i + 1];
-                      const variacion = anterior ? Number(l.nivel) - Number(anterior.nivel) : null;
+                    {lecturas.map((l) => {
+                      const anulada = l.anulada_en !== null;
+                      const variacion = variacionPorLectura.get(l.id) ?? null;
                       return (
                         <tr key={l.id} className="hover:bg-slate-50/50 transition-colors">
                           <td className="p-3 text-sm text-slate-600">
-                            {formatearFecha(l.leido_en)}
+                            <span className={anulada ? "line-through text-slate-400" : ""}>
+                              {formatearFecha(l.leido_en)}
+                            </span>
                             {l.origen !== "manual" && (
                               <span className="ml-2 text-xs text-slate-400">({l.origen})</span>
                             )}
+                            {anulada && (
+                              <p className="text-xs text-amber-700 mt-0.5">
+                                Anulada: {l.motivo_anulacion}
+                                {l.anulada_por_nombre && ` — ${l.anulada_por_nombre}`}
+                              </p>
+                            )}
                           </td>
-                          <td className="p-3 text-sm font-semibold text-slate-800 text-right">
+                          <td
+                            className={`p-3 text-sm font-semibold text-right ${
+                              anulada ? "line-through text-slate-400" : "text-slate-800"
+                            }`}
+                          >
                             {Number(l.nivel).toLocaleString("es-PE")} {tanqueHistorial.unidad}
                           </td>
                           <td className="p-3 text-sm text-right">
@@ -869,6 +945,20 @@ export default function CombustiblePanel() {
                               </span>
                             )}
                           </td>
+                          <td className="p-3 text-sm text-right">
+                            {!anulada && (
+                              <button
+                                onClick={() => {
+                                  setLecturaAAnular(l);
+                                  setMotivoAnulacion("");
+                                }}
+                                className="px-2 py-1 text-xs text-slate-400 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-all"
+                                title="Anular esta lectura"
+                              >
+                                Anular
+                              </button>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
@@ -876,6 +966,66 @@ export default function CombustiblePanel() {
                 </table>
               )}
             </div>
+          </div>
+        </div>
+      )}
+      {/* Modal: anular lectura (motivo obligatorio) -- se monta por encima
+          del historial, que queda abierto detrás. */}
+      {lecturaAAnular && tanqueHistorial && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-[60] p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl">
+            <div className="p-6 border-b flex justify-between items-center">
+              <h3 className="text-xl font-bold">Anular lectura</h3>
+              <button
+                onClick={() => setLecturaAAnular(null)}
+                className="text-slate-400 hover:text-slate-900 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            <form onSubmit={handleAnularLectura} className="p-6 space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
+                <p>
+                  Vas a anular la lectura de{" "}
+                  <span className="font-bold">
+                    {Number(lecturaAAnular.nivel).toLocaleString("es-PE")} {tanqueHistorial.unidad}
+                  </span>{" "}
+                  del {formatearFecha(lecturaAAnular.leido_en)}.
+                </p>
+                <p className="mt-2 text-xs">
+                  La lectura no se borra: queda en el historial marcada como anulada, con este
+                  motivo y tu nombre. Si era la última, el nivel del tanque vuelve a la lectura
+                  anterior.
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <label
+                  htmlFor="motivo-anulacion"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Motivo (obligatorio)
+                </label>
+                <textarea
+                  id="motivo-anulacion"
+                  required
+                  rows={3}
+                  maxLength={500}
+                  placeholder="Ej: error de tipeo, se registró 500 en vez de 19.000"
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                  value={motivoAnulacion}
+                  onChange={(e) => setMotivoAnulacion(e.target.value)}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={anulando || motivoAnulacion.trim() === ""}
+                className="w-full bg-amber-700 text-white font-bold py-4 rounded-2xl hover:bg-amber-800 transition-all mt-4 disabled:opacity-50"
+              >
+                {anulando ? "Anulando..." : "Anular lectura"}
+              </button>
+            </form>
           </div>
         </div>
       )}

@@ -200,17 +200,111 @@ export class CombustibleRepository {
   ) {
     const result = await client.query(
       `
-      SELECT id, combustible_id, nivel, leido_en, usuario_id, origen, metadata, creado_en,
+      SELECT l.id, l.combustible_id, l.nivel, l.leido_en, l.usuario_id, l.origen,
+             l.metadata, l.creado_en,
+             l.anulada_en, l.anulada_por, l.motivo_anulacion,
+             u.nombre AS anulada_por_nombre,
         COUNT(*) OVER() AS total_count
-      FROM combustible_lecturas
-      WHERE combustible_id = $1 AND tenant_id = $2
-      ORDER BY leido_en DESC
+      FROM combustible_lecturas l
+      -- LEFT JOIN y no INNER: anulada_por es nullable (usuario borrado, ver
+      -- 0058) y la mayoría de las lecturas no están anuladas -- un INNER
+      -- JOIN las dejaría a todas fuera del listado.
+      LEFT JOIN usuarios u ON u.id = l.anulada_por
+      WHERE l.combustible_id = $1 AND l.tenant_id = $2
+      ORDER BY l.leido_en DESC
       LIMIT $3 OFFSET $4
       `,
       [combustibleId, tenantId, pageSize, offset]
     );
 
     return result.rows;
+  }
+
+  /** Deja `nivel_actual` en la última lectura VIGENTE del tanque.
+   *
+   *  Hace falta porque anular puede hacer RETROCEDER el nivel: si se anula
+   *  la lectura más reciente, el tanque tiene que volver a mostrar la
+   *  anterior. El UPDATE condicional de `registrarLectura` no sirve para
+   *  esto -- solo sabe avanzar hacia adelante en el tiempo (por diseño, ver
+   *  el comentario ahí: es lo que hace que dos lecturas offline llegando
+   *  desordenadas no se pisen).
+   *
+   *  Si NO queda ninguna lectura vigente, el subquery no devuelve filas, el
+   *  UPDATE no afecta nada y `nivel_actual` queda como estaba. Es
+   *  deliberado: poner el tanque en 0 sería inventar una medición que nadie
+   *  tomó, y además borraría el nivel inicial cargado al crear el tanque
+   *  (que no genera lectura propia). */
+  async recalcularNivelDesdeUltimaLectura(
+    client: PoolClient,
+    tenantId: string,
+    combustibleId: number
+  ) {
+    await client.query(
+      `
+      UPDATE combustible c
+      SET nivel_actual = l.nivel, fecha_actualizacion = l.leido_en
+      FROM (
+        SELECT nivel, leido_en
+        FROM combustible_lecturas
+        WHERE combustible_id = $1 AND tenant_id = $2 AND anulada_en IS NULL
+        -- El desempate por id importa: dos lecturas con el MISMO leido_en
+        -- (mismo minuto, carga rápida) tienen que resolverse siempre igual,
+        -- si no el nivel del tanque dependería del plan del query.
+        ORDER BY leido_en DESC, id DESC
+        LIMIT 1
+      ) l
+      WHERE c.id = $1 AND c.tenant_id = $2
+      `,
+      [combustibleId, tenantId]
+    );
+  }
+
+  /** Marca una lectura como anulada y recalcula el nivel del tanque.
+   *
+   *  El UPDATE lleva `anulada_en IS NULL` en el WHERE: si la lectura ya
+   *  estaba anulada no afecta ninguna fila y devuelve null, así el
+   *  controller responde 409 en vez de pisar el motivo y el autor de la
+   *  anulación original (que son la evidencia de quién corrigió qué).
+   *  Mismo patrón que `IpercRepository.cambiarEstado` -- ver
+   *  fix_race_condition_iperc_estado: dos anulaciones simultáneas no pueden
+   *  terminar las dos en 200. */
+  async anularLectura(
+    client: PoolClient,
+    tenantId: string,
+    lecturaId: number,
+    usuarioId: string,
+    motivo: string
+  ) {
+    const anulada = await client.query(
+      `
+      UPDATE combustible_lecturas
+      SET anulada_en = now(), anulada_por = $1, motivo_anulacion = $2
+      WHERE id = $3 AND tenant_id = $4 AND anulada_en IS NULL
+      RETURNING id, combustible_id, nivel, leido_en, usuario_id, origen, metadata,
+                creado_en, anulada_en, anulada_por, motivo_anulacion
+      `,
+      [usuarioId, motivo, lecturaId, tenantId]
+    );
+
+    if (anulada.rows.length === 0) return null;
+
+    const lectura = anulada.rows[0];
+    await this.recalcularNivelDesdeUltimaLectura(client, tenantId, lectura.combustible_id);
+    const tanque = await this.findById(client, tenantId, lectura.combustible_id);
+
+    return { lectura, tanque };
+  }
+
+  /** Distingue "no existe / es de otro tenant" (404) de "ya estaba anulada"
+   *  (409) -- sin esto, `anularLectura` devuelve null en los dos casos y el
+   *  controller no puede decir cuál fue. */
+  async findLecturaPorId(client: PoolClient, tenantId: string, lecturaId: number) {
+    const result = await client.query(
+      `SELECT id, combustible_id, anulada_en FROM combustible_lecturas
+       WHERE id = $1 AND tenant_id = $2`,
+      [lecturaId, tenantId]
+    );
+    return result.rows[0] ?? null;
   }
 
   /** Registra una lectura histórica y actualiza `nivel_actual` SOLO si esta

@@ -87,6 +87,20 @@ export const registrarLecturaCombustibleSchema = z.object({
 
 export type RegistrarLecturaCombustibleInput = z.infer<typeof registrarLecturaCombustibleSchema>;
 
+/** Anular una lectura mal cargada (ej. se tipeó 500 en vez de 19.000). La
+ *  fila NUNCA se borra ni se edita -- ver migrations/0058 y el punto 3 de
+ *  docs/architecture/control-de-combustible.md.
+ *
+ *  `motivo` es OBLIGATORIO, a diferencia del `motivo` opcional del panel de
+ *  plataforma: es lo único que distingue "me equivoqué al tipear" de
+ *  "estoy tapando un número que no me conviene". Sin él la válvula de
+ *  escape no sirve como respaldo de nada. */
+export const anularLecturaCombustibleSchema = z.object({
+  motivo: z.string().trim().min(1, "El motivo de la anulación es obligatorio").max(500),
+});
+
+export type AnularLecturaCombustibleInput = z.infer<typeof anularLecturaCombustibleSchema>;
+
 // Wrapper legacy de PUT /:id/nivel -- mismo shape de body que siempre tuvo
 // (nivel_actual), ahora validado con Zod como el resto de los módulos.
 export const actualizarNivelCombustibleSchema = z.object({

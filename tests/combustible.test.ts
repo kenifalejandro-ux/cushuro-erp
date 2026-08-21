@@ -424,6 +424,192 @@ describe("combustible: ABM de tanques (Fase A)", () => {
   });
 });
 
+describe("combustible: anulación de lecturas (migración 0058)", () => {
+  let tenantId: string;
+  let tenantSlug: string;
+  const password = "ClaveDePrueba123";
+  const agent = request.agent(app);
+
+  beforeAll(async () => {
+    const creado = await crearTenantDePrueba(password);
+    tenantId = creado.tenant.id;
+    tenantSlug = creado.tenant.slug;
+    await agent.post("/api/auth/login").send({ tenantSlug, email: creado.usuario.email, password });
+  });
+
+  afterAll(async () => {
+    await borrarTenantDePrueba(tenantId);
+  });
+
+  /** Tanque nuevo + dos lecturas en orden cronológico. Devuelve los ids que
+   *  hacen falta para anular y verificar el recálculo.
+   *
+   *  Los `leido_en` se calculan HACIA ADELANTE desde ahora, no con fechas
+   *  fijas: `create` deja `fecha_actualizacion = NOW()`, y el UPDATE
+   *  condicional de registrarLectura solo aplica una lectura si es
+   *  POSTERIOR a esa marca. Con fechas fijas del pasado las lecturas se
+   *  guardan pero no mueven `nivel_actual`, y el test mediría otra cosa. */
+  async function tanqueConDosLecturas() {
+    const tanque = await agent.post("/api/erp/combustible").send(payloadTanque());
+    const base = Date.now();
+    const primera = await agent.post("/api/erp/combustible/lecturas").send({
+      combustible_id: tanque.body.id,
+      nivel: 800,
+      leido_en: new Date(base + 60_000).toISOString(),
+    });
+    const segunda = await agent.post("/api/erp/combustible/lecturas").send({
+      combustible_id: tanque.body.id,
+      nivel: 500,
+      leido_en: new Date(base + 120_000).toISOString(),
+    });
+    return {
+      tanqueId: tanque.body.id as number,
+      primeraId: primera.body.lectura.id as number,
+      segundaId: segunda.body.lectura.id as number,
+    };
+  }
+
+  it("anular la lectura MÁS RECIENTE hace retroceder el nivel a la anterior", async () => {
+    const { tanqueId, segundaId } = await tanqueConDosLecturas();
+
+    const antes = await agent.get(`/api/erp/combustible/${tanqueId}`);
+    expect(Number(antes.body.nivel_actual)).toBe(500);
+
+    const res = await agent
+      .patch(`/api/erp/combustible/lecturas/${segundaId}/anular`)
+      .send({ motivo: "error de tipeo: se registró 500 en vez de 800" });
+    expect(res.status).toBe(200);
+    expect(res.body.lectura.anulada_en).toBeTruthy();
+
+    // El nivel vuelve a la lectura vigente anterior -- esto es lo que el
+    // UPDATE condicional de registrarLectura NO puede hacer solo (solo sabe
+    // avanzar en el tiempo, ver recalcularNivelDesdeUltimaLectura).
+    const despues = await agent.get(`/api/erp/combustible/${tanqueId}`);
+    expect(Number(despues.body.nivel_actual)).toBe(800);
+  });
+
+  it("la lectura anulada NO se borra: sigue en el historial con su motivo y autor", async () => {
+    const { tanqueId, segundaId } = await tanqueConDosLecturas();
+    await agent
+      .patch(`/api/erp/combustible/lecturas/${segundaId}/anular`)
+      .send({ motivo: "se midió el tanque equivocado" });
+
+    const historial = await agent.get(`/api/erp/combustible/${tanqueId}/lecturas`);
+    const fila = historial.body.data.find((l: { id: number }) => l.id === segundaId);
+    expect(fila).toBeTruthy();
+    expect(Number(fila.nivel)).toBe(500); // el número original queda intacto
+    expect(fila.motivo_anulacion).toBe("se midió el tanque equivocado");
+    expect(fila.anulada_por_nombre).toBeTruthy();
+  });
+
+  it("anular una lectura que NO es la última deja el nivel donde está", async () => {
+    const { tanqueId, primeraId } = await tanqueConDosLecturas();
+
+    const res = await agent
+      .patch(`/api/erp/combustible/lecturas/${primeraId}/anular`)
+      .send({ motivo: "lectura vieja mal cargada" });
+    expect(res.status).toBe(200);
+
+    // La más reciente sigue vigente, así que manda ella.
+    const despues = await agent.get(`/api/erp/combustible/${tanqueId}`);
+    expect(Number(despues.body.nivel_actual)).toBe(500);
+  });
+
+  it("si se anulan TODAS las lecturas, el nivel queda como está (no se pone en 0)", async () => {
+    const { tanqueId, primeraId, segundaId } = await tanqueConDosLecturas();
+    await agent
+      .patch(`/api/erp/combustible/lecturas/${segundaId}/anular`)
+      .send({ motivo: "anulo la segunda" });
+    await agent
+      .patch(`/api/erp/combustible/lecturas/${primeraId}/anular`)
+      .send({ motivo: "anulo la primera" });
+
+    const despues = await agent.get(`/api/erp/combustible/${tanqueId}`);
+    // Queda en 800: el valor de la última lectura vigente ANTES de anularla.
+    // No se pone en 0 -- eso sería inventar una medición que nadie tomó.
+    expect(Number(despues.body.nivel_actual)).toBe(800);
+  });
+
+  it("el motivo es obligatorio: sin motivo, o vacío, rechaza con 400", async () => {
+    const { segundaId } = await tanqueConDosLecturas();
+
+    const sinMotivo = await agent
+      .patch(`/api/erp/combustible/lecturas/${segundaId}/anular`)
+      .send({});
+    expect(sinMotivo.status).toBe(400);
+
+    const vacio = await agent
+      .patch(`/api/erp/combustible/lecturas/${segundaId}/anular`)
+      .send({ motivo: "   " });
+    expect(vacio.status).toBe(400);
+  });
+
+  it("anular dos veces la misma lectura da 409, sin pisar el motivo original", async () => {
+    const { tanqueId, segundaId } = await tanqueConDosLecturas();
+    const primera = await agent
+      .patch(`/api/erp/combustible/lecturas/${segundaId}/anular`)
+      .send({ motivo: "motivo original" });
+    expect(primera.status).toBe(200);
+
+    const segunda = await agent
+      .patch(`/api/erp/combustible/lecturas/${segundaId}/anular`)
+      .send({ motivo: "intento pisar el motivo" });
+    expect(segunda.status).toBe(409);
+
+    const historial = await agent.get(`/api/erp/combustible/${tanqueId}/lecturas`);
+    const fila = historial.body.data.find((l: { id: number }) => l.id === segundaId);
+    expect(fila.motivo_anulacion).toBe("motivo original");
+  });
+
+  it("anular una lectura inexistente da 404", async () => {
+    const res = await agent
+      .patch("/api/erp/combustible/lecturas/999999999/anular")
+      .send({ motivo: "no existe" });
+    expect(res.status).toBe(404);
+  });
+
+  it("un usuario con rol 'lectura' no puede anular (403)", async () => {
+    const { segundaId } = await tanqueConDosLecturas();
+    const email = `lectura-anular-${Date.now()}@test.local`;
+    await withTenant(tenantId, (client) =>
+      crearUsuarioService(
+        { tenantId, nombre: "Solo lectura", email, password, rol: "lectura" },
+        client
+      )
+    );
+
+    const agentLectura = request.agent(app);
+    await agentLectura.post("/api/auth/login").send({ tenantSlug, email, password });
+
+    const res = await agentLectura
+      .patch(`/api/erp/combustible/lecturas/${segundaId}/anular`)
+      .send({ motivo: "no debería poder" });
+    expect(res.status).toBe(403);
+  });
+
+  it("un tenant no puede anular la lectura de otro (404, y la lectura sigue vigente)", async () => {
+    const { segundaId } = await tanqueConDosLecturas();
+
+    const otro = await crearTenantDePrueba(password);
+    const agentOtro = request.agent(app);
+    await agentOtro
+      .post("/api/auth/login")
+      .send({ tenantSlug: otro.tenant.slug, email: otro.usuario.email, password });
+
+    const res = await agentOtro
+      .patch(`/api/erp/combustible/lecturas/${segundaId}/anular`)
+      .send({ motivo: "lectura ajena" });
+    expect(res.status).toBe(404);
+
+    const sigueVigente = await withTenant(tenantId, (client) =>
+      client.query(`SELECT anulada_en FROM combustible_lecturas WHERE id = $1`, [segundaId])
+    );
+    expect(sigueVigente.rows[0].anulada_en).toBeNull();
+
+    await borrarTenantDePrueba(otro.tenant.id);
+  });
+});
+
 describe("combustible: capacidad_total > 0 a nivel de base de datos", () => {
   let tenantId: string;
   const password = "ClaveDePrueba123";
