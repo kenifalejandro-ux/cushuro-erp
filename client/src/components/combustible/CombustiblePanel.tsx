@@ -51,6 +51,49 @@ const ETIQUETA_TIPO_PUNTO: Record<Tanque["tipo_punto"], string> = {
   surtidor: "Surtidor",
 };
 
+/** Cuánto tiene que moverse una lectura respecto de la anterior para
+ *  merecer una confirmación, expresado como fracción de la capacidad del
+ *  tanque.
+ *
+ *  Es relativo a la capacidad y no un número fijo a propósito: 500 L de
+ *  diferencia son rutina en un tanque de 20.000 y una anomalía en uno de
+ *  1.000.
+ *
+ *  El valor NO busca atrapar todo error de tipeo -- 18.000 en vez de 19.000
+ *  pasa por debajo de cualquier umbral razonable, y para eso está la
+ *  anulación con motivo. Busca que el aviso salte poco, para que cuando
+ *  salte alguien lo lea: un "¿estás seguro?" en cada registro se clickea en
+ *  automático a la semana y deja de servir (mismo criterio que el punto 4
+ *  de docs/architecture/control-de-combustible.md sobre el ruido). */
+const FRACCION_SALTO_SOSPECHOSO = 0.5;
+
+/** Decide si una lectura merece confirmarse antes de mandarla, comparándola
+ *  con el nivel vigente del tanque.
+ *
+ *  Pura y sin dependencias de React a propósito: el día que Repuestos (u
+ *  otro módulo con histórico) necesite el mismo aviso, esto se mueve a un
+ *  util compartido sin arrastrar nada. Hoy vive acá porque con un solo caso
+ *  real todavía no se sabe cuál es la forma correcta de la abstracción.
+ *
+ *  Devuelve `null` cuando no hay nada que advertir. */
+function motivoParaConfirmarLectura(
+  nivelNuevo: number,
+  nivelActual: number,
+  capacidad: number,
+  unidad: string
+): string | null {
+  const salto = nivelNuevo - nivelActual;
+  if (Math.abs(salto) <= capacidad * FRACCION_SALTO_SOSPECHOSO) return null;
+
+  const fmt = (n: number) => `${Math.abs(n).toLocaleString("es-PE")} ${unidad}`;
+  const direccion = salto < 0 ? "menos que" : "más que";
+  return (
+    `Estás por registrar ${fmt(nivelNuevo)}, que es ${fmt(salto)} ${direccion} ` +
+    `la última lectura (${fmt(nivelActual)}).\n\n` +
+    `¿Es correcto?`
+  );
+}
+
 /** Espejo de MAX_FILAS_CARGA_MASIVA_TANQUES en
  *  server/schemas/combustible.schema.ts -- mismo motivo que
  *  MAX_FILAS_IMPORTACION en RepuestosTable.tsx: avisa antes de mandar
@@ -417,6 +460,32 @@ export default function CombustiblePanel() {
   const handleRegistrarLectura = async (e: React.FormEvent) => {
     e.preventDefault();
     if (enviandoLectura || !tanqueLectura) return;
+
+    const nivelNuevo = Number(nivel);
+    const capacidad = Number(tanqueLectura.capacidad_total);
+
+    // Bloqueo duro: un tanque no puede contener más de lo que le entra. Se
+    // avisa acá además de en el servidor (que igual lo rechaza con 400) solo
+    // para no hacer viajar un dato que ya se sabe imposible y poder decirlo
+    // con la capacidad concreta a la vista.
+    if (nivelNuevo > capacidad) {
+      alert(
+        `El nivel no puede superar la capacidad del tanque ` +
+          `(${capacidad.toLocaleString("es-PE")} ${tanqueLectura.unidad}).`
+      );
+      return;
+    }
+
+    // Confirmación solo si el salto es sospechoso -- ver
+    // motivoParaConfirmarLectura.
+    const aviso = motivoParaConfirmarLectura(
+      nivelNuevo,
+      Number(tanqueLectura.nivel_actual),
+      capacidad,
+      tanqueLectura.unidad
+    );
+    if (aviso && !window.confirm(aviso)) return;
+
     setEnviandoLectura(true);
     try {
       const res = await apiFetch("/api/erp/combustible/lecturas", {

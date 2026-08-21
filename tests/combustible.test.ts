@@ -424,6 +424,59 @@ describe("combustible: ABM de tanques (Fase A)", () => {
   });
 });
 
+describe("combustible: una lectura no puede superar la capacidad del tanque", () => {
+  let tenantId: string;
+  const password = "ClaveDePrueba123";
+  const agent = request.agent(app);
+  let tanqueId: number;
+
+  beforeAll(async () => {
+    const creado = await crearTenantDePrueba(password);
+    tenantId = creado.tenant.id;
+    await agent
+      .post("/api/auth/login")
+      .send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
+
+    const tanque = await agent
+      .post("/api/erp/combustible")
+      .send(payloadTanque({ capacidad_total: 1000 }));
+    tanqueId = tanque.body.id;
+  });
+
+  afterAll(async () => {
+    await borrarTenantDePrueba(tenantId);
+  });
+
+  it("rechaza con 400 una lectura mayor que la capacidad, y NO la guarda", async () => {
+    const res = await agent
+      .post("/api/erp/combustible/lecturas")
+      .send({ combustible_id: tanqueId, nivel: 5000 });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/capacidad/i);
+
+    // Ni la lectura entró al historial ni el tanque cambió de nivel.
+    const lecturas = await agent.get(`/api/erp/combustible/${tanqueId}/lecturas`);
+    expect(lecturas.body.data.some((l: { nivel: string }) => Number(l.nivel) === 5000)).toBe(false);
+  });
+
+  it("acepta una lectura EXACTAMENTE igual a la capacidad (el tanque lleno es válido)", async () => {
+    const res = await agent
+      .post("/api/erp/combustible/lecturas")
+      .send({ combustible_id: tanqueId, nivel: 1000 });
+    expect(res.status).toBe(201);
+  });
+
+  it("el endpoint legacy PUT /:id/nivel también bloquea, con 400 y no 404", async () => {
+    // El legacy mapea "no existe en este tenant" a 404 por compatibilidad;
+    // esto NO es eso -- el tanque existe, el dato es imposible.
+    const res = await agent
+      .put(`/api/erp/combustible/${tanqueId}/nivel`)
+      .send({ nivel_actual: 99999 });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/capacidad/i);
+  });
+});
+
 describe("combustible: anulación de lecturas (migración 0058)", () => {
   let tenantId: string;
   let tenantSlug: string;

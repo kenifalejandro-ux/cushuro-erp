@@ -330,12 +330,28 @@ export class CombustibleRepository {
       metadata: Record<string, unknown>;
     }
   ) {
-    const tanqueExiste = await client.query<{ id: number }>(
-      `SELECT id FROM combustible WHERE id = $1 AND tenant_id = $2`,
+    const tanqueExiste = await client.query<{ id: number; capacidad_total: string }>(
+      `SELECT id, capacidad_total FROM combustible WHERE id = $1 AND tenant_id = $2`,
       [data.combustibleId, tenantId]
     );
     if (tanqueExiste.rows.length === 0) {
       throw new Error(`combustible_id ${data.combustibleId} no existe en este tenant`);
+    }
+
+    // Un tanque no puede contener más de lo que le entra: el dato se
+    // contradice a sí mismo, no depende de ninguna otra lectura para saber
+    // que está mal. Por eso BLOQUEA, a diferencia de un salto grande pero
+    // posible (que solo se confirma en pantalla) -- ver el punto 5 de
+    // docs/architecture/control-de-combustible.md.
+    //
+    // Va acá y no en el schema Zod porque el techo es dato del tanque, no
+    // una constante: Zod valida la forma del body, no puede consultar la
+    // capacidad. Y va en el repository y no solo en el cliente porque la
+    // cola offline y cualquier llamada directa a la API tienen que chocar
+    // con la misma pared.
+    const capacidad = Number(tanqueExiste.rows[0].capacidad_total);
+    if (data.nivel > capacidad) {
+      throw new Error(`nivel ${data.nivel} supera la capacidad del tanque (${capacidad})`);
     }
 
     const lectura = await client.query(
