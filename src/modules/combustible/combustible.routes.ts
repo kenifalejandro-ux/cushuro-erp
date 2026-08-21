@@ -10,6 +10,7 @@ import {
   crearTanqueCombustibleSchema,
   actualizarTanqueCombustibleSchema,
   cargaMasivaTanquesCombustibleSchema,
+  anularLecturaCombustibleSchema,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleController } from "./combustible.controller";
 
@@ -58,6 +59,19 @@ router.post(
   requireRole("admin", "operador"),
   validate(registrarLecturaCombustibleSchema),
   asyncHandler(controller.registrarLectura.bind(controller))
+);
+
+// 🚫 anular una lectura mal cargada -- admin y operador, los mismos que
+// pueden registrarla: quien se equivoca al tipear tiene que poder
+// corregirlo en el momento, sin depender de nadie más (ver el punto 3 de
+// docs/architecture/control-de-combustible.md). Va ANTES de /:id/nivel
+// porque "lecturas" es un segmento literal: si /:id lo capturara primero,
+// nunca llegaría acá.
+router.patch(
+  "/lecturas/:lecturaId/anular",
+  requireRole("admin", "operador"),
+  validate(anularLecturaCombustibleSchema),
+  asyncHandler(controller.anularLectura.bind(controller))
 );
 
 router.put(
