@@ -15,21 +15,30 @@ import { app, crearTenantDePrueba, borrarTenantDePrueba } from "./helpers";
 import { closeDatabase, withTenant } from "../src/server/config/database";
 import { limpiarIdempotencyKeysVencidas } from "../src/server/services/idempotencyKeysRetention.worker";
 
+/** El nivel va como LECTURA, no como columna: desde la migración 0059
+ *  `combustible.nivel_actual` no existe -- el nivel se deriva de la última
+ *  lectura vigente. */
 async function crearTanque(
   tenantId: string,
   data: { tanqueNombre: string; capacidadTotal: number; nivelActual: number }
 ): Promise<number> {
-  const fila = await withTenant(tenantId, (client) =>
-    client.query(
+  return withTenant(tenantId, async (client) => {
+    const fila = await client.query(
       `INSERT INTO combustible (
          tenant_id, codigo, tanque_nombre, tipo_combustible, unidad, tipo_punto,
-         capacidad_total, nivel_actual
+         capacidad_total
        )
-       VALUES ($1, 'TQ-TEST', $2, 'diesel_b5', 'gal', 'fijo', $3, $4) RETURNING id`,
-      [tenantId, data.tanqueNombre, data.capacidadTotal, data.nivelActual]
-    )
-  );
-  return fila.rows[0].id;
+       VALUES ($1, 'TQ-TEST', $2, 'diesel_b5', 'gal', 'fijo', $3) RETURNING id`,
+      [tenantId, data.tanqueNombre, data.capacidadTotal]
+    );
+    const id = fila.rows[0].id;
+    await client.query(
+      `INSERT INTO combustible_lecturas (tenant_id, combustible_id, nivel, leido_en, origen)
+       VALUES ($1, $2, $3, NOW(), 'inicial')`,
+      [tenantId, id, data.nivelActual]
+    );
+    return id;
+  });
 }
 
 describe("idempotencia de escrituras offline (Combustible)", () => {
@@ -297,7 +306,11 @@ describe("Combustible: nivel_actual resiste el orden de llegada (offline)", () =
         [tanqueId]
       )
     );
-    expect(historial.rows.map((f) => Number(f.nivel))).toEqual([800, 850]);
+    // El 100 es la lectura `inicial` que crea el alta del tanque (migración
+    // 0059): el nivel de arranque ahora también queda en el historial, no
+    // solo en la ficha. Después van las dos de este test, ordenadas por
+    // cuándo se MIDIERON -- no por cuándo llegaron al servidor.
+    expect(historial.rows.map((f) => Number(f.nivel))).toEqual([100, 800, 850]);
   });
 
   it("cuando SÍ llegan en orden cronológico, nivel_actual sigue a la más reciente", async () => {

@@ -49,11 +49,25 @@ export const MODULOS: ModuloDefinicion[] = [
     version: "v1",
     router: combustibleRoutes,
     tablas: [
-      { nombre: "combustible", pk: "serial" },
+      {
+        nombre: "combustible",
+        pk: "serial",
+        // `nivel_actual` y `fecha_actualizacion` DEJARON de existir en la
+        // migración 0059 (el nivel se deriva de las lecturas). Los backups
+        // tomados ANTES todavía las traen, y restaurarTablas() arma el
+        // INSERT con las claves que vengan en el JSON -- sin esto, restaurar
+        // un backup viejo fallaría con "column does not exist". Mismo
+        // mecanismo que usa iperc para `nivel_riesgo`.
+        columnasExcluidasAlRestaurar: ["nivel_actual", "fecha_actualizacion"],
+      },
       {
         nombre: "combustible_lecturas",
         pk: "serial",
-        fks: { combustible_id: "combustible", usuario_id: "usuarios" },
+        fks: {
+          combustible_id: "combustible",
+          usuario_id: "usuarios",
+          anulada_por: "usuarios",
+        },
       },
     ],
     // combustible_lecturas cascadea desde su padre (ON DELETE CASCADE, ver

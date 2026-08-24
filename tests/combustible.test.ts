@@ -14,21 +14,47 @@ import { crearUsuarioService } from "../src/server/services/auth.service";
 import { closeDatabase, withTenant } from "../src/server/config/database";
 import { MAX_FILAS_CARGA_MASIVA_TANQUES } from "../src/server/schemas/combustible.schema";
 
+/** El nivel va como LECTURA y no como columna del tanque: desde la migración
+ *  0059 `combustible.nivel_actual` no existe -- el nivel se deriva de la
+ *  última lectura vigente. Un tanque sin lecturas no tiene nivel que
+ *  mostrar, así que el helper crea las dos filas. */
 async function crearTanque(
   tenantId: string,
   data: { tanqueNombre: string; capacidadTotal: number; nivelActual: number }
 ): Promise<number> {
-  const fila = await withTenant(tenantId, (client) =>
-    client.query(
+  return withTenant(tenantId, async (client) => {
+    const fila = await client.query(
       `INSERT INTO combustible (
          tenant_id, codigo, tanque_nombre, tipo_combustible, unidad, tipo_punto,
-         capacidad_total, nivel_actual
+         capacidad_total
        )
-       VALUES ($1, $2, $3, 'diesel_b5', 'gal', 'fijo', $4, $5) RETURNING id`,
-      [tenantId, idUnico("TQ"), data.tanqueNombre, data.capacidadTotal, data.nivelActual]
+       VALUES ($1, $2, $3, 'diesel_b5', 'gal', 'fijo', $4) RETURNING id`,
+      [tenantId, idUnico("TQ"), data.tanqueNombre, data.capacidadTotal]
+    );
+    const id = fila.rows[0].id;
+    await client.query(
+      `INSERT INTO combustible_lecturas (tenant_id, combustible_id, nivel, leido_en, origen)
+       VALUES ($1, $2, $3, NOW(), 'inicial')`,
+      [tenantId, id, data.nivelActual]
+    );
+    return id;
+  });
+}
+
+/** El nivel vigente de un tanque leído directo de la base -- para asertar
+ *  sin pasar por la API (ej. verificar que un tenant NO pudo tocar el
+ *  tanque de otro). Reemplaza al viejo `SELECT nivel_actual FROM
+ *  combustible`, que ya no existe. */
+async function nivelEnBase(tenantId: string, combustibleId: number): Promise<number | null> {
+  const res = await withTenant(tenantId, (client) =>
+    client.query(
+      `SELECT nivel FROM combustible_lecturas
+       WHERE combustible_id = $1 AND anulada_en IS NULL
+       ORDER BY leido_en DESC, id DESC LIMIT 1`,
+      [combustibleId]
     )
   );
-  return fila.rows[0].id;
+  return res.rows[0] ? Number(res.rows[0].nivel) : null;
 }
 
 /** Payload mínimo válido para POST /api/erp/combustible -- reutilizado por
@@ -195,11 +221,8 @@ describe("combustible: aislamiento entre tenants", () => {
       .send({ nivel_actual: 0 });
     expect(updateAjeno.status).toBe(404);
 
-    // La fila de B no debe haber cambiado a pesar del intento.
-    const filaB = await withTenant(tenantBId, (client) =>
-      client.query(`SELECT nivel_actual FROM combustible WHERE id = $1`, [tanqueDeB])
-    );
-    expect(Number(filaB.rows[0].nivel_actual)).toBe(100);
+    // El nivel de B no debe haber cambiado a pesar del intento.
+    expect(await nivelEnBase(tenantBId, tanqueDeB)).toBe(100);
   });
 
   it("un tenant no puede editar ni desactivar el tanque de otro (404)", async () => {
@@ -424,6 +447,148 @@ describe("combustible: ABM de tanques (Fase A)", () => {
   });
 });
 
+describe("combustible: una lectura no puede superar la capacidad del tanque", () => {
+  let tenantId: string;
+  const password = "ClaveDePrueba123";
+  const agent = request.agent(app);
+  let tanqueId: number;
+
+  beforeAll(async () => {
+    const creado = await crearTenantDePrueba(password);
+    tenantId = creado.tenant.id;
+    await agent
+      .post("/api/auth/login")
+      .send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
+
+    const tanque = await agent
+      .post("/api/erp/combustible")
+      .send(payloadTanque({ capacidad_total: 1000 }));
+    tanqueId = tanque.body.id;
+  });
+
+  afterAll(async () => {
+    await borrarTenantDePrueba(tenantId);
+  });
+
+  it("rechaza con 400 una lectura mayor que la capacidad, y NO la guarda", async () => {
+    const res = await agent
+      .post("/api/erp/combustible/lecturas")
+      .send({ combustible_id: tanqueId, nivel: 5000 });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/capacidad/i);
+
+    // Ni la lectura entró al historial ni el tanque cambió de nivel.
+    const lecturas = await agent.get(`/api/erp/combustible/${tanqueId}/lecturas`);
+    expect(lecturas.body.data.some((l: { nivel: string }) => Number(l.nivel) === 5000)).toBe(false);
+  });
+
+  it("acepta una lectura EXACTAMENTE igual a la capacidad (el tanque lleno es válido)", async () => {
+    const res = await agent
+      .post("/api/erp/combustible/lecturas")
+      .send({ combustible_id: tanqueId, nivel: 1000 });
+    expect(res.status).toBe(201);
+  });
+
+  it("el endpoint legacy PUT /:id/nivel también bloquea, con 400 y no 404", async () => {
+    // El legacy mapea "no existe en este tenant" a 404 por compatibilidad;
+    // esto NO es eso -- el tanque existe, el dato es imposible.
+    const res = await agent
+      .put(`/api/erp/combustible/${tanqueId}/nivel`)
+      .send({ nivel_actual: 99999 });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/capacidad/i);
+  });
+});
+
+describe("combustible: el nivel siempre es la última lectura vigente (migración 0059)", () => {
+  let tenantId: string;
+  const password = "ClaveDePrueba123";
+  const agent = request.agent(app);
+
+  beforeAll(async () => {
+    const creado = await crearTenantDePrueba(password);
+    tenantId = creado.tenant.id;
+    await agent
+      .post("/api/auth/login")
+      .send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
+  });
+
+  afterAll(async () => {
+    await borrarTenantDePrueba(tenantId);
+  });
+
+  /** Los tres casos donde el UPDATE condicional viejo fallaba EN SILENCIO
+   *  (ver el comentario de migrations/0059). Los tres tienen que aplicar
+   *  ahora, porque el nivel ya no se guarda: se deriva. */
+
+  it("dos lecturas con el MISMO leido_en: gana la última cargada", async () => {
+    const t = await agent.post("/api/erp/combustible").send(payloadTanque());
+    // Mismo instante exacto -- es lo que produce el input datetime-local del
+    // formulario, que recorta a minutos.
+    const momento = new Date(Date.now() + 60_000).toISOString();
+
+    await agent
+      .post("/api/erp/combustible/lecturas")
+      .send({ combustible_id: t.body.id, nivel: 700, leido_en: momento });
+    await agent
+      .post("/api/erp/combustible/lecturas")
+      .send({ combustible_id: t.body.id, nivel: 650, leido_en: momento });
+
+    const res = await agent.get(`/api/erp/combustible/${t.body.id}`);
+    expect(Number(res.body.nivel_actual)).toBe(650);
+  });
+
+  it("una lectura registrada en el mismo minuto que el alta del tanque sí aplica", async () => {
+    const t = await agent.post("/api/erp/combustible").send(payloadTanque());
+    // Sin leido_en: el service usa now(), que puede caer en el mismo
+    // segundo que la creación. Antes eso hacía que el nivel no se moviera.
+    const res = await agent
+      .post("/api/erp/combustible/lecturas")
+      .send({ combustible_id: t.body.id, nivel: 333 });
+    expect(res.status).toBe(201);
+
+    const tanque = await agent.get(`/api/erp/combustible/${t.body.id}`);
+    expect(Number(tanque.body.nivel_actual)).toBe(333);
+  });
+
+  it("una lectura ANTERIOR a la última no pisa el nivel, pero sí queda en el historial", async () => {
+    const t = await agent.post("/api/erp/combustible").send(payloadTanque());
+    const base = Date.now();
+
+    await agent.post("/api/erp/combustible/lecturas").send({
+      combustible_id: t.body.id,
+      nivel: 900,
+      leido_en: new Date(base + 120_000).toISOString(),
+    });
+    // Llega después pero fue medida ANTES (corrección cargada tarde, o una
+    // sincronización offline desordenada).
+    await agent.post("/api/erp/combustible/lecturas").send({
+      combustible_id: t.body.id,
+      nivel: 400,
+      leido_en: new Date(base + 60_000).toISOString(),
+    });
+
+    // El nivel sigue siendo el de la lectura MÁS RECIENTE en el tiempo, no
+    // el de la última en llegar -- la protección offline se mantiene.
+    const tanque = await agent.get(`/api/erp/combustible/${t.body.id}`);
+    expect(Number(tanque.body.nivel_actual)).toBe(900);
+
+    // Pero la lectura vieja no se perdió.
+    const historial = await agent.get(`/api/erp/combustible/${t.body.id}/lecturas`);
+    expect(historial.body.data.some((l: { nivel: string }) => Number(l.nivel) === 400)).toBe(true);
+  });
+
+  it("crear un tanque deja su nivel inicial en el historial, no solo en la ficha", async () => {
+    const t = await agent.post("/api/erp/combustible").send(payloadTanque({ nivel_actual: 750 }));
+    expect(Number(t.body.nivel_actual)).toBe(750);
+
+    const historial = await agent.get(`/api/erp/combustible/${t.body.id}/lecturas`);
+    const inicial = historial.body.data.find((l: { origen: string }) => l.origen === "inicial");
+    expect(inicial).toBeTruthy();
+    expect(Number(inicial.nivel)).toBe(750);
+  });
+});
+
 describe("combustible: anulación de lecturas (migración 0058)", () => {
   let tenantId: string;
   let tenantSlug: string;
@@ -515,7 +680,7 @@ describe("combustible: anulación de lecturas (migración 0058)", () => {
     expect(Number(despues.body.nivel_actual)).toBe(500);
   });
 
-  it("si se anulan TODAS las lecturas, el nivel queda como está (no se pone en 0)", async () => {
+  it("anular todas las lecturas manuales hace caer el nivel a la lectura inicial del alta", async () => {
     const { tanqueId, primeraId, segundaId } = await tanqueConDosLecturas();
     await agent
       .patch(`/api/erp/combustible/lecturas/${segundaId}/anular`)
@@ -524,10 +689,26 @@ describe("combustible: anulación de lecturas (migración 0058)", () => {
       .patch(`/api/erp/combustible/lecturas/${primeraId}/anular`)
       .send({ motivo: "anulo la primera" });
 
+    // Crear el tanque genera una lectura `inicial` (migración 0059), que
+    // sigue vigente -- el nivel cae a ella, no queda sin dato.
     const despues = await agent.get(`/api/erp/combustible/${tanqueId}`);
-    // Queda en 800: el valor de la última lectura vigente ANTES de anularla.
-    // No se pone en 0 -- eso sería inventar una medición que nadie tomó.
-    expect(Number(despues.body.nivel_actual)).toBe(800);
+    expect(Number(despues.body.nivel_actual)).toBe(0);
+  });
+
+  it("sin NINGUNA lectura vigente el nivel es null, no 0: es desconocido, no vacío", async () => {
+    const { tanqueId, primeraId, segundaId } = await tanqueConDosLecturas();
+    const historial = await agent.get(`/api/erp/combustible/${tanqueId}/lecturas`);
+    const inicial = historial.body.data.find((l: { origen: string }) => l.origen === "inicial");
+
+    for (const id of [segundaId, primeraId, inicial.id]) {
+      await agent.patch(`/api/erp/combustible/lecturas/${id}/anular`).send({ motivo: "anulo" });
+    }
+
+    const despues = await agent.get(`/api/erp/combustible/${tanqueId}`);
+    // null y no 0: nadie midió el tanque, así que el nivel es desconocido.
+    // Un 0 diría "está vacío", que es una afirmación distinta y falsa.
+    expect(despues.body.nivel_actual).toBeNull();
+    expect(despues.body.porcentaje).toBeNull();
   });
 
   it("el motivo es obligatorio: sin motivo, o vacío, rechaza con 400", async () => {

@@ -280,16 +280,24 @@ describe("auditoría de mutaciones: combustible", () => {
 
     // Combustible no expone un POST de creación de tanques -- se inserta
     // igual que en tests/idempotencia-offline-combustible.test.ts.
-    const fila = await withTenant(tenantId, (client) =>
-      client.query(
+    // El nivel va como LECTURA, no como columna: `combustible.nivel_actual`
+    // dejó de existir en la migración 0059.
+    const fila = await withTenant(tenantId, async (client) => {
+      const t = await client.query(
         `INSERT INTO combustible (
            tenant_id, codigo, tanque_nombre, tipo_combustible, unidad, tipo_punto,
-           capacidad_total, nivel_actual
+           capacidad_total
          )
-         VALUES ($1, 'TQ-TEST', $2, 'diesel_b5', 'gal', 'fijo', $3, $4) RETURNING id`,
-        [tenantId, "Tanque auditoría", 1000, 500]
-      )
-    );
+         VALUES ($1, 'TQ-TEST', $2, 'diesel_b5', 'gal', 'fijo', $3) RETURNING id`,
+        [tenantId, "Tanque auditoría", 1000]
+      );
+      await client.query(
+        `INSERT INTO combustible_lecturas (tenant_id, combustible_id, nivel, leido_en, origen)
+         VALUES ($1, $2, 500, NOW(), 'inicial')`,
+        [tenantId, t.rows[0].id]
+      );
+      return t;
+    });
     combustibleId = fila.rows[0].id;
   });
 
@@ -434,16 +442,23 @@ describe("auditoría de mutaciones: el reintento idempotente de la cola offline 
       .post("/api/auth/login")
       .send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
 
-    const fila = await withTenant(tenantId, (client) =>
-      client.query(
+    // Ídem: el nivel es una lectura, no una columna (migración 0059).
+    const fila = await withTenant(tenantId, async (client) => {
+      const t = await client.query(
         `INSERT INTO combustible (
            tenant_id, codigo, tanque_nombre, tipo_combustible, unidad, tipo_punto,
-           capacidad_total, nivel_actual
+           capacidad_total
          )
-         VALUES ($1, 'TQ-TEST', $2, 'diesel_b5', 'gal', 'fijo', $3, $4) RETURNING id`,
-        [tenantId, "Tanque reintento", 1000, 500]
-      )
-    );
+         VALUES ($1, 'TQ-TEST', $2, 'diesel_b5', 'gal', 'fijo', $3) RETURNING id`,
+        [tenantId, "Tanque reintento", 1000]
+      );
+      await client.query(
+        `INSERT INTO combustible_lecturas (tenant_id, combustible_id, nivel, leido_en, origen)
+         VALUES ($1, $2, 500, NOW(), 'inicial')`,
+        [tenantId, t.rows[0].id]
+      );
+      return t;
+    });
     combustibleId = fila.rows[0].id;
 
     const repuesto = await agente.post("/api/erp/repuestos").send({
