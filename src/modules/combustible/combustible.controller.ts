@@ -276,6 +276,12 @@ export class CombustibleController {
         res.status(404).json({ error: "No encontrado" });
         return;
       }
+      // Este SÍ es 400 incluso en el endpoint legacy: no es "no encontrado",
+      // es un dato imposible para un tanque que sí existe.
+      if (err instanceof Error && err.message.includes("supera la capacidad del tanque")) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
       res.status(500).json({ error: "Error al actualizar nivel" });
     }
   }
@@ -317,7 +323,17 @@ export class CombustibleController {
       });
       res.status(201).json(fila);
     } catch (err) {
-      if (err instanceof Error && err.message.includes("no existe en este tenant")) {
+      // Los dos casos van con 400: son datos que se contradicen a sí mismos
+      // (un tanque que no existe, un nivel imposible para ese tanque), no
+      // fallas del servidor. El 4xx además hace que la cola offline los
+      // descarte sin reintentar y los reporte, en vez de reintentar para
+      // siempre algo que nunca va a entrar (ver esErrorPermanente() en
+      // client/src/offline/offlineSync.ts).
+      if (
+        err instanceof Error &&
+        (err.message.includes("no existe en este tenant") ||
+          err.message.includes("supera la capacidad del tanque"))
+      ) {
         res.status(400).json({ error: err.message });
         return;
       }

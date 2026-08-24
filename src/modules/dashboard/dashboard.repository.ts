@@ -44,9 +44,19 @@ export const DashboardRepository = {
         -- porcentaje de una fila arbitraria (según ORDER BY implícito de
         -- Postgres), no un dato representativo. Ahora agrega TODOS los
         -- tanques activos del tenant: nivel total sobre capacidad total.
+        -- El nivel ya no es una columna: sale de la última lectura vigente
+        -- de cada tanque (migración 0059). Un tanque sin lecturas vigentes
+        -- aporta NULL, que SUM ignora -- no arrastra el promedio a cero
+        -- inventando que está vacío.
         (SELECT ROUND(
-           (SUM(nivel_actual) / NULLIF(SUM(capacidad_total), 0)) * 100, 2)
-         FROM combustible WHERE tenant_id = $1 AND activo) AS combustible_porcentaje,
+           (SUM(ultima.nivel) / NULLIF(SUM(c.capacidad_total), 0)) * 100, 2)
+         FROM combustible c
+         LEFT JOIN LATERAL (
+           SELECT l.nivel FROM combustible_lecturas l
+           WHERE l.combustible_id = c.id AND l.anulada_en IS NULL
+           ORDER BY l.leido_en DESC, l.id DESC LIMIT 1
+         ) ultima ON true
+         WHERE c.tenant_id = $1 AND c.activo) AS combustible_porcentaje,
 
         -- 📄 DOCUMENTOS
         (SELECT COUNT(*) FROM documentos
