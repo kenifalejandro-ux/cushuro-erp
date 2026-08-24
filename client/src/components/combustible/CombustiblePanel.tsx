@@ -15,12 +15,15 @@ interface Tanque {
   tipo_punto: "fijo" | "cisterna" | "surtidor";
   ubicacion: string | null;
   capacidad_total: string;
-  nivel_actual: string;
+  // null cuando el tanque no tiene ninguna lectura vigente (todas anuladas):
+  // el nivel es DESCONOCIDO, no cero. Desde la migración 0059 estos tres
+  // campos no son columnas, se derivan de la última lectura vigente.
+  nivel_actual: string | null;
   nivel_minimo: string;
   moneda: string;
   activo: boolean;
-  porcentaje: string;
-  fecha_actualizacion: string;
+  porcentaje: string | null;
+  fecha_actualizacion: string | null;
 }
 
 /** Una fila del histórico de aforos (combustible_lecturas, migración
@@ -50,6 +53,49 @@ const ETIQUETA_TIPO_PUNTO: Record<Tanque["tipo_punto"], string> = {
   cisterna: "Cisterna",
   surtidor: "Surtidor",
 };
+
+/** Cuánto tiene que moverse una lectura respecto de la anterior para
+ *  merecer una confirmación, expresado como fracción de la capacidad del
+ *  tanque.
+ *
+ *  Es relativo a la capacidad y no un número fijo a propósito: 500 L de
+ *  diferencia son rutina en un tanque de 20.000 y una anomalía en uno de
+ *  1.000.
+ *
+ *  El valor NO busca atrapar todo error de tipeo -- 18.000 en vez de 19.000
+ *  pasa por debajo de cualquier umbral razonable, y para eso está la
+ *  anulación con motivo. Busca que el aviso salte poco, para que cuando
+ *  salte alguien lo lea: un "¿estás seguro?" en cada registro se clickea en
+ *  automático a la semana y deja de servir (mismo criterio que el punto 4
+ *  de docs/architecture/control-de-combustible.md sobre el ruido). */
+const FRACCION_SALTO_SOSPECHOSO = 0.5;
+
+/** Decide si una lectura merece confirmarse antes de mandarla, comparándola
+ *  con el nivel vigente del tanque.
+ *
+ *  Pura y sin dependencias de React a propósito: el día que Repuestos (u
+ *  otro módulo con histórico) necesite el mismo aviso, esto se mueve a un
+ *  util compartido sin arrastrar nada. Hoy vive acá porque con un solo caso
+ *  real todavía no se sabe cuál es la forma correcta de la abstracción.
+ *
+ *  Devuelve `null` cuando no hay nada que advertir. */
+function motivoParaConfirmarLectura(
+  nivelNuevo: number,
+  nivelActual: number,
+  capacidad: number,
+  unidad: string
+): string | null {
+  const salto = nivelNuevo - nivelActual;
+  if (Math.abs(salto) <= capacidad * FRACCION_SALTO_SOSPECHOSO) return null;
+
+  const fmt = (n: number) => `${Math.abs(n).toLocaleString("es-PE")} ${unidad}`;
+  const direccion = salto < 0 ? "menos que" : "más que";
+  return (
+    `Estás por registrar ${fmt(nivelNuevo)}, que es ${fmt(salto)} ${direccion} ` +
+    `la última lectura (${fmt(nivelActual)}).\n\n` +
+    `¿Es correcto?`
+  );
+}
 
 /** Espejo de MAX_FILAS_CARGA_MASIVA_TANQUES en
  *  server/schemas/combustible.schema.ts -- mismo motivo que
@@ -193,7 +239,11 @@ export default function CombustiblePanel() {
       tipo_punto: t.tipo_punto,
       ubicacion: t.ubicacion ?? "",
       capacidad_total: t.capacidad_total,
-      nivel_actual: t.nivel_actual,
+      // El formulario de edición no muestra el nivel (se corrige por
+      // "Registrar lectura", no por acá), así que este valor solo llena el
+      // estado. Un tanque sin lecturas cae a "0" nada más para que el campo
+      // controlado no quede sin valor.
+      nivel_actual: t.nivel_actual ?? "0",
       nivel_minimo: t.nivel_minimo,
       moneda: t.moneda,
       activo: t.activo,
@@ -417,6 +467,32 @@ export default function CombustiblePanel() {
   const handleRegistrarLectura = async (e: React.FormEvent) => {
     e.preventDefault();
     if (enviandoLectura || !tanqueLectura) return;
+
+    const nivelNuevo = Number(nivel);
+    const capacidad = Number(tanqueLectura.capacidad_total);
+
+    // Bloqueo duro: un tanque no puede contener más de lo que le entra. Se
+    // avisa acá además de en el servidor (que igual lo rechaza con 400) solo
+    // para no hacer viajar un dato que ya se sabe imposible y poder decirlo
+    // con la capacidad concreta a la vista.
+    if (nivelNuevo > capacidad) {
+      alert(
+        `El nivel no puede superar la capacidad del tanque ` +
+          `(${capacidad.toLocaleString("es-PE")} ${tanqueLectura.unidad}).`
+      );
+      return;
+    }
+
+    // Confirmación solo si el salto es sospechoso -- ver
+    // motivoParaConfirmarLectura.
+    const aviso = motivoParaConfirmarLectura(
+      nivelNuevo,
+      Number(tanqueLectura.nivel_actual),
+      capacidad,
+      tanqueLectura.unidad
+    );
+    if (aviso && !window.confirm(aviso)) return;
+
     setEnviandoLectura(true);
     try {
       const res = await apiFetch("/api/erp/combustible/lecturas", {
@@ -551,12 +627,20 @@ export default function CombustiblePanel() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {tanques.map((t) => {
+                // Sin lecturas vigentes el nivel es desconocido: no se pinta
+                // ni de rojo ni de verde, porque las dos afirmarían algo que
+                // nadie midió.
+                const sinNivel = t.nivel_actual === null;
                 // Una sola fuente de verdad para el color: el umbral y el
                 // nivel tienen que pintarse SIEMPRE igual -- si viven
                 // separados, un cambio futuro en la regla los deja
                 // contradiciéndose en la misma fila.
                 const bajoUmbral = Number(t.nivel_actual) <= Number(t.nivel_minimo);
-                const colorNivel = bajoUmbral ? "text-red-500" : "text-emerald-600";
+                const colorNivel = sinNivel
+                  ? "text-slate-400"
+                  : bajoUmbral
+                    ? "text-red-500"
+                    : "text-emerald-600";
                 return (
                   <tr key={t.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="p-4 font-mono text-sm text-slate-500">{t.codigo}</td>
@@ -576,17 +660,29 @@ export default function CombustiblePanel() {
                       </span>
                     </td>
                     <td className="p-4 text-sm">
-                      <span className={`font-bold ${colorNivel}`}>
-                        {Number(t.nivel_actual).toLocaleString("es-PE")}
-                      </span>
-                      <span className="text-slate-400">
-                        {" "}
-                        / {Number(t.capacidad_total).toLocaleString("es-PE")} {t.unidad} (
-                        {t.porcentaje}%)
-                      </span>
-                      <p className="text-xs text-slate-400">
-                        Última lectura: {formatearFecha(t.fecha_actualizacion)}
-                      </p>
+                      {sinNivel ? (
+                        <>
+                          <span className="text-slate-400 italic">Sin lecturas</span>
+                          <p className="text-xs text-slate-400">
+                            Capacidad: {Number(t.capacidad_total).toLocaleString("es-PE")}{" "}
+                            {t.unidad}
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <span className={`font-bold ${colorNivel}`}>
+                            {Number(t.nivel_actual).toLocaleString("es-PE")}
+                          </span>
+                          <span className="text-slate-400">
+                            {" "}
+                            / {Number(t.capacidad_total).toLocaleString("es-PE")} {t.unidad} (
+                            {t.porcentaje}%)
+                          </span>
+                          <p className="text-xs text-slate-400">
+                            Última lectura: {formatearFecha(t.fecha_actualizacion!)}
+                          </p>
+                        </>
+                      )}
                     </td>
                     <td className="p-4 text-sm">
                       <span
