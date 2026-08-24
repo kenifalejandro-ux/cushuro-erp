@@ -500,6 +500,62 @@ describe("combustible: una lectura no puede superar la capacidad del tanque", ()
   });
 });
 
+describe("combustible: el historial dice QUIÉN registró cada lectura", () => {
+  let tenantId: string;
+  let nombreDelAdmin: string;
+  const password = "ClaveDePrueba123";
+  const agent = request.agent(app);
+
+  beforeAll(async () => {
+    const creado = await crearTenantDePrueba(password);
+    tenantId = creado.tenant.id;
+    nombreDelAdmin = creado.usuario.nombre;
+    await agent
+      .post("/api/auth/login")
+      .send({ tenantSlug: creado.tenant.slug, email: creado.usuario.email, password });
+  });
+
+  afterAll(async () => {
+    await borrarTenantDePrueba(tenantId);
+  });
+
+  it("una lectura manual trae el nombre de quien la registró", async () => {
+    const t = await agent.post("/api/erp/combustible").send(payloadTanque());
+    await agent
+      .post("/api/erp/combustible/lecturas")
+      .send({ combustible_id: t.body.id, nivel: 400 });
+
+    const historial = await agent.get(`/api/erp/combustible/${t.body.id}/lecturas`);
+    const manual = historial.body.data.find((l: { origen: string }) => l.origen === "manual");
+    expect(manual.registrada_por_nombre).toBe(nombreDelAdmin);
+  });
+
+  it("la lectura `inicial` del alta no tiene autor: la genera el sistema, no una persona", async () => {
+    const t = await agent.post("/api/erp/combustible").send(payloadTanque());
+    const historial = await agent.get(`/api/erp/combustible/${t.body.id}/lecturas`);
+    const inicial = historial.body.data.find((l: { origen: string }) => l.origen === "inicial");
+    expect(inicial).toBeTruthy();
+    expect(inicial.registrada_por_nombre).toBeNull();
+  });
+
+  it("una lectura ANULADA conserva a su autor original, además de quién la anuló", async () => {
+    const t = await agent.post("/api/erp/combustible").send(payloadTanque());
+    const lectura = await agent
+      .post("/api/erp/combustible/lecturas")
+      .send({ combustible_id: t.body.id, nivel: 400 });
+    await agent
+      .patch(`/api/erp/combustible/lecturas/${lectura.body.lectura.id}/anular`)
+      .send({ motivo: "error de tipeo" });
+
+    const historial = await agent.get(`/api/erp/combustible/${t.body.id}/lecturas`);
+    const fila = historial.body.data.find((l: { id: number }) => l.id === lectura.body.lectura.id);
+    // Los DOS nombres conviven: quién la cargó mal y quién la corrigió.
+    // Perder el primero al anular sería tapar justo lo que hay que auditar.
+    expect(fila.registrada_por_nombre).toBe(nombreDelAdmin);
+    expect(fila.anulada_por_nombre).toBe(nombreDelAdmin);
+  });
+});
+
 describe("combustible: el nivel siempre es la última lectura vigente (migración 0059)", () => {
   let tenantId: string;
   const password = "ClaveDePrueba123";
@@ -536,6 +592,36 @@ describe("combustible: el nivel siempre es la última lectura vigente (migració
 
     const res = await agent.get(`/api/erp/combustible/${t.body.id}`);
     expect(Number(res.body.nivel_actual)).toBe(650);
+  });
+
+  it("una lectura con la hora RECORTADA AL MINUTO justo después del alta no mueve el nivel", async () => {
+    // Reproduce lo que hace el formulario: su input datetime-local recorta
+    // los segundos. Si el tanque nació a las 15:36:42 y la lectura se
+    // manda como 15:36:00, queda fechada ANTES del alta y el nivel sigue
+    // siendo el inicial -- correcto según la regla ("gana la más reciente"),
+    // pero sorprendente para quien acaba de cargarla.
+    //
+    // El frontend evita caer acá mandando la hora con segundos cuando el
+    // operario NO tocó el campo (ver `horaEditadaAMano` en
+    // CombustiblePanel.tsx). Este test fija el comportamiento del backend,
+    // que es el que decide, y documenta por qué existe esa guarda.
+    const t = await agent.post("/api/erp/combustible").send(payloadTanque({ nivel_actual: 900 }));
+    const alMinuto = new Date();
+    alMinuto.setSeconds(0, 0);
+
+    const res = await agent.post("/api/erp/combustible/lecturas").send({
+      combustible_id: t.body.id,
+      nivel: 111,
+      leido_en: alMinuto.toISOString(),
+    });
+    expect(res.status).toBe(201);
+
+    const tanque = await agent.get(`/api/erp/combustible/${t.body.id}`);
+    expect(Number(tanque.body.nivel_actual)).toBe(900);
+
+    // La respuesta del POST ya trae el nivel resultante, que es lo que el
+    // frontend usa para no anunciar un valor que la tabla contradice.
+    expect(Number(res.body.tanque.nivel_actual)).toBe(900);
   });
 
   it("una lectura registrada en el mismo minuto que el alta del tanque sí aplica", async () => {

@@ -271,13 +271,20 @@ export class CombustibleRepository {
       SELECT l.id, l.combustible_id, l.nivel, l.leido_en, l.usuario_id, l.origen,
              l.metadata, l.creado_en,
              l.anulada_en, l.anulada_por, l.motivo_anulacion,
-             u.nombre AS anulada_por_nombre,
+             anulador.nombre AS anulada_por_nombre,
+             autor.nombre AS registrada_por_nombre,
         COUNT(*) OVER() AS total_count
       FROM combustible_lecturas l
-      -- LEFT JOIN y no INNER: anulada_por es nullable (usuario borrado, ver
-      -- 0058) y la mayoría de las lecturas no están anuladas -- un INNER
-      -- JOIN las dejaría a todas fuera del listado.
-      LEFT JOIN usuarios u ON u.id = l.anulada_por
+      -- Dos LEFT JOIN sobre la misma tabla, por dos motivos distintos:
+      -- quién ANULÓ y quién REGISTRÓ. Los dos LEFT y no INNER porque las
+      -- dos columnas son nullable (usuario borrado deja SET NULL, ver 0045
+      -- y 0058) y la mayoría de las lecturas no están anuladas -- un INNER
+      -- las dejaría a todas fuera del listado.
+      LEFT JOIN usuarios anulador ON anulador.id = l.anulada_por
+      -- El autor del registro importa tanto como el de la anulación: en un
+      -- módulo anti-fuga, "¿quién anotó esta lectura rara?" es justamente
+      -- la pregunta que hay que poder responder.
+      LEFT JOIN usuarios autor ON autor.id = l.usuario_id
       WHERE l.combustible_id = $1 AND l.tenant_id = $2
       ORDER BY l.leido_en DESC
       LIMIT $3 OFFSET $4

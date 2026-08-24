@@ -40,6 +40,10 @@ interface Lectura {
   anulada_en: string | null;
   motivo_anulacion: string | null;
   anulada_por_nombre: string | null;
+  // Quién tomó la medición. null si el usuario fue borrado (ON DELETE SET
+  // NULL, ver 0045) o si la lectura la generó el sistema (`origen` =
+  // 'inicial' al crear el tanque, o 'backfill' de una migración vieja).
+  registrada_por_nombre: string | null;
 }
 
 const ETIQUETA_TIPO_COMBUSTIBLE: Record<Tanque["tipo_combustible"], string> = {
@@ -178,7 +182,10 @@ export default function CombustiblePanel() {
   // --- Importación masiva ---
   const [importando, setImportando] = useState(false);
   const [errorImportacion, setErrorImportacion] = useState<string | null>(null);
-  const [resultadoImportacion, setResultadoImportacion] = useState<string | null>(null);
+  // Un solo banner verde para TODA la pantalla (importación y lectura), no
+  // uno por flujo: si no, dos avisos de éxito podrían apilarse y compiten
+  // por la atención en vez de sumarla.
+  const [mensajeExito, setMensajeExito] = useState<string | null>(null);
 
   // --- Historial de lecturas (solo lectura, GET /:id/lecturas) ---
   const [tanqueHistorial, setTanqueHistorial] = useState<Tanque | null>(null);
@@ -195,6 +202,12 @@ export default function CombustiblePanel() {
   const [tanqueLectura, setTanqueLectura] = useState<Tanque | null>(null);
   const [nivel, setNivel] = useState("");
   const [leidoEn, setLeidoEn] = useState(ahoraParaInputLocal());
+  // Si el operario NO tocó la hora, la lectura es "ahora" y hay que
+  // mandarla con precisión de segundos. El input datetime-local recorta a
+  // minutos, y esos segundos perdidos hacen que una lectura tomada recién
+  // quede fechada ANTES del alta del tanque (que sí guarda segundos) -- el
+  // nivel entonces no se mueve, porque gana la lectura inicial.
+  const [horaEditadaAMano, setHoraEditadaAMano] = useState(false);
   const [enviandoLectura, setEnviandoLectura] = useState(false);
   // El cliente_uuid se fija al ABRIR el modal, no al apretar el botón --
   // ver el mismo comentario donde vivía antes en este archivo.
@@ -326,7 +339,7 @@ export default function CombustiblePanel() {
     if (!file) return;
 
     setErrorImportacion(null);
-    setResultadoImportacion(null);
+    setMensajeExito(null);
     setImportando(true);
 
     const reader = new FileReader();
@@ -362,9 +375,7 @@ export default function CombustiblePanel() {
         }
 
         const body = await res.json().catch(() => ({}));
-        setResultadoImportacion(
-          `Se importaron ${body.insertados ?? data.length} tanques correctamente.`
-        );
+        setMensajeExito(`Se importaron ${body.insertados ?? data.length} tanques correctamente.`);
         await cargarTanques();
       } catch (err) {
         setErrorImportacion(err instanceof Error ? err.message : "Error al procesar el archivo.");
@@ -459,6 +470,11 @@ export default function CombustiblePanel() {
     setTanqueLectura(t);
     setNivel("");
     setLeidoEn(ahoraParaInputLocal());
+    setHoraEditadaAMano(false);
+    // Limpia el aviso de la operación anterior: si no, quien abre el modal
+    // ve todavía el "Lectura registrada" de hace un rato y no sabe si
+    // corresponde a lo que está por hacer ahora.
+    setMensajeExito(null);
     // Se regenera en cada apertura -- ver el motivo en el comentario
     // original de este archivo (se perdería una lectura legítima si no).
     setClienteUuid(crypto.randomUUID());
@@ -502,7 +518,7 @@ export default function CombustiblePanel() {
           cliente_uuid: clienteUuid,
           combustible_id: tanqueLectura.id,
           nivel: Number(nivel),
-          leido_en: new Date(leidoEn).toISOString(),
+          leido_en: horaEditadaAMano ? new Date(leidoEn).toISOString() : new Date().toISOString(),
         }),
       });
 
@@ -512,17 +528,39 @@ export default function CombustiblePanel() {
         return;
       }
 
+      const nombreDelTanque = tanqueLectura.tanque_nombre;
+      const unidadDelTanque = tanqueLectura.unidad;
       setTanqueLectura(null);
 
       // 202 = no había red y quedó en la cola del dispositivo (ver
       // apiFetch). No se recarga: sin señal el GET también falla.
       if (res.status === 202) {
-        alert(
-          "Sin conexión: la lectura quedó guardada en este equipo y se enviará sola cuando vuelva la señal."
+        setMensajeExito(
+          `Sin conexión: la lectura de ${nivelNuevo.toLocaleString("es-PE")} ${unidadDelTanque} ` +
+            `quedó guardada en este equipo y se enviará sola cuando vuelva la señal.`
         );
         return;
       }
 
+      // Confirmación explícita: hasta acá el modal se cerraba en silencio y
+      // quien registraba no tenía forma de saber si se había guardado --
+      // la duda típica lleva a cargar la lectura dos veces, que es peor.
+      //
+      // El nivel del mensaje sale de la RESPUESTA DEL SERVIDOR, no del
+      // número que se tipeó: si la lectura quedó fechada antes que otra ya
+      // registrada, el tanque conserva la más reciente y el nivel resultante
+      // NO es el recién cargado. Anunciar el valor tipeado ahí contradiría a
+      // la tabla en la misma pantalla.
+      const body = await res.json().catch(() => null);
+      const nivelResultante = body?.tanque?.nivel_actual;
+      setMensajeExito(
+        nivelResultante != null && Number(nivelResultante) !== nivelNuevo
+          ? `Lectura registrada. ${nombreDelTanque} sigue mostrando ` +
+              `${Number(nivelResultante).toLocaleString("es-PE")} ${unidadDelTanque}: ` +
+              `hay una lectura posterior a la que acabás de cargar.`
+          : `Lectura registrada: ${nombreDelTanque} quedó en ` +
+              `${nivelNuevo.toLocaleString("es-PE")} ${unidadDelTanque}.`
+      );
       await cargarTanques();
     } finally {
       setEnviandoLectura(false);
@@ -577,12 +615,12 @@ export default function CombustiblePanel() {
           </button>
         </div>
       )}
-      {resultadoImportacion && (
+      {mensajeExito && (
         <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4 flex items-start gap-3">
-          <p className="text-sm text-green-900 font-light flex-1">{resultadoImportacion}</p>
+          <p className="text-sm text-green-900 font-light flex-1">{mensajeExito}</p>
           <button
             className="text-green-500 hover:text-green-700 text-sm shrink-0"
-            onClick={() => setResultadoImportacion(null)}
+            onClick={() => setMensajeExito(null)}
             aria-label="Cerrar aviso de importación"
           >
             ✕
@@ -1015,6 +1053,15 @@ export default function CombustiblePanel() {
                             {l.origen !== "manual" && (
                               <span className="ml-2 text-xs text-slate-400">({l.origen})</span>
                             )}
+                            {/* Quién tomó la medición. Va SIEMPRE visible,
+                                incluso en las anuladas: si una lectura
+                                resultó estar mal, quién la cargó es parte
+                                de lo que hay que poder ver. */}
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              {l.registrada_por_nombre
+                                ? `Registró: ${l.registrada_por_nombre}`
+                                : "Registró: —"}
+                            </p>
                             {anulada && (
                               <p className="text-xs text-amber-700 mt-0.5">
                                 Anulada: {l.motivo_anulacion}
@@ -1146,12 +1193,47 @@ export default function CombustiblePanel() {
             </div>
 
             <form onSubmit={handleRegistrarLectura} className="p-6 space-y-4">
+              {/* Referencia a la vista mientras se escribe. Sin esto la
+                  persona mide con la varilla y tipea a ciegas: no ve contra
+                  qué valor viene, así que un dígito de más pasa
+                  desapercibido justo en el momento en que era más fácil
+                  notarlo. */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Último registro</span>
+                  <span className="font-bold text-slate-900">
+                    {tanqueLectura.nivel_actual === null
+                      ? "sin lecturas"
+                      : `${Number(tanqueLectura.nivel_actual).toLocaleString("es-PE")} ${tanqueLectura.unidad}`}
+                  </span>
+                </div>
+                {tanqueLectura.fecha_actualizacion && (
+                  <p className="text-xs text-slate-400 text-right">
+                    {formatearFecha(tanqueLectura.fecha_actualizacion)}
+                  </p>
+                )}
+                <div className="flex justify-between mt-2 pt-2 border-t border-slate-200">
+                  <span className="text-slate-500">Capacidad</span>
+                  <span className="text-slate-600">
+                    {Number(tanqueLectura.capacidad_total).toLocaleString("es-PE")}{" "}
+                    {tanqueLectura.unidad}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Umbral de alerta</span>
+                  <span className="text-slate-600">
+                    {Number(tanqueLectura.nivel_minimo).toLocaleString("es-PE")}{" "}
+                    {tanqueLectura.unidad}
+                  </span>
+                </div>
+              </div>
+
               <div className="space-y-1">
                 <label
                   htmlFor="combustible-nivel"
                   className="text-xs font-bold text-slate-500 uppercase"
                 >
-                  Nivel ({tanqueLectura.unidad})
+                  Nivel medido ahora ({tanqueLectura.unidad})
                 </label>
                 <input
                   id="combustible-nivel"
@@ -1177,7 +1259,10 @@ export default function CombustiblePanel() {
                   required
                   className="w-full border border-slate-200 rounded-xl p-3 outline-none"
                   value={leidoEn}
-                  onChange={(e) => setLeidoEn(e.target.value)}
+                  onChange={(e) => {
+                    setLeidoEn(e.target.value);
+                    setHoraEditadaAMano(true);
+                  }}
                 />
               </div>
               <button
