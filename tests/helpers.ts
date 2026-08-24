@@ -93,7 +93,11 @@ export function extraerCookie(
 
 export interface TenantDePrueba {
   tenant: { id: string; nombre: string; slug: string };
-  usuario: { id: string; tenantId: string; email: string };
+  // `nombre` lo devuelve el endpoint de onboarding (siempre "Admin de
+  // prueba", ver adminNombre más abajo) pero faltaba en este tipo -- sin
+  // él, un test que quiera asertar sobre el autor de una acción no
+  // compila. No es un campo nuevo de la API, es el tipo que estaba corto.
+  usuario: { id: string; tenantId: string; email: string; nombre: string };
 }
 
 export async function crearTenantDePrueba(
