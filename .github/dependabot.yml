@@ -43,6 +43,18 @@ updates:
       # cerrado 2026-08-05).
       - dependency-name: "zod"
         update-types: ["version-update:semver-major"]
+      # TypeScript 7 -- el MISMO bloqueo que ya estaba declarado abajo para
+      # client/, que acá faltaba por descuido. La raíz también usa
+      # @typescript-eslint (^8.x en package.json), que declara
+      # `peerDependencies: { typescript: ">=4.8.4 <6.1.0" }`: con TS7 npm
+      # ni siquiera puede resolver el árbol -- el PR #91 murió con
+      # ERESOLVE antes de compilar nada.
+      #
+      # Sacar los DOS ignores (este y el de client/) juntos cuando
+      # @typescript-eslint publique soporte para TS7. Ver el comentario
+      # largo del bloque de client/ más abajo para el detalle.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   # Frontend (client/)
   - package-ecosystem: "npm"
