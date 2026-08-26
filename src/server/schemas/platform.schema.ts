@@ -149,6 +149,13 @@ export const cambiarEstadoPlatformAdminSchema = z.object({
 
 export type CambiarEstadoPlatformAdminInput = z.infer<typeof cambiarEstadoPlatformAdminSchema>;
 
+export const cambiarMiPasswordSchema = z.object({
+  passwordActual: z.string().min(1, "Contraseña actual requerida").max(200),
+  passwordNueva: z.string().min(8, "La contraseña debe tener al menos 8 caracteres").max(200),
+});
+
+export type CambiarMiPasswordInput = z.infer<typeof cambiarMiPasswordSchema>;
+
 // confirmar: true es obligatorio a propósito (no un boolean cualquiera) —
 // restaurar vacía primero los datos actuales del tenant destino, no hay
 // vuelta atrás. Un body sin ese campo (ej. un cliente viejo, o un test

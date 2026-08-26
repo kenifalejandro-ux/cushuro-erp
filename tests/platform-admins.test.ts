@@ -470,3 +470,90 @@ describe.skipIf(!conRedis)(
     });
   }
 );
+
+describe.skipIf(!conRedis)(
+  "clave temporal + cambio obligatorio en el primer login (con Redis real)",
+  () => {
+    it("un admin recién creado tiene debeCambiarPassword=true en /whoami tras loguearse", async () => {
+      const email = emailDePrueba("temporalNuevo");
+      await crearPlatformAdminService({
+        email,
+        password: "ClaveTemporal123",
+        nombre: "Con clave temporal",
+        rol: "admin",
+      });
+
+      const agent = request.agent(app);
+      await agent.post("/api/platform/admin-sesion").send({ email, password: "ClaveTemporal123" });
+
+      const whoami = await agent.get("/api/platform/whoami");
+      expect(whoami.status).toBe(200);
+      expect(whoami.body.debeCambiarPassword).toBe(true);
+    });
+
+    it("POST /mi-password con la clave actual correcta cambia la contraseña y apaga el flag", async () => {
+      const email = emailDePrueba("cambiaPassword");
+      await crearPlatformAdminService({
+        email,
+        password: "ClaveTemporal123",
+        nombre: "Cambia clave",
+        rol: "admin",
+      });
+
+      const agent = request.agent(app);
+      await agent.post("/api/platform/admin-sesion").send({ email, password: "ClaveTemporal123" });
+
+      const cambiar = await agent
+        .post("/api/platform/mi-password")
+        .send({ passwordActual: "ClaveTemporal123", passwordNueva: "ClaveDefinitiva456" });
+      expect(cambiar.status).toBe(200);
+
+      const whoami = await agent.get("/api/platform/whoami");
+      expect(whoami.body.debeCambiarPassword).toBe(false);
+
+      // La clave vieja ya no sirve; la nueva sí.
+      const loginConVieja = await request(app)
+        .post("/api/platform/admin-sesion")
+        .send({ email, password: "ClaveTemporal123" });
+      expect(loginConVieja.status).toBe(401);
+
+      const loginConNueva = await request(app)
+        .post("/api/platform/admin-sesion")
+        .send({ email, password: "ClaveDefinitiva456" });
+      expect(loginConNueva.status).toBe(200);
+    });
+
+    it("POST /mi-password con la clave actual incorrecta da 401 y no cambia nada", async () => {
+      const email = emailDePrueba("cambiaPasswordMal");
+      await crearPlatformAdminService({
+        email,
+        password: "ClaveTemporal123",
+        nombre: "Cambia clave mal",
+        rol: "admin",
+      });
+
+      const agent = request.agent(app);
+      await agent.post("/api/platform/admin-sesion").send({ email, password: "ClaveTemporal123" });
+
+      const cambiar = await agent
+        .post("/api/platform/mi-password")
+        .send({ passwordActual: "otra-cosa", passwordNueva: "ClaveDefinitiva456" });
+      expect(cambiar.status).toBe(401);
+
+      const loginConVieja = await request(app)
+        .post("/api/platform/admin-sesion")
+        .send({ email, password: "ClaveTemporal123" });
+      expect(loginConVieja.status).toBe(200);
+    });
+
+    it("el secreto compartido no puede usar POST /mi-password (400)", async () => {
+      const agent = request.agent(app);
+      await agent.post("/api/platform/sesion").send({ token: env.platformAdminToken });
+
+      const cambiar = await agent
+        .post("/api/platform/mi-password")
+        .send({ passwordActual: "x", passwordNueva: "ClaveDefinitiva456" });
+      expect(cambiar.status).toBe(400);
+    });
+  }
+);

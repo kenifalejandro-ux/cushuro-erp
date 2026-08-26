@@ -115,6 +115,11 @@ export default function PlatformAdminsView() {
                   >
                     {a.activo ? "Activo" : "Desactivado"}
                   </span>
+                  {a.debeCambiarPassword && (
+                    <span className="px-2 py-0.5 rounded-full text-xs bg-amber-950 text-amber-400">
+                      Clave temporal
+                    </span>
+                  )}
                   <button
                     onClick={() => setAdminExpandido((v) => (v === a.id ? null : a.id))}
                     className="text-xs text-slate-400 hover:text-slate-100 underline underline-offset-2"

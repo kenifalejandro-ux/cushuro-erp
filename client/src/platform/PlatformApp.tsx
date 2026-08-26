@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 
 import AlertasBillingView from "./AlertasBillingView";
 import AuditoriaView from "./AuditoriaView";
+import CambiarPasswordObligatorio from "./CambiarPasswordObligatorio";
 import PlatformAdminsView from "./PlatformAdminsView";
 import {
   whoamiApi,
@@ -62,6 +63,10 @@ export default function PlatformApp() {
 
   if (!quienSoy) {
     return <PlatformLoginPage onExito={() => whoamiApi().then(setQuienSoy)} />;
+  }
+
+  if (quienSoy.debeCambiarPassword) {
+    return <CambiarPasswordObligatorio onListo={() => whoamiApi().then(setQuienSoy)} />;
   }
 
   async function salir() {
