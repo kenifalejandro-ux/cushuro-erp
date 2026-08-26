@@ -43,6 +43,7 @@ export interface QuienSoy {
   actorType: "platform_admin" | "emergency_shared_secret" | "unauthenticated";
   actorLabel: string | null;
   esSuperAdmin: boolean;
+  debeCambiarPassword: boolean;
 }
 
 export async function whoamiApi(): Promise<QuienSoy> {
@@ -52,7 +53,19 @@ export async function whoamiApi(): Promise<QuienSoy> {
     actorType: data.actorType,
     actorLabel: data.actorLabel,
     esSuperAdmin: data.esSuperAdmin,
+    debeCambiarPassword: data.debeCambiarPassword,
   };
+}
+
+export async function cambiarMiPasswordApi(
+  passwordActual: string,
+  passwordNueva: string
+): Promise<void> {
+  const res = await platformFetch(
+    "/mi-password",
+    jsonInit("POST", { passwordActual, passwordNueva })
+  );
+  await parseOrThrow(res);
 }
 
 export interface PlatformAdmin {
@@ -62,6 +75,7 @@ export interface PlatformAdmin {
   rol: "super_admin" | "admin";
   activo: boolean;
   creadoEn: string;
+  debeCambiarPassword: boolean;
 }
 
 export async function listarPlatformAdminsApi(): Promise<PlatformAdmin[]> {

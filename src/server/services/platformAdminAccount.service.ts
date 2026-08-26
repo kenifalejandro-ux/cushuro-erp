@@ -28,6 +28,7 @@ export interface PlatformAdmin {
   rol: RolPlatformAdmin;
   activo: boolean;
   creadoEn: string;
+  debeCambiarPassword: boolean;
 }
 
 /** null si el email no existe, está desactivado, o la contraseña no
@@ -38,7 +39,8 @@ export async function verificarCredencialesPlatformAdminService(
   password: string
 ): Promise<PlatformAdmin | null> {
   const result = await pool.query(
-    `SELECT id, email, password_hash, nombre, rol, activo, creado_en AS "creadoEn"
+    `SELECT id, email, password_hash, nombre, rol, activo, creado_en AS "creadoEn",
+            debe_cambiar_password AS "debeCambiarPassword"
      FROM platform_admins WHERE email = $1 AND activo = true`,
     [email.toLowerCase()]
   );
@@ -53,19 +55,28 @@ export async function verificarCredencialesPlatformAdminService(
 
 export async function listarPlatformAdminsService(): Promise<PlatformAdmin[]> {
   const result = await pool.query(
-    `SELECT id, email, nombre, rol, activo, creado_en AS "creadoEn" FROM platform_admins ORDER BY creado_en`
+    `SELECT id, email, nombre, rol, activo, creado_en AS "creadoEn",
+            debe_cambiar_password AS "debeCambiarPassword"
+     FROM platform_admins ORDER BY creado_en`
   );
   return result.rows;
 }
 
 export async function obtenerPlatformAdminService(id: string): Promise<PlatformAdmin | null> {
   const result = await pool.query(
-    `SELECT id, email, nombre, rol, activo, creado_en AS "creadoEn" FROM platform_admins WHERE id = $1`,
+    `SELECT id, email, nombre, rol, activo, creado_en AS "creadoEn",
+            debe_cambiar_password AS "debeCambiarPassword"
+     FROM platform_admins WHERE id = $1`,
     [id]
   );
   return result.rows[0] ?? null;
 }
 
+/** debe_cambiar_password siempre arranca en true -- toda cuenta creada acá
+ *  nace con una contraseña temporal que el creador le pasa al nuevo admin
+ *  por fuera del sistema, así que el panel la obliga a cambiarla antes de
+ *  dejarla usar nada más (ver cambiarMiPasswordService y
+ *  PlatformApp.tsx). */
 export async function crearPlatformAdminService(input: {
   email: string;
   password: string;
@@ -75,9 +86,10 @@ export async function crearPlatformAdminService(input: {
   const passwordHash = await bcrypt.hash(input.password, 12);
   try {
     const result = await pool.query(
-      `INSERT INTO platform_admins (email, password_hash, nombre, rol)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, email, nombre, rol, activo, creado_en AS "creadoEn"`,
+      `INSERT INTO platform_admins (email, password_hash, nombre, rol, debe_cambiar_password)
+       VALUES ($1, $2, $3, $4, true)
+       RETURNING id, email, nombre, rol, activo, creado_en AS "creadoEn",
+                 debe_cambiar_password AS "debeCambiarPassword"`,
       [input.email.toLowerCase(), passwordHash, input.nombre, input.rol]
     );
     return result.rows[0];
@@ -86,6 +98,43 @@ export async function crearPlatformAdminService(input: {
       throw new AppError(409, "Ya existe un admin de plataforma con ese correo");
     }
     throw err;
+  }
+}
+
+/** Cambia la propia contraseña de un platform_admin autenticado -- usado
+ *  tanto para la pantalla obligatoria del primer login (clave temporal)
+ *  como para un cambio voluntario más adelante. Exige la contraseña
+ *  ACTUAL (no solo estar logueado): la sesión ya autenticó "quién sos",
+ *  pero re-pedirla es la misma defensa en profundidad que cualquier
+ *  "cambiar contraseña" -- evita que una sesión abierta y desatendida
+ *  alcance por sí sola para tomar la cuenta por completo. */
+export async function cambiarMiPasswordService(
+  adminId: string,
+  passwordActual: string,
+  passwordNueva: string
+): Promise<void> {
+  const result = await pool.query(`SELECT password_hash FROM platform_admins WHERE id = $1`, [
+    adminId,
+  ]);
+  const fila = result.rows[0];
+  if (!fila) throw new AppError(404, "Admin no encontrado");
+
+  const passwordValido = await bcrypt.compare(passwordActual, fila.password_hash);
+  if (!passwordValido) throw new AppError(401, "Contraseña actual incorrecta");
+
+  const passwordHash = await bcrypt.hash(passwordNueva, 12);
+  const actualizado = await pool.query(
+    `UPDATE platform_admins SET password_hash = $1, debe_cambiar_password = false
+     WHERE id = $2 RETURNING id`,
+    [passwordHash, adminId]
+  );
+
+  // Mismo chequeo que restablecerPasswordService: un UPDATE con WHERE que
+  // no matchea ninguna fila no lanza error en Postgres -- sin esto,
+  // declararía éxito aunque la cuenta haya sido borrada/desactivada justo
+  // entre el SELECT de arriba y este UPDATE.
+  if (actualizado.rowCount === 0) {
+    throw new AppError(400, "No se pudo actualizar la contraseña, el admin ya no existe");
   }
 }
 

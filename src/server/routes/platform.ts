@@ -14,6 +14,7 @@ import {
   PLATFORM_SESSION_COOKIE,
 } from "../shared/middlewares/platformAdmin.middleware";
 import { platformSuperAdminMiddleware } from "../shared/middlewares/platformSuperAdmin.middleware";
+import { AppError } from "../shared/middlewares/error.middleware";
 import {
   getClientIp,
   getRequestId,
@@ -64,6 +65,7 @@ import {
   platformAdminLoginSchema,
   crearPlatformAdminSchema,
   cambiarEstadoPlatformAdminSchema,
+  cambiarMiPasswordSchema,
   restaurarBackupSchema,
   restaurarBackupPlataformaSchema,
   fijarCuotaTenantSchema,
@@ -168,6 +170,8 @@ import {
   listarPlatformAdminsService,
   crearPlatformAdminService,
   cambiarEstadoPlatformAdminService,
+  cambiarMiPasswordService,
+  obtenerPlatformAdminService,
   esSuperAdminVigente,
 } from "../services/platformAdminAccount.service";
 import {
@@ -511,12 +515,43 @@ export function createPlatformRouter() {
     "/whoami",
     asyncHandler(async (req, res) => {
       const actor = getPlatformActor(req);
+      const admin =
+        actor?.actorType === "platform_admin"
+          ? await obtenerPlatformAdminService(actor.actorId)
+          : null;
       res.status(200).json({
         ok: true,
         actorType: actor?.actorType ?? "unauthenticated",
         actorLabel: actor?.actorLabel ?? null,
         esSuperAdmin: await esSuperAdminVigente(actor),
+        debeCambiarPassword: admin?.debeCambiarPassword ?? false,
       });
+    })
+  );
+
+  // Cambiar la propia contraseña -- pensado para la pantalla obligatoria
+  // del primer login con clave temporal (ver debeCambiarPassword de
+  // arriba), pero sirve para cualquier cambio voluntario después. Solo
+  // tiene sentido para una cuenta individual: el secreto compartido no
+  // tiene "su propia" contraseña que cambiar.
+  router.post(
+    "/mi-password",
+    validate(cambiarMiPasswordSchema),
+    asyncHandler(async (req, res, next) => {
+      try {
+        const actor = getPlatformActor(req);
+        if (actor?.actorType !== "platform_admin") {
+          throw new AppError(400, "El acceso de emergencia no tiene una contraseña propia");
+        }
+        const { passwordActual, passwordNueva } = req.validatedBody as {
+          passwordActual: string;
+          passwordNueva: string;
+        };
+        await cambiarMiPasswordService(actor.actorId, passwordActual, passwordNueva);
+        res.status(200).json({ ok: true });
+      } catch (err) {
+        next(err);
+      }
     })
   );
 
