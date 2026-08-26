@@ -754,13 +754,21 @@ export async function restablecerPasswordService(input: ResetPasswordInput): Pro
 
   const passwordHash = await bcrypt.hash(input.newPassword, 12);
 
-  await withTenant(fila.tenant_id, (client) =>
-    client.query(`UPDATE usuarios SET password_hash = $1 WHERE id = $2 AND tenant_id = $3`, [
-      passwordHash,
-      fila.usuario_id,
-      fila.tenant_id,
-    ])
+  const actualizado = await withTenant(fila.tenant_id, (client) =>
+    client.query(
+      `UPDATE usuarios SET password_hash = $1 WHERE id = $2 AND tenant_id = $3 RETURNING id`,
+      [passwordHash, fila.usuario_id, fila.tenant_id]
+    )
   );
+
+  // El UPDATE con WHERE que no matchea ninguna fila no lanza error en
+  // Postgres -- sin este chequeo, un 0-row update seguía de largo,
+  // marcaba el token como usado y revocaba las sesiones, devolviendo
+  // éxito al cliente con la contraseña vieja intacta (bug reportado por
+  // Kenif: "cambio la clave y el ERP no la reconoce").
+  if (actualizado.rowCount === 0) {
+    throw new AppError(400, "No se pudo actualizar la contraseña, el usuario ya no existe");
+  }
 
   await pool.query(`UPDATE reset_tokens SET usado_en = now() WHERE token_hash = $1`, [hash]);
 
