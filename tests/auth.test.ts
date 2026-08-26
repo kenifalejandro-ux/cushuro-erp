@@ -21,7 +21,6 @@ describe("auth", () => {
 
   afterAll(async () => {
     await borrarTenantDePrueba(tenantId);
-    await closeDatabase();
   });
 
   it("login con credenciales correctas devuelve 200 y cookies de sesión", async () => {
@@ -168,4 +167,110 @@ describe("auth", () => {
         .send({ activo: true });
     }
   });
+});
+
+describe("clave temporal + cambio obligatorio en el primer login (usuarios de tenant)", () => {
+  let tenantId: string;
+  let tenantSlug: string;
+  let email: string;
+  const passwordTemporal = "ClaveTemporal123";
+
+  beforeAll(async () => {
+    const creado = await crearTenantDePrueba(passwordTemporal);
+    tenantId = creado.tenant.id;
+    tenantSlug = creado.tenant.slug;
+    email = creado.usuario.email;
+  });
+
+  afterAll(async () => {
+    await borrarTenantDePrueba(tenantId);
+  });
+
+  it("un usuario recién creado trae debeCambiarPassword=true al loguearse", async () => {
+    const res = await request(app)
+      .post("/api/auth/login")
+      .send({ tenantSlug, email, password: passwordTemporal });
+    expect(res.status).toBe(200);
+    expect(res.body.usuario.debeCambiarPassword).toBe(true);
+  });
+
+  it("POST /mi-password con la clave actual correcta la cambia y apaga el flag", async () => {
+    const agent = request.agent(app);
+    await agent.post("/api/auth/login").send({ tenantSlug, email, password: passwordTemporal });
+
+    const cambiar = await agent
+      .post("/api/auth/mi-password")
+      .send({ passwordActual: passwordTemporal, passwordNueva: "ClaveDefinitiva456" });
+    expect(cambiar.status).toBe(200);
+
+    // El access token vigente es de ANTES del cambio -- debeCambiarPassword
+    // se arma en cada login/refresh desde una lectura fresca de la base, no
+    // vive recalculado en el JWT ya firmado. Por eso /me todavía dice
+    // `true`: es el mismo comportamiento ya aceptado para rol/
+    // modulosPermitidos, y por lo que el frontend actualiza el usuario en
+    // memoria en vez de volver a pedir /me (ver App.tsx).
+    const meConTokenViejo = await agent.get("/api/auth/me");
+    expect(meConTokenViejo.body.usuario.debeCambiarPassword).toBe(true);
+
+    // Pero SÍ se refleja en el próximo refresh, que re-lee la base.
+    const refresh = await agent.post("/api/auth/refresh");
+    expect(refresh.status).toBe(200);
+    expect(refresh.body.usuario.debeCambiarPassword).toBe(false);
+
+    // La clave vieja ya no sirve; la nueva sí.
+    const loginConVieja = await request(app)
+      .post("/api/auth/login")
+      .send({ tenantSlug, email, password: passwordTemporal });
+    expect(loginConVieja.status).toBe(401);
+
+    const loginConNueva = await request(app)
+      .post("/api/auth/login")
+      .send({ tenantSlug, email, password: "ClaveDefinitiva456" });
+    expect(loginConNueva.status).toBe(200);
+    expect(loginConNueva.body.usuario.debeCambiarPassword).toBe(false);
+  });
+
+  it("POST /mi-password con la clave actual incorrecta da 401 y no cambia nada", async () => {
+    const otro = await crearTenantDePrueba(passwordTemporal);
+    try {
+      const agent = request.agent(app);
+      await agent.post("/api/auth/login").send({
+        tenantSlug: otro.tenant.slug,
+        email: otro.usuario.email,
+        password: passwordTemporal,
+      });
+
+      const cambiar = await agent
+        .post("/api/auth/mi-password")
+        .send({ passwordActual: "otra-cosa", passwordNueva: "ClaveDefinitiva456" });
+      expect(cambiar.status).toBe(401);
+
+      // Nada cambió: la clave temporal original sigue sirviendo y el flag
+      // sigue en true.
+      const loginConTemporal = await request(app).post("/api/auth/login").send({
+        tenantSlug: otro.tenant.slug,
+        email: otro.usuario.email,
+        password: passwordTemporal,
+      });
+      expect(loginConTemporal.status).toBe(200);
+      expect(loginConTemporal.body.usuario.debeCambiarPassword).toBe(true);
+    } finally {
+      await borrarTenantDePrueba(otro.tenant.id);
+    }
+  });
+
+  it("sin sesión, POST /mi-password rechaza con 401", async () => {
+    const res = await request(app)
+      .post("/api/auth/mi-password")
+      .send({ passwordActual: "x", passwordNueva: "ClaveDefinitiva456" });
+    expect(res.status).toBe(401);
+  });
+});
+
+// Cierra el pool una sola vez, después de los dos describe de arriba --
+// antes vivía en el afterAll de "auth" porque era el único describe del
+// archivo; con dos, cerrarlo ahí tumbaba el pool antes de que corriera el
+// segundo.
+afterAll(async () => {
+  await closeDatabase();
 });

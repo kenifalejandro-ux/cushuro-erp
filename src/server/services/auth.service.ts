@@ -60,6 +60,14 @@ export interface UsuarioPayload {
    *  nadie) nunca lo tienen -- pero SIEMPRE está presente en el payload
    *  real de un JWT ya firmado. */
   sessionId?: string;
+  /** true si la cuenta arrancó con una contraseña genérica que un admin
+   *  le puso al darla de alta (panel o SCIM) y todavía no la reemplazó
+   *  por una propia -- el frontend usa esto para mostrar una pantalla
+   *  obligatoria de cambio antes de dejar usar el resto del ERP (ver
+   *  App.tsx). Se arma en cada login/refresh desde una lectura fresca de
+   *  la base, igual que rol/modulosPermitidos: un cambio tarda hasta el
+   *  próximo login/refresh en reflejarse. */
+  debeCambiarPassword: boolean;
 }
 
 /** Determinístico por (tenant, módulo, usuario): el mismo usuario siempre
@@ -244,13 +252,15 @@ export async function loginService(
         password_hash: string;
         rol: UsuarioPayload["rol"];
         token_version: number;
+        debe_cambiar_password: boolean;
       }
     | undefined;
   if (tenant) {
     try {
       fila = await withTenant(tenant.id, async (client) => {
         const result = await client.query(
-          `SELECT id, tenant_id, nombre, email, password_hash, rol, token_version
+          `SELECT id, tenant_id, nombre, email, password_hash, rol, token_version,
+                  debe_cambiar_password
            FROM usuarios WHERE tenant_id = $1 AND email = $2 AND activo = true`,
           [tenant.id, input.email.toLowerCase()]
         );
@@ -281,6 +291,7 @@ export async function loginService(
     rol: fila.rol,
     modulosPermitidos: await obtenerModulosPermitidos(fila.id, fila.tenant_id),
     tokenVersion: fila.token_version,
+    debeCambiarPassword: fila.debe_cambiar_password,
   };
 
   return emitirSesionCompleta(usuario);
@@ -322,7 +333,7 @@ export async function googleLoginService(
   const fila = tenant
     ? await withTenant(tenant.id, async (client) => {
         const result = await client.query(
-          `SELECT id, tenant_id, nombre, email, rol, token_version
+          `SELECT id, tenant_id, nombre, email, rol, token_version, debe_cambiar_password
            FROM usuarios WHERE tenant_id = $1 AND email = $2 AND activo = true`,
           [tenant.id, email]
         );
@@ -345,6 +356,7 @@ export async function googleLoginService(
     rol: fila.rol,
     modulosPermitidos: await obtenerModulosPermitidos(fila.id, fila.tenant_id),
     tokenVersion: fila.token_version,
+    debeCambiarPassword: fila.debe_cambiar_password,
   };
 
   return emitirSesionCompleta(usuario);
@@ -399,7 +411,7 @@ export async function refrescarTokenService(
   // Paso 2: ahora sí, con tenant_id ya conocido, leer el usuario bajo RLS.
   const filaUsuario = await withTenant(filaToken.tenant_id, async (client) => {
     const result = await client.query(
-      `SELECT nombre, email, rol, token_version, activo
+      `SELECT nombre, email, rol, token_version, activo, debe_cambiar_password
        FROM usuarios WHERE id = $1 AND tenant_id = $2`,
       [filaToken.usuario_id, filaToken.tenant_id]
     );
@@ -418,6 +430,7 @@ export async function refrescarTokenService(
     rol: filaUsuario.rol,
     modulosPermitidos: await obtenerModulosPermitidos(filaToken.usuario_id, filaToken.tenant_id),
     tokenVersion: filaUsuario.token_version,
+    debeCambiarPassword: filaUsuario.debe_cambiar_password,
   };
 
   // Reusa emitirSesionCompleta() con el sessionId de la fila que se acaba
@@ -539,10 +552,13 @@ export async function crearUsuarioService(
 
   let result;
   try {
+    // debe_cambiar_password = true siempre: quien llama a esto le puso la
+    // contraseña a otra persona (panel o SCIM), nunca es la propia del
+    // usuario -- mismo criterio que crearPlatformAdminService.
     result = await db.query(
-      `INSERT INTO usuarios (tenant_id, nombre, email, password_hash, rol)
-       VALUES ($1, $2, $3, $4, COALESCE($5::rol_usuario, 'operador'))
-       RETURNING id, tenant_id, nombre, email, rol, token_version`,
+      `INSERT INTO usuarios (tenant_id, nombre, email, password_hash, rol, debe_cambiar_password)
+       VALUES ($1, $2, $3, $4, COALESCE($5::rol_usuario, 'operador'), true)
+       RETURNING id, tenant_id, nombre, email, rol, token_version, debe_cambiar_password`,
       [input.tenantId, input.nombre, input.email.toLowerCase(), passwordHash, input.rol ?? null]
     );
   } catch (err) {
@@ -587,6 +603,7 @@ export async function crearUsuarioService(
     rol: fila.rol,
     modulosPermitidos: modulosHabilitados,
     tokenVersion: fila.token_version,
+    debeCambiarPassword: fila.debe_cambiar_password,
   };
 }
 
@@ -748,4 +765,46 @@ export async function restablecerPasswordService(input: ResetPasswordInput): Pro
   await pool.query(`UPDATE reset_tokens SET usado_en = now() WHERE token_hash = $1`, [hash]);
 
   await revocarSesionesService(fila.usuario_id, fila.tenant_id);
+}
+
+/** Cambia la propia contraseña de un usuario de tenant ya autenticado --
+ *  mismo patrón que cambiarMiPasswordService de platform_admins, pensado
+ *  primero para la pantalla obligatoria del primer login con clave
+ *  temporal (ver debeCambiarPassword en UsuarioPayload), pero sirve para
+ *  cualquier cambio voluntario después. A diferencia de platform_admins,
+ *  `usuarios` tiene RLS: hace falta withTenant(). */
+export async function cambiarMiPasswordUsuarioService(
+  usuarioId: string,
+  tenantId: string,
+  passwordActual: string,
+  passwordNueva: string
+): Promise<void> {
+  const fila = await withTenant(tenantId, async (client) => {
+    const result = await client.query(
+      `SELECT password_hash FROM usuarios WHERE id = $1 AND tenant_id = $2`,
+      [usuarioId, tenantId]
+    );
+    return result.rows[0];
+  });
+  if (!fila) throw new AppError(404, "Usuario no encontrado");
+
+  const passwordValido = await bcrypt.compare(passwordActual, fila.password_hash);
+  if (!passwordValido) throw new AppError(401, "Contraseña actual incorrecta");
+
+  const passwordHash = await bcrypt.hash(passwordNueva, 12);
+  const actualizado = await withTenant(tenantId, (client) =>
+    client.query(
+      `UPDATE usuarios SET password_hash = $1, debe_cambiar_password = false
+       WHERE id = $2 AND tenant_id = $3 RETURNING id`,
+      [passwordHash, usuarioId, tenantId]
+    )
+  );
+
+  // Mismo chequeo que ya aplicamos hoy en cambiarMiPasswordService
+  // (platform_admins): un UPDATE con WHERE que no matchea ninguna fila no
+  // lanza error en Postgres -- sin esto, declararía éxito aunque la cuenta
+  // haya sido desactivada/borrada justo entre el SELECT y este UPDATE.
+  if (actualizado.rowCount === 0) {
+    throw new AppError(400, "No se pudo actualizar la contraseña, el usuario ya no existe");
+  }
 }

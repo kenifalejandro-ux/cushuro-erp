@@ -13,6 +13,7 @@ import {
   googleLoginSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  cambiarMiPasswordSchema,
   type LoginInput,
   type GoogleLoginInput,
   type ForgotPasswordInput,
@@ -25,6 +26,7 @@ import {
   refrescarTokenService,
   solicitarRecuperacionService,
   restablecerPasswordService,
+  cambiarMiPasswordUsuarioService,
   aPublico,
 } from "../services/auth.service";
 import {
@@ -267,3 +269,31 @@ authRouter.post(
 authRouter.get("/me", rateLimiter, authMiddleware, (req, res) => {
   res.status(200).json({ ok: true, usuario: aPublico(req.usuario!) });
 });
+
+// Cambiar la propia contraseña -- pensado para la pantalla obligatoria del
+// primer login con clave temporal (ver debeCambiarPassword en
+// UsuarioPayload), pero sirve para cualquier cambio voluntario después.
+// Cualquier usuario autenticado cambia SU PROPIA clave, no hace falta rol.
+authRouter.post(
+  "/mi-password",
+  rateLimiter,
+  authMiddleware,
+  validate(cambiarMiPasswordSchema),
+  asyncHandler(async (req, res, next) => {
+    try {
+      const { passwordActual, passwordNueva } = req.validatedBody as {
+        passwordActual: string;
+        passwordNueva: string;
+      };
+      await cambiarMiPasswordUsuarioService(
+        req.usuario!.id,
+        req.usuario!.tenantId,
+        passwordActual,
+        passwordNueva
+      );
+      res.status(200).json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  })
+);
