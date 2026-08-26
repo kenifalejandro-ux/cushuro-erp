@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+// Qué instrumento mide este equipo en un despacho de combustible
+// compra_externa -- ver migrations/0062 y el punto 2 de
+// docs/architecture/control-de-combustible.md (hallazgo 9). Nullable: la
+// mayoría de los equipos nunca cargan fuera del tanque propio.
+const TIPOS_MEDIDOR = ["horometro", "odometro"] as const;
+
 export const crearEquipoSchema = z.object({
   // Lo genera el dispositivo con crypto.randomUUID() al apretar "Registrar
   // Equipo", online u offline (ver client/src/offline/). Opcional a
@@ -11,6 +17,7 @@ export const crearEquipoSchema = z.object({
   tipo: z.string().trim().min(1, "Tipo requerido").max(100),
   marca: z.string().trim().max(100).optional(),
   modelo: z.string().trim().max(100).optional(),
+  tipo_medidor: z.enum(TIPOS_MEDIDOR).optional(),
 });
 
 export type CrearEquipoInput = z.infer<typeof crearEquipoSchema>;
@@ -20,6 +27,7 @@ export const actualizarEquipoSchema = z.object({
   tipo: z.string().trim().min(1, "Tipo requerido").max(100),
   marca: z.string().trim().max(100).optional(),
   modelo: z.string().trim().max(100).optional(),
+  tipo_medidor: z.enum(TIPOS_MEDIDOR).optional(),
 });
 
 export type ActualizarEquipoInput = z.infer<typeof actualizarEquipoSchema>;

@@ -14,6 +14,7 @@ import type {
   ActualizarTanqueCombustibleInput,
   CargaMasivaTanquesCombustibleInput,
   AnularLecturaCombustibleInput,
+  CrearDespachoCombustibleInput,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleService } from "./combustible.service";
 
@@ -338,6 +339,115 @@ export class CombustibleController {
         return;
       }
       res.status(500).json({ error: "Error al registrar lectura de combustible" });
+    }
+  }
+
+  // ── Despachos (Fase B) ─────────────────────────────────────────────────
+
+  /** POST /despachos -- crea el vale digital. Único endpoint de despachos
+   *  que participa de la cola offline (ver registry.ts): equipo_id/
+   *  combustible_id viajan en el body a propósito, mismo motivo que
+   *  combustible_id en /lecturas (rutasOffline.ts solo matchea rutas
+   *  literales, sin parámetros). */
+  async crearDespacho(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const data = req.validatedBody as CrearDespachoCombustibleInput;
+      const { fila, creado } = await withTenant(tenantId, (client) =>
+        service.crearDespacho(client, tenantId, req.usuario!.id, data)
+      );
+
+      // Reintento de un envío que ya se había guardado -- mismo criterio
+      // que registrarLectura: 200 (no 201, no creó nada) para que la cola
+      // offline lo dé por sincronizado sin duplicar auditoría ni evento.
+      if (!creado) {
+        res.status(200).json(fila ?? { error: "Este despacho ya se había registrado" });
+        return;
+      }
+
+      await registrarAuditoria({
+        accion: "combustible.despacho_crear",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: {
+          despachoId: fila!.id,
+          origen: data.origen,
+          serieTalonario: data.serie_talonario,
+          nVale: data.n_vale,
+        },
+        contexto: contextoAuditoriaModulo(req),
+      });
+      await publicarEventoTenant(tenantId, "combustible.despacho_creado", {
+        despachoId: fila!.id,
+      });
+      res.status(201).json(fila);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("ya está registrado")) {
+        // 409: no es un dato mal formado, es el mismo vale tipeado dos
+        // veces -- mismo criterio que el vale duplicado del punto 5.
+        res.status(409).json({ error: err.message });
+        return;
+      }
+      if (
+        err instanceof Error &&
+        (err.message.includes("el contómetro marcó") ||
+          err.message.includes("no existe en este tenant") ||
+          err.message.includes("no tiene tipo de medidor configurado") ||
+          err.message.includes("se mide por"))
+      ) {
+        // Todos estos son datos que se contradicen a sí mismos o a una
+        // fila que el propio request referenció mal -- 400, corregible ahí
+        // mismo con el papel en la mano (ver el punto 5 del documento).
+        res.status(400).json({ error: err.message });
+        return;
+      }
+      res.status(500).json({ error: "Error al registrar el despacho" });
+    }
+  }
+
+  /** GET /despachos -- listado paginado, con filtro opcional por equipo o
+   *  serie de talonario. Sin conciliación ni anomalías acá: eso es Fase D. */
+  async listarDespachos(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const paginacion = parsePaginacion(req.query);
+      const equipoIdRaw = req.query.equipo_id;
+      const equipoId =
+        typeof equipoIdRaw === "string" && equipoIdRaw.trim() !== ""
+          ? Number(equipoIdRaw)
+          : undefined;
+      const serieTalonario =
+        typeof req.query.serie_talonario === "string" ? req.query.serie_talonario : undefined;
+
+      const filas = await withTenant(tenantId, (client) =>
+        service.listarDespachos(client, tenantId, { equipoId, serieTalonario }, paginacion)
+      );
+      res.json(armarRespuestaPaginada(filas, paginacion));
+    } catch {
+      res.status(500).json({ error: "Error al listar despachos" });
+    }
+  }
+
+  /** GET /despachos/huecos?serie_talonario=XXX -- punto 1 reescrito: una
+   *  consulta bajo demanda, sin paginar ni filtrar por fecha (a propósito,
+   *  ver el diseño de Fase B). `validate()` solo parsea el body, así que
+   *  el query param se valida acá a mano, mismo patrón que el resto del
+   *  repo (ver ordenes_trabajo.controller.ts / documentos.controller.ts). */
+  async getHuecosTalonario(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const serieTalonario = req.query.serie_talonario;
+      if (typeof serieTalonario !== "string" || serieTalonario.trim() === "") {
+        res.status(400).json({ error: "El query param serie_talonario es obligatorio" });
+        return;
+      }
+
+      const resultado = await withTenant(tenantId, (client) =>
+        service.detectarHuecos(client, tenantId, serieTalonario)
+      );
+      res.json(resultado);
+    } catch {
+      res.status(500).json({ error: "Error al calcular huecos de talonario" });
     }
   }
 }

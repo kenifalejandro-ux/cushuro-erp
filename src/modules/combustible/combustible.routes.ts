@@ -11,6 +11,7 @@ import {
   actualizarTanqueCombustibleSchema,
   cargaMasivaTanquesCombustibleSchema,
   anularLecturaCombustibleSchema,
+  crearDespachoCombustibleSchema,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleController } from "./combustible.controller";
 
@@ -18,6 +19,19 @@ const router = Router();
 const controller = new CombustibleController();
 
 router.get("/", asyncHandler(controller.getAll.bind(controller)));
+
+// Despachos (Fase B) -- segmentos literales, van ANTES de /:id: si /:id
+// los capturara primero, "despachos" quedaría interpretado como un id
+// (mismo motivo que /lecturas más abajo).
+router.get("/despachos", asyncHandler(controller.listarDespachos.bind(controller)));
+router.get("/despachos/huecos", asyncHandler(controller.getHuecosTalonario.bind(controller)));
+router.post(
+  "/despachos",
+  requireRole("admin", "operador"),
+  validate(crearDespachoCombustibleSchema),
+  asyncHandler(controller.crearDespacho.bind(controller))
+);
+
 router.get("/:id", asyncHandler(controller.getById.bind(controller)));
 router.get("/:id/lecturas", asyncHandler(controller.getLecturas.bind(controller)));
 

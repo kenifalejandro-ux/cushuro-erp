@@ -50,10 +50,15 @@ export const ESCRITURAS_OFFLINE: Record<string, EscrituraOffline[]> = {
   // igual.
   iperc: [{ metodo: "POST", ruta: "/" }],
 
-  // Solo registrar una lectura de tanque. `/lecturas`, NO `/:id/nivel` --
-  // el motor offline (rutasOffline.ts) solo matchea rutas literales, sin
-  // parámetros de URL, así que combustible_id viaja en el body.
-  combustible: [{ metodo: "POST", ruta: "/lecturas" }],
+  // Registrar una lectura de tanque, o un despacho (Fase B -- el vale
+  // digital). Los dos son rutas literales, sin `:id` -- combustible_id/
+  // equipo_id viajan en el body. Alta/edición/baja de tanques y GET
+  // /despachos(/huecos) NO están acá: configuración de planta o lecturas,
+  // no escrituras de campo -- ver ADR-0002 §8.
+  combustible: [
+    { metodo: "POST", ruta: "/lecturas" },
+    { metodo: "POST", ruta: "/despachos" },
+  ],
 
   // Crear el registro (pólizas, SOAT, etc. son `documentos` con otro
   // nombre, no un tipo aparte) Y subir el archivo adjunto. `/:id/versiones`

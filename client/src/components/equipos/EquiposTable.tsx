@@ -10,6 +10,11 @@ interface Equipo {
   tipo: string;
   marca: string | null;
   modelo: string | null;
+  // Fase B de combustible (migrations/0062): qué instrumento mide este
+  // equipo en un despacho de compra externa -- horómetro (horas de motor)
+  // u odómetro (kilometraje), nunca los dos. null = no configurado, y un
+  // despacho compra_externa a este equipo se rechaza hasta que se cargue.
+  tipo_medidor: "horometro" | "odometro" | null;
   activo: boolean;
   creado_en: string;
 }
@@ -22,6 +27,12 @@ const TIPOS_COMUNES = [
   "Perforadora",
   "Otro",
 ];
+
+const ETIQUETA_TIPO_MEDIDOR: Record<"" | "horometro" | "odometro", string> = {
+  "": "No configurado",
+  horometro: "Horómetro (horas de motor)",
+  odometro: "Odómetro (kilometraje)",
+};
 
 export default function EquiposTable() {
   const [equipos, setEquipos] = useState<Equipo[]>([]);
@@ -47,6 +58,7 @@ export default function EquiposTable() {
     tipo: TIPOS_COMUNES[0],
     marca: "",
     modelo: "",
+    tipo_medidor: "" as "" | "horometro" | "odometro",
   });
 
   const fetchEquipos = useCallback(async (paginaAConsultar: number) => {
@@ -86,6 +98,7 @@ export default function EquiposTable() {
       tipo: e.tipo,
       marca: e.marca ?? "",
       modelo: e.modelo ?? "",
+      tipo_medidor: e.tipo_medidor ?? "",
     });
     setIsModalOpen(true);
   };
@@ -109,9 +122,16 @@ export default function EquiposTable() {
     if (enviando) return;
     const url = editingId ? `/api/erp/equipos/${editingId}` : "/api/erp/equipos";
     const method = editingId ? "PUT" : "POST";
+    // "" no es un valor válido del enum -- Zod lo rechazaría (esperaba
+    // "horometro"/"odometro"/undefined, ver equipos.schema.ts). undefined
+    // sí es "no configurado" para el servidor.
+    const datosFormulario = {
+      ...formData,
+      tipo_medidor: formData.tipo_medidor === "" ? undefined : formData.tipo_medidor,
+    };
     // cliente_uuid solo viaja al crear -- editar no pasa por
     // idempotentInsert() del lado del servidor.
-    const body = editingId ? formData : { ...formData, cliente_uuid: clienteUuid };
+    const body = editingId ? datosFormulario : { ...datosFormulario, cliente_uuid: clienteUuid };
     setEnviando(true);
     try {
       const res = await apiFetch(url, {
@@ -126,7 +146,13 @@ export default function EquiposTable() {
 
       setIsModalOpen(false);
       setEditingId(null);
-      setFormData({ placa_codigo: "", tipo: TIPOS_COMUNES[0], marca: "", modelo: "" });
+      setFormData({
+        placa_codigo: "",
+        tipo: TIPOS_COMUNES[0],
+        marca: "",
+        modelo: "",
+        tipo_medidor: "",
+      });
 
       // 202 = no había red y quedó en la cola del dispositivo (ver
       // apiFetch). No se recarga: sin señal el GET también falla, y el
@@ -168,7 +194,13 @@ export default function EquiposTable() {
         <button
           onClick={() => {
             setEditingId(null);
-            setFormData({ placa_codigo: "", tipo: TIPOS_COMUNES[0], marca: "", modelo: "" });
+            setFormData({
+              placa_codigo: "",
+              tipo: TIPOS_COMUNES[0],
+              marca: "",
+              modelo: "",
+              tipo_medidor: "",
+            });
             // Se regenera en cada apertura: si no, el segundo equipo
             // legítimo que se registre reusaría la clave del primero y el
             // servidor devolvería aquel en silencio -- se perdería un
@@ -208,6 +240,9 @@ export default function EquiposTable() {
                 modelo
               </th>
               <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                medidor
+              </th>
+              <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest">
                 estado
               </th>
               <th className="p-5 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
@@ -224,6 +259,13 @@ export default function EquiposTable() {
                 <td className="p-5 text-sm text-slate-600">{e.tipo}</td>
                 <td className="p-5 text-sm text-slate-500">{e.marca || "---"}</td>
                 <td className="p-5 text-sm text-slate-500">{e.modelo || "---"}</td>
+                <td className="p-5 text-sm text-slate-500">
+                  {e.tipo_medidor === "horometro"
+                    ? "Horómetro"
+                    : e.tipo_medidor === "odometro"
+                      ? "Odómetro"
+                      : "---"}
+                </td>
                 <td className="p-5 text-sm">
                   <span className={`font-bold ${e.activo ? "text-emerald-600" : "text-slate-400"}`}>
                     {e.activo ? "Activo" : "Inactivo"}
@@ -317,6 +359,35 @@ export default function EquiposTable() {
                     </option>
                   ))}
                 </select>
+              </div>
+              <div className="space-y-1">
+                <label
+                  htmlFor="equipo-tipo-medidor"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Tipo de medidor
+                </label>
+                <select
+                  id="equipo-tipo-medidor"
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
+                  value={formData.tipo_medidor}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      tipo_medidor: e.target.value as "" | "horometro" | "odometro",
+                    })
+                  }
+                >
+                  {Object.entries(ETIQUETA_TIPO_MEDIDOR).map(([valor, etiqueta]) => (
+                    <option key={valor} value={valor}>
+                      {etiqueta}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-400">
+                  Solo hace falta para despachar combustible de compra externa a este equipo (ruta
+                  Bambamarca). Un volquete se mide por horómetro, un tráiler por odómetro.
+                </p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
