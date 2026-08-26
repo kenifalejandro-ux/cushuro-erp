@@ -6,6 +6,7 @@ import type {
   ActualizarTanqueCombustibleInput,
 } from "../../server/schemas/combustible.schema";
 import type { Paginacion } from "../../server/shared/utils/pagination";
+import { esViolacionUnicidad, esViolacionForeignKey } from "../../server/shared/utils/pgError";
 
 // Columnas comunes a findAll/findById/create/update/delete -- un tanque es
 // el punto de abastecimiento completo, no solo el medidor de antes de la
@@ -431,5 +432,199 @@ export class CombustibleRepository {
 
     const tanque = await this.findById(client, tenantId, lectura.rows[0].combustible_id);
     return { lectura: lectura.rows[0], tanque };
+  }
+
+  // ── Despachos (Fase B, ver docs/architecture/control-de-combustible.md
+  // puntos 1, 2 y 5, y migrations/0062) ──────────────────────────────────
+
+  private static readonly COLUMNAS_DESPACHO = `
+    id, tenant_id, origen, combustible_id, grifo_externo, tipo_combustible,
+    tipo_destino, equipo_id, serie_talonario, n_vale, cantidad,
+    lectura_contometro, lectura_horometro, lectura_odometro, horas_abastecidas,
+    usuario_id, despachado_en, creado_en
+  `;
+
+  /** Inserta un despacho. La unicidad de (tenant_id, serie_talonario,
+   *  n_vale) la impone el constraint de 0062 -- acá se traduce la
+   *  violación (23505) a un mensaje que el controller reconoce para
+   *  responder 409, en vez de dejar pasar el error crudo de Postgres.
+   *
+   *  Las reglas de forma por origen/destino ya las validó el schema Zod
+   *  (mensaje legible, antes de tocar la base); los CHECK de 0062 son la
+   *  red de seguridad para cualquier insert que no pase por ahí. Lo que
+   *  este método SÍ valida (porque necesita datos que Zod no tiene: la
+   *  fila del tanque, la fila del equipo) va en combustible.service.ts. */
+  async crearDespacho(
+    client: PoolClient,
+    tenantId: string,
+    usuarioId: string | null,
+    data: {
+      origen: string;
+      combustibleId: number | null;
+      grifoExterno: string | null;
+      tipoCombustible: string;
+      tipoDestino: string;
+      equipoId: number | null;
+      serieTalonario: string;
+      nVale: number;
+      cantidad: number;
+      lecturaContometro: number | null;
+      lecturaHorometro: number | null;
+      lecturaOdometro: number | null;
+      horasAbastecidas: number | null;
+      despachadoEn: string;
+    }
+  ) {
+    try {
+      const result = await client.query(
+        `
+        INSERT INTO combustible_despachos (
+          tenant_id, origen, combustible_id, grifo_externo, tipo_combustible,
+          tipo_destino, equipo_id, serie_talonario, n_vale, cantidad,
+          lectura_contometro, lectura_horometro, lectura_odometro, horas_abastecidas,
+          usuario_id, despachado_en
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+        RETURNING ${CombustibleRepository.COLUMNAS_DESPACHO}
+        `,
+        [
+          tenantId,
+          data.origen,
+          data.combustibleId,
+          data.grifoExterno,
+          data.tipoCombustible,
+          data.tipoDestino,
+          data.equipoId,
+          data.serieTalonario,
+          data.nVale,
+          data.cantidad,
+          data.lecturaContometro,
+          data.lecturaHorometro,
+          data.lecturaOdometro,
+          data.horasAbastecidas,
+          usuarioId,
+          data.despachadoEn,
+        ]
+      );
+      return result.rows[0];
+    } catch (err) {
+      if (esViolacionUnicidad(err)) {
+        throw new Error(
+          `el vale ${data.nVale} de la serie ${data.serieTalonario} ya está registrado`,
+          { cause: err }
+        );
+      }
+      // combustible_id (tanque) o equipo_id apuntan a una fila que no
+      // existe en este tenant -- el nombre del constraint (Postgres lo
+      // arma solo, `<tabla>_<columna>_fkey`) dice cuál de las dos FK fue.
+      if (esViolacionForeignKey(err)) {
+        const constraint = (err as { constraint?: string }).constraint ?? "";
+        if (constraint.includes("combustible_id")) {
+          throw new Error(`combustible_id ${data.combustibleId} no existe en este tenant`, {
+            cause: err,
+          });
+        }
+        if (constraint.includes("equipo_id")) {
+          throw new Error(`equipo_id ${data.equipoId} no existe en este tenant`, { cause: err });
+        }
+      }
+      throw err;
+    }
+  }
+
+  /** Chequeo barato ANTES de validar la forma del despacho -- si el vale ya
+   *  existe, eso tiene que ganarle a cualquier otro 400 (contómetro,
+   *  medidor): "ya está registrado" es una señal más fuerte que un dato
+   *  raro en el reintento, y es la misma que el grifero necesita ver para
+   *  entender que esto fue un doble tipeo, no un error de forma. */
+  async existeVale(
+    client: PoolClient,
+    tenantId: string,
+    serieTalonario: string,
+    nVale: number
+  ): Promise<boolean> {
+    const result = await client.query(
+      `SELECT 1 FROM combustible_despachos
+       WHERE tenant_id = $1 AND serie_talonario = $2 AND n_vale = $3`,
+      [tenantId, serieTalonario, nVale]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async findDespachoPorId(client: PoolClient, tenantId: string, id: number) {
+    const result = await client.query(
+      `SELECT ${CombustibleRepository.COLUMNAS_DESPACHO}
+       FROM combustible_despachos WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async findDespachos(
+    client: PoolClient,
+    tenantId: string,
+    filtros: { equipoId?: number; serieTalonario?: string },
+    { pageSize, offset }: Paginacion
+  ) {
+    const condiciones: string[] = ["tenant_id = $1"];
+    const valores: unknown[] = [tenantId];
+
+    if (filtros.equipoId !== undefined) {
+      valores.push(filtros.equipoId);
+      condiciones.push(`equipo_id = $${valores.length}`);
+    }
+    if (filtros.serieTalonario !== undefined) {
+      valores.push(filtros.serieTalonario);
+      condiciones.push(`serie_talonario = $${valores.length}`);
+    }
+
+    valores.push(pageSize, offset);
+    const result = await client.query(
+      `
+      SELECT ${CombustibleRepository.COLUMNAS_DESPACHO}, COUNT(*) OVER() AS total_count
+      FROM combustible_despachos
+      WHERE ${condiciones.join(" AND ")}
+      ORDER BY despachado_en DESC, id DESC
+      LIMIT $${valores.length - 1} OFFSET $${valores.length}
+      `,
+      valores
+    );
+    return result.rows;
+  }
+
+  /** Punto 1 reescrito: consulta bajo demanda, no persiste nada -- no hay
+   *  período abierto/cerrado ni `combustible_anomalias` acá (eso es la
+   *  "maquinaria de conciliación" del punto 4, Fase D). Si no hay ningún
+   *  vale en esa serie, MIN/MAX dan NULL -- se corta antes de llamar
+   *  generate_series(), que revienta con límites NULL. */
+  async findHuecosTalonario(client: PoolClient, tenantId: string, serieTalonario: string) {
+    const limites = await client.query<{ minimo: number | null; maximo: number | null }>(
+      `SELECT MIN(n_vale) AS minimo, MAX(n_vale) AS maximo
+       FROM combustible_despachos WHERE tenant_id = $1 AND serie_talonario = $2`,
+      [tenantId, serieTalonario]
+    );
+    const { minimo, maximo } = limites.rows[0];
+    if (minimo === null || maximo === null) {
+      return { serie: serieTalonario, huecos: [] as number[], ultimo: null as number | null };
+    }
+
+    const huecos = await client.query<{ n_vale: number }>(
+      `
+      SELECT gs AS n_vale
+      FROM generate_series($3::int, $4::int) AS gs
+      WHERE NOT EXISTS (
+        SELECT 1 FROM combustible_despachos d
+        WHERE d.tenant_id = $1 AND d.serie_talonario = $2 AND d.n_vale = gs
+      )
+      ORDER BY gs
+      `,
+      [tenantId, serieTalonario, minimo, maximo]
+    );
+
+    return {
+      serie: serieTalonario,
+      huecos: huecos.rows.map((f) => f.n_vale),
+      ultimo: maximo,
+    };
   }
 }

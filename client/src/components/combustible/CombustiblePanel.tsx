@@ -46,6 +46,40 @@ interface Lectura {
   registrada_por_nombre: string | null;
 }
 
+/** Fase B (migrations/0062) -- solo los campos que el formulario de
+ *  despacho necesita, no el shape completo de GET /equipos. */
+interface Equipo {
+  id: number;
+  placa_codigo: string;
+  tipo: string;
+  tipo_medidor: "horometro" | "odometro" | null;
+}
+
+type OrigenDespacho = "tanque_propio" | "compra_externa";
+type TipoDestinoDespacho = "equipo" | "planta" | "reserva_cubeta";
+
+const ETIQUETA_TIPO_DESTINO: Record<TipoDestinoDespacho, string> = {
+  equipo: "Un equipo",
+  planta: "Planta (sin placa)",
+  reserva_cubeta: "Reserva en cubeta",
+};
+
+const DESPACHO_FORM_INICIAL = {
+  origen: "tanque_propio" as OrigenDespacho,
+  combustible_id: "",
+  grifo_externo: "",
+  tipo_combustible: "diesel_b5" as Tanque["tipo_combustible"],
+  tipo_destino: "equipo" as TipoDestinoDespacho,
+  equipo_id: "",
+  serie_talonario: "",
+  n_vale: "",
+  cantidad: "",
+  lectura_contometro: "",
+  lectura_horometro: "",
+  lectura_odometro: "",
+  horas_abastecidas: "",
+};
+
 const ETIQUETA_TIPO_COMBUSTIBLE: Record<Tanque["tipo_combustible"], string> = {
   diesel_b5: "Diésel B5",
   gasolina_90: "Gasolina 90",
@@ -213,17 +247,39 @@ export default function CombustiblePanel() {
   // ver el mismo comentario donde vivía antes en este archivo.
   const [clienteUuid, setClienteUuid] = useState("");
 
+  // --- Registrar despacho (Fase B, offline-capaz) ---
+  const [equipos, setEquipos] = useState<Equipo[]>([]);
+  const [modalDespachoAbierto, setModalDespachoAbierto] = useState(false);
+  const [despachoForm, setDespachoForm] = useState(DESPACHO_FORM_INICIAL);
+  const [despachadoEn, setDespachadoEn] = useState(ahoraParaInputLocal());
+  // Mismo motivo que horaEditadaAMano de la lectura: si nadie toca el
+  // campo, se manda el momento real del submit (con segundos), no el
+  // valor con el que se abrió el modal.
+  const [horaDespachoEditadaAMano, setHoraDespachoEditadaAMano] = useState(false);
+  const [enviandoDespacho, setEnviandoDespacho] = useState(false);
+  const [clienteUuidDespacho, setClienteUuidDespacho] = useState("");
+
   const cargarTanques = useCallback(async () => {
     const res = await apiFetch("/api/erp/combustible");
     const data = await res.json();
     setTanques(Array.isArray(data) ? data : []);
   }, []);
 
+  // pageSize=200 (el máximo, ver pagination.ts) alcanza para el <select> de
+  // este formulario -- un buscador de equipos aparte es más de lo que Fase
+  // B necesita ("solo lo indispensable para que el grifero pueda cargar
+  // vales").
+  const cargarEquipos = useCallback(async () => {
+    const res = await apiFetch("/api/erp/equipos?pageSize=200");
+    const body = await res.json().catch(() => null);
+    setEquipos(Array.isArray(body?.data) ? body.data : []);
+  }, []);
+
   useEffect(() => {
     // Patrón estándar de carga al montar -- ver IpercView.tsx.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    cargarTanques().finally(() => setLoading(false));
-  }, [cargarTanques]);
+    Promise.all([cargarTanques(), cargarEquipos()]).finally(() => setLoading(false));
+  }, [cargarTanques, cargarEquipos]);
 
   // Cuando la cola offline termina de drenar, una lectura cargada sin señal
   // ya existe del lado del servidor -- recargar pone nivel_actual al día
@@ -567,6 +623,102 @@ export default function CombustiblePanel() {
     }
   };
 
+  // --- Registrar despacho (Fase B) ---
+
+  const abrirModalDespacho = () => {
+    setDespachoForm(DESPACHO_FORM_INICIAL);
+    setDespachadoEn(ahoraParaInputLocal());
+    setHoraDespachoEditadaAMano(false);
+    setMensajeExito(null);
+    setClienteUuidDespacho(crypto.randomUUID());
+    setModalDespachoAbierto(true);
+  };
+
+  const equipoSeleccionado = equipos.find((eq) => eq.id === Number(despachoForm.equipo_id));
+
+  const handleRegistrarDespacho = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (enviandoDespacho) return;
+
+    const despachadoEnIso = horaDespachoEditadaAMano
+      ? new Date(despachadoEn).toISOString()
+      : new Date().toISOString();
+
+    // Solo se manda lo que aplica al origen elegido -- el resto queda fuera
+    // del body en vez de ir como "" o 0, que el schema del servidor
+    // rechazaría igual (ver crearDespachoCombustibleSchema.superRefine).
+    const body =
+      despachoForm.origen === "tanque_propio"
+        ? {
+            cliente_uuid: clienteUuidDespacho,
+            origen: "tanque_propio",
+            combustible_id: Number(despachoForm.combustible_id),
+            tipo_combustible: despachoForm.tipo_combustible,
+            tipo_destino: despachoForm.tipo_destino,
+            equipo_id:
+              despachoForm.tipo_destino === "equipo" ? Number(despachoForm.equipo_id) : undefined,
+            serie_talonario: despachoForm.serie_talonario,
+            n_vale: Number(despachoForm.n_vale),
+            cantidad: Number(despachoForm.cantidad),
+            lectura_contometro: Number(despachoForm.lectura_contometro),
+            despachado_en: despachadoEnIso,
+          }
+        : {
+            cliente_uuid: clienteUuidDespacho,
+            origen: "compra_externa",
+            grifo_externo: despachoForm.grifo_externo,
+            tipo_combustible: despachoForm.tipo_combustible,
+            tipo_destino: "equipo",
+            equipo_id: Number(despachoForm.equipo_id),
+            serie_talonario: despachoForm.serie_talonario,
+            n_vale: Number(despachoForm.n_vale),
+            cantidad: Number(despachoForm.cantidad),
+            lectura_horometro:
+              equipoSeleccionado?.tipo_medidor === "horometro"
+                ? Number(despachoForm.lectura_horometro)
+                : undefined,
+            lectura_odometro:
+              equipoSeleccionado?.tipo_medidor === "odometro"
+                ? Number(despachoForm.lectura_odometro)
+                : undefined,
+            horas_abastecidas: Number(despachoForm.horas_abastecidas),
+            despachado_en: despachadoEnIso,
+          };
+
+    setEnviandoDespacho(true);
+    try {
+      const res = await apiFetch("/api/erp/combustible/despachos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        alert(errBody.error || errBody.errors?.[0]?.message || "Error al registrar el despacho.");
+        return;
+      }
+
+      setModalDespachoAbierto(false);
+
+      // 202 = sin red, quedó en la cola del dispositivo -- mismo criterio
+      // que registrar una lectura.
+      if (res.status === 202) {
+        setMensajeExito(
+          `Sin conexión: el vale ${despachoForm.n_vale} de la serie ${despachoForm.serie_talonario} ` +
+            `quedó guardado en este equipo y se enviará solo cuando vuelva la señal.`
+        );
+        return;
+      }
+
+      setMensajeExito(
+        `Despacho registrado: vale ${despachoForm.n_vale} de la serie ${despachoForm.serie_talonario}.`
+      );
+    } finally {
+      setEnviandoDespacho(false);
+    }
+  };
+
   if (loading) {
     return <div className="p-10">Cargando combustible...</div>;
   }
@@ -595,6 +747,12 @@ export default function CombustiblePanel() {
               onChange={handleExcelUpload}
             />
           </label>
+          <button
+            onClick={abrirModalDespacho}
+            className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition-all"
+          >
+            ⛽ Registrar despacho
+          </button>
           <button
             onClick={abrirModalNuevo}
             className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl transition-all"
@@ -1271,6 +1429,415 @@ export default function CombustiblePanel() {
                 className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4 disabled:opacity-50"
               >
                 {enviandoLectura ? "Registrando..." : "Registrar lectura"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Modal: registrar despacho (Fase B) */}
+      {modalDespachoAbierto && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b flex justify-between items-center">
+              <h3 className="text-xl font-bold">Registrar despacho</h3>
+              <button
+                onClick={() => setModalDespachoAbierto(false)}
+                className="text-slate-400 hover:text-slate-900 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleRegistrarDespacho} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="despacho-origen"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Origen
+                  </label>
+                  <select
+                    id="despacho-origen"
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
+                    value={despachoForm.origen}
+                    onChange={(e) =>
+                      setDespachoForm({
+                        ...DESPACHO_FORM_INICIAL,
+                        origen: e.target.value as OrigenDespacho,
+                      })
+                    }
+                  >
+                    <option value="tanque_propio">Tanque propio</option>
+                    <option value="compra_externa">Compra externa (ruta)</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label
+                    htmlFor="despacho-tipo-combustible"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Combustible
+                  </label>
+                  <select
+                    id="despacho-tipo-combustible"
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
+                    value={despachoForm.tipo_combustible}
+                    onChange={(e) =>
+                      setDespachoForm({
+                        ...despachoForm,
+                        tipo_combustible: e.target.value as Tanque["tipo_combustible"],
+                      })
+                    }
+                  >
+                    {Object.entries(ETIQUETA_TIPO_COMBUSTIBLE).map(([valor, etiqueta]) => (
+                      <option key={valor} value={valor}>
+                        {etiqueta}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {despachoForm.origen === "tanque_propio" ? (
+                <>
+                  <div className="space-y-1">
+                    <label
+                      htmlFor="despacho-tanque"
+                      className="text-xs font-bold text-slate-500 uppercase"
+                    >
+                      Tanque
+                    </label>
+                    <select
+                      id="despacho-tanque"
+                      required
+                      className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
+                      value={despachoForm.combustible_id}
+                      onChange={(e) =>
+                        setDespachoForm({ ...despachoForm, combustible_id: e.target.value })
+                      }
+                    >
+                      <option value="" disabled>
+                        Elegir tanque
+                      </option>
+                      {tanques
+                        .filter((t) => t.activo)
+                        .map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.tanque_nombre}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label
+                        htmlFor="despacho-cantidad"
+                        className="text-xs font-bold text-slate-500 uppercase"
+                      >
+                        Cantidad despachada
+                      </label>
+                      <input
+                        id="despacho-cantidad"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        required
+                        className="w-full border border-slate-200 rounded-xl p-3 outline-none"
+                        value={despachoForm.cantidad}
+                        onChange={(e) =>
+                          setDespachoForm({ ...despachoForm, cantidad: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label
+                        htmlFor="despacho-contometro"
+                        className="text-xs font-bold text-slate-500 uppercase"
+                      >
+                        Lectura del contómetro
+                      </label>
+                      <input
+                        id="despacho-contometro"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        required
+                        className="w-full border border-slate-200 rounded-xl p-3 outline-none"
+                        value={despachoForm.lectura_contometro}
+                        onChange={(e) =>
+                          setDespachoForm({ ...despachoForm, lectura_contometro: e.target.value })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    El contómetro resetea a 0 en cada despacho: tiene que coincidir con la cantidad,
+                    o el servidor lo rechaza.
+                  </p>
+                  <div className="space-y-1">
+                    <label
+                      htmlFor="despacho-tipo-destino"
+                      className="text-xs font-bold text-slate-500 uppercase"
+                    >
+                      Destino
+                    </label>
+                    <select
+                      id="despacho-tipo-destino"
+                      className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
+                      value={despachoForm.tipo_destino}
+                      onChange={(e) =>
+                        setDespachoForm({
+                          ...despachoForm,
+                          tipo_destino: e.target.value as TipoDestinoDespacho,
+                          equipo_id: "",
+                        })
+                      }
+                    >
+                      {Object.entries(ETIQUETA_TIPO_DESTINO).map(([valor, etiqueta]) => (
+                        <option key={valor} value={valor}>
+                          {etiqueta}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {despachoForm.tipo_destino === "equipo" && (
+                    <div className="space-y-1">
+                      <label
+                        htmlFor="despacho-equipo"
+                        className="text-xs font-bold text-slate-500 uppercase"
+                      >
+                        Equipo
+                      </label>
+                      <select
+                        id="despacho-equipo"
+                        required
+                        className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
+                        value={despachoForm.equipo_id}
+                        onChange={(e) =>
+                          setDespachoForm({ ...despachoForm, equipo_id: e.target.value })
+                        }
+                      >
+                        <option value="" disabled>
+                          Elegir equipo
+                        </option>
+                        {equipos.map((eq) => (
+                          <option key={eq.id} value={eq.id}>
+                            {eq.placa_codigo} — {eq.tipo}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="space-y-1">
+                    <label
+                      htmlFor="despacho-grifo"
+                      className="text-xs font-bold text-slate-500 uppercase"
+                    >
+                      Grifo
+                    </label>
+                    <input
+                      id="despacho-grifo"
+                      type="text"
+                      required
+                      placeholder="Ej. PRIMAX, VELASQUEZ"
+                      maxLength={150}
+                      className="w-full border border-slate-200 rounded-xl p-3 outline-none"
+                      value={despachoForm.grifo_externo}
+                      onChange={(e) =>
+                        setDespachoForm({ ...despachoForm, grifo_externo: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label
+                      htmlFor="despacho-equipo-externo"
+                      className="text-xs font-bold text-slate-500 uppercase"
+                    >
+                      Equipo
+                    </label>
+                    <select
+                      id="despacho-equipo-externo"
+                      required
+                      className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
+                      value={despachoForm.equipo_id}
+                      onChange={(e) =>
+                        setDespachoForm({ ...despachoForm, equipo_id: e.target.value })
+                      }
+                    >
+                      <option value="" disabled>
+                        Elegir equipo
+                      </option>
+                      {equipos.map((eq) => (
+                        <option key={eq.id} value={eq.id}>
+                          {eq.placa_codigo} — {eq.tipo}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {despachoForm.equipo_id !== "" && !equipoSeleccionado?.tipo_medidor && (
+                    <p className="text-xs text-red-600">
+                      Este equipo no tiene tipo de medidor configurado (horómetro/odómetro).
+                      Configuralo en Equipos antes de continuar.
+                    </p>
+                  )}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label
+                        htmlFor="despacho-cantidad-externa"
+                        className="text-xs font-bold text-slate-500 uppercase"
+                      >
+                        Cantidad despachada
+                      </label>
+                      <input
+                        id="despacho-cantidad-externa"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        required
+                        className="w-full border border-slate-200 rounded-xl p-3 outline-none"
+                        value={despachoForm.cantidad}
+                        onChange={(e) =>
+                          setDespachoForm({ ...despachoForm, cantidad: e.target.value })
+                        }
+                      />
+                    </div>
+                    {equipoSeleccionado?.tipo_medidor === "odometro" ? (
+                      <div className="space-y-1">
+                        <label
+                          htmlFor="despacho-odometro"
+                          className="text-xs font-bold text-slate-500 uppercase"
+                        >
+                          Lectura odómetro
+                        </label>
+                        <input
+                          id="despacho-odometro"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          required
+                          className="w-full border border-slate-200 rounded-xl p-3 outline-none"
+                          value={despachoForm.lectura_odometro}
+                          onChange={(e) =>
+                            setDespachoForm({ ...despachoForm, lectura_odometro: e.target.value })
+                          }
+                        />
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <label
+                          htmlFor="despacho-horometro"
+                          className="text-xs font-bold text-slate-500 uppercase"
+                        >
+                          Lectura horómetro
+                        </label>
+                        <input
+                          id="despacho-horometro"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          required
+                          disabled={!equipoSeleccionado?.tipo_medidor}
+                          className="w-full border border-slate-200 rounded-xl p-3 outline-none disabled:bg-slate-50"
+                          value={despachoForm.lectura_horometro}
+                          onChange={(e) =>
+                            setDespachoForm({ ...despachoForm, lectura_horometro: e.target.value })
+                          }
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <label
+                      htmlFor="despacho-horas-abastecidas"
+                      className="text-xs font-bold text-slate-500 uppercase"
+                    >
+                      Horas abastecidas (desde la carga anterior)
+                    </label>
+                    <input
+                      id="despacho-horas-abastecidas"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      required
+                      className="w-full border border-slate-200 rounded-xl p-3 outline-none"
+                      value={despachoForm.horas_abastecidas}
+                      onChange={(e) =>
+                        setDespachoForm({ ...despachoForm, horas_abastecidas: e.target.value })
+                      }
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="despacho-serie"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Serie del talonario
+                  </label>
+                  <input
+                    id="despacho-serie"
+                    type="text"
+                    required
+                    maxLength={20}
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none"
+                    value={despachoForm.serie_talonario}
+                    onChange={(e) =>
+                      setDespachoForm({ ...despachoForm, serie_talonario: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label
+                    htmlFor="despacho-n-vale"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    N° de vale
+                  </label>
+                  <input
+                    id="despacho-n-vale"
+                    type="number"
+                    min={1}
+                    required
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none"
+                    value={despachoForm.n_vale}
+                    onChange={(e) => setDespachoForm({ ...despachoForm, n_vale: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label
+                  htmlFor="despacho-fecha"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Fecha y hora del despacho
+                </label>
+                <input
+                  id="despacho-fecha"
+                  type="datetime-local"
+                  required
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none"
+                  value={despachadoEn}
+                  onChange={(e) => {
+                    setDespachadoEn(e.target.value);
+                    setHoraDespachoEditadaAMano(true);
+                  }}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={enviandoDespacho}
+                className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all mt-4 disabled:opacity-50"
+              >
+                {enviandoDespacho ? "Registrando..." : "Registrar despacho"}
               </button>
             </form>
           </div>

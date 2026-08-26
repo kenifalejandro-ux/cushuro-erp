@@ -13,54 +13,63 @@ El módulo resuelve un problema concreto: un grifero despacha combustible en cam
 
 ## Caso de referencia
 
-Surtidor "Grifo Cantera", grifero Juan, equipos EX-04 (excavadora), VQ-12 (volquete), CG-02 (cargador). El contómetro del surtidor cerró el lunes en 12.400,0 gal. Juan tiene el block de vales serie A, numerados 00021 a 00050.
+Surtidor "Grifo Cantera", grifero Juan, equipos EX-04 (excavadora), VQ-12 (volquete), CG-02 (cargador). El contómetro se resetea a 0,0 antes de cada despacho. Juan tiene el block de vales serie A, numerados 00021 a 00050.
 
 | Vale | Equipo | Contómetro | Cantidad |
 |---|---|---|---|
-| 00021 | EX-04 | 12.400,0 → 12.435,0 | 35 gal |
-| 00022 | VQ-12 | 12.435,0 → 12.463,0 | 28 gal |
-| 00023 | CG-02 | 12.463,0 → 12.498,0 | 35 gal |
-| 00024 | VQ-12 | 12.498,0 → 12.520,0 | 22 gal |
+| 00021 | EX-04 | 0,0 → 35,0 | 35 gal |
+| 00022 | VQ-12 | 0,0 → 28,0 | 28 gal |
+| 00023 | CG-02 | 0,0 → 35,0 | 35 gal |
+| 00024 | VQ-12 | 0,0 → 22,0 | 22 gal |
+
+Contómetro y Cantidad muestran el mismo número a propósito: como el aparato siempre arranca en 0,0, el cierre del contómetro y la cantidad declarada son el mismo dato, tipeado dos veces por la misma persona — de ahí sale el chequeo del punto 5.
 
 Los cinco puntos de abajo se explican todos sobre este mismo caso.
 
 ---
 
-## 1. Hueco de talonario y salto de contómetro son el mismo problema
+## 1. Hueco de talonario — el único chequeo de continuidad entre despachos
 
-Martes 08:15: Juan despacha 35 gal a EX-04 (vale 00021). La tablet está sin señal → el vale queda en cola en el dispositivo, todavía no llegó al servidor.
+Martes 08:15: Juan despacha 35 gal a EX-04 (vale 00021, serie A). La tablet está sin señal → el vale queda en cola en el dispositivo, todavía no llegó al servidor.
 
-Martes 10:30: despacha 28 gal a VQ-12 (vale 00022). Acá sí hay señal → sincroniza al instante.
+Martes 10:30: despacha 28 gal a VQ-12 (vale 00022, serie A). Acá sí hay señal → sincroniza al instante.
 
-A las 11:00 el servidor solo tiene el vale 00022, y dispara dos alarmas:
+A las 11:00 el servidor solo tiene el vale 00022 de la serie A, y el preview de conciliación (ver punto 4) marca:
 
 ```
-⚠ Hueco de talonario:  falta el vale 00021
-⚠ Salto de contómetro: el último cierre conocido es 12.400,0
-                       pero el vale 00022 abre en 12.435,0
-                       → 35 gal salieron sin vale
+⚠ Hueco de talonario: falta el vale 00021 de la serie A
 ```
 
-Las dos son falsas, y las dos tienen la misma causa: falta un registro que sí existe, pero todavía está en la tablet de Juan. A las 18:00, cuando vuelve la señal y el 00021 sincroniza, las dos alarmas desaparecen solas.
+Es una falsa alarma: falta un registro que sí existe, pero todavía está en la tablet de Juan. A las 18:00, cuando vuelve la señal y el 00021 sincroniza, la alarma desaparece sola.
 
-**Implicación de diseño**: son un solo chequeo, no dos. Verificar continuidad de talonario y verificar continuidad de contómetro son la misma operación (¿la secuencia de vales de este punto de abastecimiento está completa?) aplicada a dos columnas distintas. Un solo motor de conciliación, no dos validadores independientes que puedan divergir.
+**Por qué ya no hay una segunda alarma acá**: el diseño original disparaba también "salto de contómetro", comparando el último cierre conocido contra la apertura del vale 00022 — razonando que el contómetro encadena un vale con el siguiente (el cierre de uno es la apertura del otro). Se confirmó con el cliente que el contómetro del surtidor se resetea a cero en cada despacho: esa cadena de cierre/apertura entre vales distintos no existe, así que ese cálculo no se puede hacer con el dato real (ver punto 2). El contómetro sigue vivo, pero acotado a la validación DENTRO de un mismo vale — que lo tipeado coincida con lo que el aparato marcó en esa transacción puntual (punto 5) — no a la continuidad entre transacciones.
 
-## 2. El contómetro es el número de secuencia, no el reloj
+**Implicación de diseño**: un solo motor de conciliación, un solo dato — la secuencia de N°VALE dentro de su serie de talonario (ver alcance del correlativo en el punto 2), no dos validadores independientes que puedan divergir entre sí. Igual que antes, esto nunca bloquea el registro en cancha: el hueco solo aparece en el preview/conciliación de período (punto 4); lo que sí bloquea en el momento es que el vale se contradiga a sí mismo (punto 5).
 
-Para verificar continuidad hay que ordenar los vales — y el reloj del dispositivo no es confiable (se resetea, cambia de zona horaria, nadie lo nota). Ejemplo: la tablet de Juan tiene el reloj 4 horas adelantado.
+## 2. El N°VALE es el número de secuencia, no el contómetro ni el reloj
 
-| Vale | Hora real | Hora que graba la tablet | Contómetro |
-|---|---|---|---|
-| 00023 | 10:00 | 14:00 ❌ | 12.463,0 → 12.498,0 |
-| 00024 | 12:00 | 12:00 ✓ | 12.498,0 → 12.520,0 |
+Para verificar continuidad hay que ordenar los vales. Ninguno de los dos relojes obvios sirve para eso.
 
-Si se ordena por hora de despacho: 00024 (12:00) antes que 00023 (14:00) → el contómetro retrocedió 57 galones entre un vale y el siguiente. Imposible físicamente, el sistema gritaría fraude sobre un reloj mal puesto.
+**El contómetro no ordena nada.** Se le preguntó al cliente y confirmó: el contador del surtidor se resetea a cero en cada despacho — no es un acumulado que crece vale tras vale, es el instrumento que produce el número de GALONES de esa transacción puntual (0 → 35 en un vale, 0 → 28 en el siguiente). No hay lectura que encadene el cierre de un vale con la apertura del siguiente, que es justo lo que el diseño original de este punto asumía. Ese mecanismo (ordenar por `totalizador_inicio`/`totalizador_fin`) no se puede implementar con el dato real.
 
-Si se ordena por `totalizador_inicio`: 00023 (12.463,0) antes que 00024 (12.498,0) → 00023 cierra en 12.498,0, 00024 abre en 12.498,0, perfecto.
+**El reloj del dispositivo tampoco**: se resetea, cambia de zona horaria, nadie lo nota. Ejemplo: la tablet de Juan tiene el reloj 4 horas adelantado.
 
-**Regla**: el contómetro (un contador físico que solo sube) ordena los vales, nunca el timestamp del dispositivo. Es dato de campo, no depende del reloj de nadie ni del orden de sincronización.
+| Vale | Hora real | Hora que graba la tablet |
+|---|---|---|
+| 00023 | 10:00 | 14:00 ❌ |
+| 00024 | 12:00 | 12:00 ✓ |
 
-**Consecuencia gratis**: si ordenar por contómetro y ordenar por timestamp dan resultados distintos, eso en sí mismo es señal de un reloj mal puesto o una fecha falseada — un control que no hubo que diseñar aparte, sale de comparar los dos órdenes.
+Si se ordena por hora de despacho: 00024 (12:00) antes que 00023 (14:00) → el N°VALE retrocedió del 24 al 23. Imposible, el talonario se llena en orden a mano.
+
+Si se ordena por N°VALE: 00023 antes que 00024, como corresponde — el reloj mal puesto no cambia nada.
+
+**Regla**: el N°VALE — el correlativo escrito a mano en el talonario físico — ordena los vales, nunca el timestamp del dispositivo ni una lectura de contómetro. Es el único dato de campo que de verdad se llena siempre, sin excepción, en cada vale del tanque propio de Huamachuco (a diferencia de H.ABST y OROMETRO, que quedan en blanco en todos los cierres ahí).
+
+**Consecuencia gratis** (se mantiene igual): si ordenar por N°VALE y ordenar por timestamp dan resultados distintos, eso en sí mismo es señal de un reloj mal puesto o una fecha falseada — sale de comparar los dos órdenes, no hay que diseñar un control aparte.
+
+**Alcance del correlativo — reinicia por talonario**: el N°VALE no es una secuencia continua a lo largo del año, reinicia con cada talonario/serie nuevo (dos talonarios distintos pueden tener ambos un vale 00023). La continuidad se verifica DENTRO de la misma serie, nunca comparando números entre series distintas — `combustible_despachos` necesita un campo de serie/talonario además del número, o cualquier chequeo de hueco dispara falsos positivos apenas arranca un talonario nuevo.
+
+**Reservado, no descartado**: `combustible.totalizador_actual` (columna de la Fase A) queda reservada por si el surtidor tiene, además del contador de venta que se resetea, un acumulado mecánico de por vida que nunca vuelve a cero — pregunta todavía sin responder por el cliente. Si existe, ese dato puede reforzar este punto y el punto 1 (detectar combustible que salió sin vale). Hasta tener la respuesta, el control real de este punto es el N°VALE.
 
 ## 3. Talonarios: hace falta una válvula de escape
 
@@ -83,9 +92,9 @@ La primera vez Juan explica que se mojó. La segunda, también. A la tercera su 
 
 Mismo martes, tres momentos:
 
-**14:00, período abierto**, el vale 00021 sigue en la tablet. La pantalla muestra el preview del período (hueco de talonario + salto de contómetro), calculado al vuelo. **No se escribe ninguna fila en la base.**
+**14:00, período abierto**, el vale 00021 sigue en la tablet. La pantalla muestra el preview del período (hueco de talonario, punto 1), calculado al vuelo. **No se escribe ninguna fila en la base.**
 
-**18:00**, sincroniza el 00021. El preview se recalcula solo, las dos alertas desaparecen. No queda rastro, porque nunca se escribió nada.
+**18:00**, sincroniza el 00021. El preview se recalcula solo, la alerta desaparece. No queda rastro, porque nunca se escribió nada.
 
 **Miércoles 09:00**, el admin cierra el período del martes. Recién ahí lo que siga sin explicación se congela en `combustible_anomalias` como hallazgo permanente, y la conciliación del martes queda inmutable.
 
@@ -98,7 +107,7 @@ Mismo martes, tres momentos:
 **Bloquea — el vale se contradice a sí mismo**, sin necesitar ningún otro dato:
 
 - Vale duplicado: Juan carga el 00022 dos veces sin darse cuenta → `409` — no hubo doble despacho, hubo doble tipeo, y la cola offline lo saca solo. El vale ya cargado se muestra en pantalla.
-- Contómetro no coincide con la cantidad declarada: contómetro dice 12.463,0 → 12.498,0 = 35 gal, Juan escribió 53 (transpuso los dígitos) → `400`, se corrige ahí mismo con el papel en la mano — el mejor momento posible, mañana nadie se acuerda.
+- Contómetro no coincide con la cantidad declarada: el aparato marcó 0,0 → 35,0 (35 gal) pero Juan escribió 53 (transpuso los dígitos) → `400`, se corrige ahí mismo con el papel en la mano — el mejor momento posible, mañana nadie se acuerda. Es control de calidad de dato, no anti-fraude: los dos números salen de la misma persona mirando el mismo aparato, así que esto agarra el error de tipeo, no a alguien que declara a propósito un número falso — eso lo detecta el hueco de talonario (punto 1), que no depende de lo que el operador escribe.
 
 **No bloquea — la duda depende de otros vales o de otro dato**, se registra igual y se marca:
 
@@ -114,8 +123,8 @@ Mismo martes, tres momentos:
 | Fase | Qué entra |
 |---|---|
 | **A** | Fundación: tanques/puntos de abastecimiento como entidad completa (ABM real, hoy solo existe `PUT /:id/nivel`). Ver prompt de ejecución en la rama `feat/combustible-tanques-crud`. |
-| **B** | `combustible_despachos` + extensión de equipos + contómetro como secuencia + cola offline (puntos 1 y 2 de este documento). El corazón del módulo. |
+| **B** | `combustible_despachos` + extensión de equipos + N°VALE (talonario) como secuencia + cola offline + validación síncrona del registro (puntos 1, 2 y 5 de este documento). El corazón del módulo. |
 | **C** | `combustible_recepciones` + costo ponderado (`costo_promedio`, reservado desde la Fase A pero sin lógica hasta acá). |
-| **D** | Conciliación de período, `combustible_anomalias`, reportes, y talonarios con anulación (puntos 3, 4 y 5) si se decide que entran. |
+| **D** | Conciliación de período, `combustible_anomalias`, reportes, y talonarios con anulación (puntos 3 y 4) si se decide que entran. |
 
-Cada fase depende de que la anterior esté en `main` — en particular, B no arranca sin que el ABM de tanques (A) esté completo, porque el contómetro (punto 2) vive en el punto de abastecimiento, no en el despacho.
+Cada fase depende de que la anterior esté en `main` — en particular, B no arranca sin que el ABM de tanques (A) esté completo, porque el talonario (N°VALE, punto 2) se administra por punto de abastecimiento, no por despacho aislado.

@@ -6,9 +6,11 @@ import type {
   RegistrarLecturaCombustibleInput,
   CrearTanqueCombustibleInput,
   ActualizarTanqueCombustibleInput,
+  CrearDespachoCombustibleInput,
 } from "../../server/schemas/combustible.schema";
 import { idempotentInsert } from "../../server/shared/utils/idempotentInsert";
 import { CombustibleRepository } from "./combustible.repository";
+import { EquiposRepository } from "../equipos/equipos.repository";
 
 export class CombustibleService {
   private repository = new CombustibleRepository();
@@ -118,5 +120,123 @@ export class CombustibleService {
       metadata: {},
     });
     return tanque;
+  }
+
+  // ── Despachos (Fase B) ───────────────────────────────────────────────
+
+  /** Valida lo que el schema Zod no puede (necesita consultar otras filas)
+   *  y crea el despacho envuelto en idempotentInsert -- mismo `modulo:
+   *  "combustible"` que registrarLectura(), así un reintento con el mismo
+   *  cliente_uuid no duplica sin importar si fue una lectura o un
+   *  despacho lo que se reintentó. */
+  crearDespacho(
+    client: PoolClient,
+    tenantId: string,
+    usuarioId: string,
+    data: CrearDespachoCombustibleInput
+  ) {
+    return idempotentInsert({
+      client,
+      tenantId,
+      modulo: "combustible",
+      clienteUuid: data.cliente_uuid,
+      insertar: async () => {
+        // El duplicado le gana a cualquier otro 400 -- ver el comentario de
+        // CombustibleRepository.existeVale. El constraint único de 0062
+        // sigue siendo la red de seguridad real contra una carrera entre
+        // dos requests simultáneos; esto es solo para dar la señal correcta
+        // en el caso común (no concurrente).
+        if (await this.repository.existeVale(client, tenantId, data.serie_talonario, data.n_vale)) {
+          throw new Error(
+            `el vale ${data.n_vale} de la serie ${data.serie_talonario} ya está registrado`
+          );
+        }
+
+        await this.validarFormaDespacho(client, tenantId, data);
+
+        const fila = await this.repository.crearDespacho(client, tenantId, usuarioId, {
+          origen: data.origen,
+          combustibleId: data.combustible_id ?? null,
+          grifoExterno: data.grifo_externo ?? null,
+          tipoCombustible: data.tipo_combustible,
+          tipoDestino: data.tipo_destino,
+          equipoId: data.equipo_id ?? null,
+          serieTalonario: data.serie_talonario,
+          nVale: data.n_vale,
+          cantidad: data.cantidad,
+          lecturaContometro: data.lectura_contometro ?? null,
+          lecturaHorometro: data.lectura_horometro ?? null,
+          lecturaOdometro: data.lectura_odometro ?? null,
+          horasAbastecidas: data.horas_abastecidas ?? null,
+          despachadoEn: data.despachado_en ?? new Date().toISOString(),
+        });
+        return { id: Number(fila.id), fila };
+      },
+      recuperar: (filaId) => this.repository.findDespachoPorId(client, tenantId, filaId),
+    });
+  }
+
+  /** Reglas que dependen de OTRA fila, así que Zod (que solo ve el body)
+   *  no las puede validar:
+   *
+   *  - tanque_propio: el contómetro tiene que coincidir con la cantidad
+   *    declarada (punto 5, control de calidad de dato -- el aparato
+   *    resetea a 0,0 en cada despacho, así que no depende de ningún otro
+   *    vale, solo de ESTE). No es anti-fraude: agarra el tipeo, no a
+   *    alguien que declara a propósito un número falso -- eso lo detecta
+   *    el hueco de talonario (punto 1), no este chequeo.
+   *  - compra_externa: el equipo tiene que existir en este tenant, tener
+   *    `tipo_medidor` configurado, y el campo que llegó lleno
+   *    (horómetro/odómetro) tiene que ser el que corresponde a ESE
+   *    equipo -- cruce que ningún CHECK de la migración puede hacer
+   *    (0062 solo puede exigir "exactamente uno de los dos", nunca "el
+   *    correcto para este equipo", porque eso vive en otra tabla). */
+  private async validarFormaDespacho(
+    client: PoolClient,
+    tenantId: string,
+    data: CrearDespachoCombustibleInput
+  ) {
+    if (data.origen === "tanque_propio") {
+      if (Number(data.lectura_contometro) !== Number(data.cantidad)) {
+        throw new Error(
+          `el contómetro marcó ${data.lectura_contometro} pero se declararon ${data.cantidad} -- revisá el vale`
+        );
+      }
+      return;
+    }
+
+    // compra_externa: el schema ya garantiza equipo_id presente (exige
+    // tipo_destino='equipo' en este origen).
+    const equipoId = data.equipo_id!;
+    const equipo = await EquiposRepository.findTipoMedidor(client, tenantId, equipoId);
+    if (!equipo) {
+      throw new Error(`equipo_id ${equipoId} no existe en este tenant`);
+    }
+    if (!equipo.tipo_medidor) {
+      throw new Error(
+        `el equipo ${equipoId} no tiene tipo de medidor configurado -- asignale horómetro u odómetro en Equipos antes de registrar un despacho de compra externa`
+      );
+    }
+    if (equipo.tipo_medidor === "horometro" && data.lectura_horometro === undefined) {
+      throw new Error(`el equipo ${equipoId} se mide por horómetro, no por odómetro`);
+    }
+    if (equipo.tipo_medidor === "odometro" && data.lectura_odometro === undefined) {
+      throw new Error(`el equipo ${equipoId} se mide por odómetro, no por horómetro`);
+    }
+  }
+
+  listarDespachos(
+    client: PoolClient,
+    tenantId: string,
+    filtros: { equipoId?: number; serieTalonario?: string },
+    paginacion: Paginacion
+  ) {
+    return this.repository.findDespachos(client, tenantId, filtros, paginacion);
+  }
+
+  /** Punto 1 reescrito: consulta bajo demanda -- ver el comentario de
+   *  CombustibleRepository.findHuecosTalonario. */
+  detectarHuecos(client: PoolClient, tenantId: string, serieTalonario: string) {
+    return this.repository.findHuecosTalonario(client, tenantId, serieTalonario);
   }
 }

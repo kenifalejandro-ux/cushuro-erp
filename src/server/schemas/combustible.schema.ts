@@ -108,3 +108,156 @@ export const actualizarNivelCombustibleSchema = z.object({
 });
 
 export type ActualizarNivelCombustibleInput = z.infer<typeof actualizarNivelCombustibleSchema>;
+
+// ── Despachos (Fase B, ver docs/architecture/control-de-combustible.md
+// puntos 1, 2 y 5, y migrations/0062) ───────────────────────────────────
+
+const ORIGENES_DESPACHO = ["tanque_propio", "compra_externa"] as const;
+const TIPOS_DESTINO_DESPACHO = ["equipo", "planta", "reserva_cubeta"] as const;
+
+/** Reglas cruzadas que Zod no expresa "limpio" solo con tipos -- por eso
+ *  van en `.superRefine()` en vez de intentar dos schemas con `.and()`/
+ *  discriminated union por dos campos a la vez (origen Y tipo_destino son
+ *  independientes entre sí). Espejo de los CHECK de la migración 0062:
+ *  esta es la validación que da un 400 legible ANTES de tocar la base: el
+ *  CHECK sigue estando, como red de seguridad, para cualquier insert que
+ *  no pase por acá. */
+export const crearDespachoCombustibleSchema = z
+  .object({
+    // Mismo mecanismo que registrarLecturaCombustibleSchema -- lo genera
+    // el dispositivo, online u offline. Opcional: sin él, siempre crea.
+    cliente_uuid: z.string().uuid().optional(),
+
+    origen: z.enum(ORIGENES_DESPACHO),
+    // Solo tanque_propio.
+    combustible_id: z.number().int().positive().optional(),
+    // Solo compra_externa. Texto libre -- ver el comentario de la columna
+    // en 0062.
+    grifo_externo: z.string().trim().min(1).max(150).optional(),
+
+    // Mismo enum que combustible.tipo_combustible (Fase A) -- se reusa a
+    // propósito, ver hallazgo 2 de la memoria de columnas reales.
+    tipo_combustible: z.enum(TIPOS_COMBUSTIBLE),
+
+    tipo_destino: z.enum(TIPOS_DESTINO_DESPACHO),
+    // Solo cuando tipo_destino = 'equipo'.
+    equipo_id: z.number().int().positive().optional(),
+
+    // El talonario -- reinicia por serie/mes, ver hallazgo 6.
+    serie_talonario: z.string().trim().min(1, "La serie del talonario es obligatoria").max(20),
+    n_vale: z.number().int().positive(),
+
+    cantidad: z.number().positive(),
+
+    // Solo tanque_propio -- chequeo intra-vale del punto 5.
+    lectura_contometro: z.number().nonnegative().optional(),
+
+    // Solo compra_externa -- exactamente uno de los dos, según
+    // equipos.tipo_medidor (hallazgo 9). horas_abastecidas siempre junto.
+    lectura_horometro: z.number().nonnegative().optional(),
+    lectura_odometro: z.number().nonnegative().optional(),
+    horas_abastecidas: z.number().nonnegative().optional(),
+
+    // Cuándo se hizo el despacho en cancha -- opcional, mismo criterio que
+    // `leido_en` de una lectura: sin dato, el service usa now().
+    despachado_en: z.string().datetime().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.tipo_destino === "equipo" && data.equipo_id === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["equipo_id"],
+        message: "equipo_id es obligatorio cuando tipo_destino es 'equipo'",
+      });
+    }
+    if (data.tipo_destino !== "equipo" && data.equipo_id !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["equipo_id"],
+        message: "equipo_id solo aplica cuando tipo_destino es 'equipo'",
+      });
+    }
+
+    if (data.origen === "tanque_propio") {
+      if (data.combustible_id === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["combustible_id"],
+          message: "combustible_id es obligatorio cuando origen es 'tanque_propio'",
+        });
+      }
+      if (data.lectura_contometro === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["lectura_contometro"],
+          message: "lectura_contometro es obligatoria cuando origen es 'tanque_propio'",
+        });
+      }
+      if (data.grifo_externo !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["grifo_externo"],
+          message: "grifo_externo no aplica a 'tanque_propio'",
+        });
+      }
+      if (
+        data.lectura_horometro !== undefined ||
+        data.lectura_odometro !== undefined ||
+        data.horas_abastecidas !== undefined
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["origen"],
+          message: "horómetro/odómetro/horas_abastecidas no aplican a 'tanque_propio'",
+        });
+      }
+    } else {
+      // compra_externa
+      // El horómetro/odómetro es una lectura del EQUIPO (hallazgo 9) --
+      // sin equipo_id (destino planta/reserva_cubeta) esa lectura no
+      // correspondería a ningún medidor real. No estaba en el prompt
+      // cerrado palabra por palabra, pero se deduce directo de esa misma
+      // decisión: no tiene sentido pedir horómetro/odómetro sin equipo.
+      if (data.tipo_destino !== "equipo") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["tipo_destino"],
+          message:
+            "'compra_externa' exige tipo_destino='equipo' -- el horómetro/odómetro es una lectura del equipo, no tiene sentido sin uno",
+        });
+      }
+      if (data.combustible_id !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["combustible_id"],
+          message: "combustible_id no aplica a 'compra_externa'",
+        });
+      }
+      if (data.lectura_contometro !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["lectura_contometro"],
+          message: "lectura_contometro no aplica a 'compra_externa' (el grifo ajeno no la incluye)",
+        });
+      }
+      if (data.horas_abastecidas === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["horas_abastecidas"],
+          message: "horas_abastecidas es obligatoria cuando origen es 'compra_externa'",
+        });
+      }
+      const tieneHorometro = data.lectura_horometro !== undefined;
+      const tieneOdometro = data.lectura_odometro !== undefined;
+      if (tieneHorometro === tieneOdometro) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["lectura_horometro"],
+          message:
+            "'compra_externa' exige exactamente uno de lectura_horometro/lectura_odometro, nunca los dos ni ninguno",
+        });
+      }
+    }
+  });
+
+export type CrearDespachoCombustibleInput = z.infer<typeof crearDespachoCombustibleSchema>;

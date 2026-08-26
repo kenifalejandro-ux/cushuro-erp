@@ -24,12 +24,14 @@
  * EN ESTE ORDEN para el INSERT de un restore -- padres antes que hijos
  * (ver ADR sección 2), y `restaurarTablas()` NO usa
  * `SET CONSTRAINTS ALL DEFERRED` -- el orden real importa, no es solo una
- * guía de lectura. Encadenado hoy: `equipos`/`iperc` antes que
- * `ordenes_trabajo` (FK a ambos), `ordenes_trabajo` antes que `repuestos`
- * (repuestos_movimientos.orden_trabajo_id) y antes que `documentos`
- * (documentos.orden_trabajo_id). `repuestos` se movió de la posición 1 a
- * después de `ordenes_trabajo` en el PR que agregó ese vínculo -- nada más
- * depende de que `repuestos` esté temprano, así que no rompió nada.
+ * guía de lectura. Encadenado hoy: `equipos` antes que `combustible`
+ * (combustible_despachos.equipo_id, Fase B, migrations/0062) e `iperc`
+ * antes que `ordenes_trabajo` (FK a ambos), `ordenes_trabajo` antes que
+ * `repuestos` (repuestos_movimientos.orden_trabajo_id) y antes que
+ * `documentos` (documentos.orden_trabajo_id). `repuestos` se movió de la
+ * posición 1 a después de `ordenes_trabajo`, y `equipos` de después de
+ * `combustible` a antes, cada uno en el PR que agregó el vínculo que lo
+ * exigía -- nada más depende de que estén temprano, así que no rompió nada.
  */
 import dashboardRoutes from "./dashboard/dashboard.routes";
 import repuestosRoutes from "./repuestos/repuestos.routes";
@@ -42,6 +44,22 @@ import ordenesTrabajoRoutes from "./ordenes_trabajo/ordenes_trabajo.routes";
 import type { ModuloDefinicion } from "./types";
 
 export const MODULOS: ModuloDefinicion[] = [
+  {
+    id: "equipos",
+    label: "Equipos",
+    icono: "🚜",
+    version: "v1",
+    router: equiposRoutes,
+    tablas: [{ nombre: "equipos", pk: "serial" }],
+    raices: ["equipos"],
+    cuota: { tabla: "equipos", porDefecto: 2_000 },
+    // Solo crear el equipo califica para offline -- ver ADR-0002 §8. Dar de
+    // alta un equipo nuevo en cancha, sin señal, es un caso de campo real
+    // (mismo criterio que checklists/iperc/ordenes_trabajo). `PUT`/`DELETE`
+    // NO están acá a propósito: editar sobreescribe campos existentes y
+    // borrar no debe reintentarse a ciegas.
+    offline: { escrituras: [{ metodo: "POST", ruta: "/" }] },
+  },
   {
     id: "combustible",
     label: "Combustible",
@@ -69,10 +87,26 @@ export const MODULOS: ModuloDefinicion[] = [
           anulada_por: "usuarios",
         },
       },
+      // Fase B (migrations/0062) -- el vale digital. A diferencia de
+      // combustible_lecturas, NO cascadea desde `combustible`:
+      // combustible_id es nullable (solo aplica a origen='tanque_propio',
+      // ver el CHECK de forma en la migración) y sin ON DELETE, así que
+      // necesita su propia entrada en `raices` para el DELETE del wipe de
+      // tenant.
+      {
+        nombre: "combustible_despachos",
+        pk: "serial",
+        fks: {
+          combustible_id: "combustible",
+          equipo_id: "equipos",
+          usuario_id: "usuarios",
+        },
+      },
     ],
     // combustible_lecturas cascadea desde su padre (ON DELETE CASCADE, ver
-    // migrations/0045) -- no necesita DELETE propio.
-    raices: ["combustible"],
+    // migrations/0045) -- no necesita DELETE propio. combustible_despachos
+    // sí lo necesita (ver el comentario de su entrada en `tablas` arriba).
+    raices: ["combustible", "combustible_despachos"],
     // Fase A (migrations/0057) le dio a Combustible su propio POST / y
     // POST /bulk que crean el recurso base -- un solo `cuota.tabla`
     // compartido con las lecturas habría dejado esas altas sin límite real,
@@ -96,13 +130,30 @@ export const MODULOS: ModuloDefinicion[] = [
         tabla: "combustible_lecturas",
         porDefecto: 100_000,
       },
+      // Fase B -- recurso propio, mismo criterio que combustible_lecturas
+      // arriba: el histórico de despachos crece con el trabajo de campo,
+      // no con la configuración de tanques que cuenta `cuota`.
+      {
+        ruta: "/despachos",
+        metodo: "POST",
+        recurso: "combustible_despachos",
+        tabla: "combustible_despachos",
+        porDefecto: 100_000,
+      },
     ],
-    // Solo registrar una lectura califica para offline -- ver ADR-0002 §8.
-    // combustible_id viaja en el body porque rutasOffline.ts solo matchea
-    // rutas literales, sin parámetros de URL. Alta/edición/baja de tanques
-    // NO están acá a propósito: es configuración de planta, se hace desde
-    // la oficina con red (mismo criterio que las plantillas de Checklists).
-    offline: { escrituras: [{ metodo: "POST", ruta: "/lecturas" }] },
+    // Solo registrar una lectura o un despacho califica para offline --
+    // ver ADR-0002 §8. combustible_id/equipo_id viajan en el body porque
+    // rutasOffline.ts solo matchea rutas literales, sin parámetros de URL.
+    // Alta/edición/baja de tanques NO están acá a propósito: es
+    // configuración de planta, se hace desde la oficina con red (mismo
+    // criterio que las plantillas de Checklists). GET /despachos y GET
+    // /despachos/huecos tampoco: son lecturas, no escrituras.
+    offline: {
+      escrituras: [
+        { metodo: "POST", ruta: "/lecturas" },
+        { metodo: "POST", ruta: "/despachos" },
+      ],
+    },
   },
   {
     id: "dashboard",
@@ -113,22 +164,6 @@ export const MODULOS: ModuloDefinicion[] = [
     // Solo lee/agrega datos de otros módulos, no tiene tablas propias.
     tablas: [],
     raices: [],
-  },
-  {
-    id: "equipos",
-    label: "Equipos",
-    icono: "🚜",
-    version: "v1",
-    router: equiposRoutes,
-    tablas: [{ nombre: "equipos", pk: "serial" }],
-    raices: ["equipos"],
-    cuota: { tabla: "equipos", porDefecto: 2_000 },
-    // Solo crear el equipo califica para offline -- ver ADR-0002 §8. Dar de
-    // alta un equipo nuevo en cancha, sin señal, es un caso de campo real
-    // (mismo criterio que checklists/iperc/ordenes_trabajo). `PUT`/`DELETE`
-    // NO están acá a propósito: editar sobreescribe campos existentes y
-    // borrar no debe reintentarse a ciegas.
-    offline: { escrituras: [{ metodo: "POST", ruta: "/" }] },
   },
   {
     id: "checklists",

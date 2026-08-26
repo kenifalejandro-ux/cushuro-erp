@@ -158,6 +158,9 @@ export async function borrarTenantDePrueba(tenantId: string) {
     await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
     await client.query("DELETE FROM repuestos WHERE tenant_id = $1", [tenantId]);
     await client.query("DELETE FROM documentos WHERE tenant_id = $1", [tenantId]);
+    // combustible_despachos (Fase B, migrations/0062) referencia combustible
+    // Y equipos, sin ON DELETE -- tiene que borrarse antes que los dos.
+    await client.query("DELETE FROM combustible_despachos WHERE tenant_id = $1", [tenantId]);
     await client.query("DELETE FROM combustible WHERE tenant_id = $1", [tenantId]);
     // Orden importa: checklists/ipercs/ordenes_trabajo referencian equipos y
     // checklist_plantillas (sin CASCADE), así que van primero. Sus tablas
