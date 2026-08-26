@@ -1,8 +1,16 @@
+import { createHash } from "crypto";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import { app, crearTenantDePrueba, borrarTenantDePrueba, extraerCookie } from "./helpers";
-import { closeDatabase, withTenant } from "../src/server/config/database";
+import { closeDatabase, pool, withTenant } from "../src/server/config/database";
 import { env } from "../src/server/config/env";
+
+// Mismo algoritmo que hashRefreshToken en auth.service.ts (no exportada) --
+// se replica acá solo para poder insertar un reset_tokens de prueba con un
+// token en texto plano conocido, sin pasar por el flujo real de correo.
+function hashTokenDePrueba(tokenPlano: string): string {
+  return createHash("sha256").update(tokenPlano).digest("hex");
+}
 
 describe("auth", () => {
   let tenantId: string;
@@ -267,10 +275,97 @@ describe("clave temporal + cambio obligatorio en el primer login (usuarios de te
   });
 });
 
-// Cierra el pool una sola vez, después de los dos describe de arriba --
-// antes vivía en el afterAll de "auth" porque era el único describe del
-// archivo; con dos, cerrarlo ahí tumbaba el pool antes de que corriera el
-// segundo.
+describe("restablecer contraseña vía link de recuperación (POST /reset-password)", () => {
+  async function crearTokenDePrueba(
+    usuarioId: string,
+    tenantId: string,
+    vencidoOUsado?: "vencido" | "usado"
+  ) {
+    const tokenPlano = `token-de-prueba-${Date.now()}-${Math.random()}`;
+    const expiraEn =
+      vencidoOUsado === "vencido" ? new Date(Date.now() - 1000) : new Date(Date.now() + 3600_000);
+    const usadoEn = vencidoOUsado === "usado" ? new Date() : null;
+    await pool.query(
+      `INSERT INTO reset_tokens (usuario_id, tenant_id, token_hash, expira_en, usado_en)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [usuarioId, tenantId, hashTokenDePrueba(tokenPlano), expiraEn, usadoEn]
+    );
+    return tokenPlano;
+  }
+
+  it("con un token válido cambia la contraseña, marca el token usado y revoca las sesiones", async () => {
+    const passwordOriginal = "ClaveOriginal123";
+    const creado = await crearTenantDePrueba(passwordOriginal);
+    try {
+      const { tenant, usuario } = creado;
+
+      const sesionPrevia = request.agent(app);
+      const loginPrevio = await sesionPrevia
+        .post("/api/auth/login")
+        .send({ tenantSlug: tenant.slug, email: usuario.email, password: passwordOriginal });
+      expect(loginPrevio.status).toBe(200);
+
+      const token = await crearTokenDePrueba(usuario.id, tenant.id);
+      const res = await request(app)
+        .post("/api/auth/reset-password")
+        .send({ token, newPassword: "ClaveNueva456" });
+      expect(res.status).toBe(200);
+
+      // La sesión de antes del reset ya no sirve.
+      expect((await sesionPrevia.get("/api/auth/me")).status).toBe(401);
+
+      // La clave vieja ya no entra; la nueva sí.
+      const loginConVieja = await request(app)
+        .post("/api/auth/login")
+        .send({ tenantSlug: tenant.slug, email: usuario.email, password: passwordOriginal });
+      expect(loginConVieja.status).toBe(401);
+
+      const loginConNueva = await request(app)
+        .post("/api/auth/login")
+        .send({ tenantSlug: tenant.slug, email: usuario.email, password: "ClaveNueva456" });
+      expect(loginConNueva.status).toBe(200);
+    } finally {
+      await borrarTenantDePrueba(creado.tenant.id);
+    }
+  });
+
+  it("un token ya usado, uno vencido, y uno inexistente se rechazan todos con 400", async () => {
+    const creado = await crearTenantDePrueba("ClaveDePrueba123");
+    try {
+      const { tenant, usuario } = creado;
+
+      const tokenUsado = await crearTokenDePrueba(usuario.id, tenant.id, "usado");
+      const resUsado = await request(app)
+        .post("/api/auth/reset-password")
+        .send({ token: tokenUsado, newPassword: "OtraClave789" });
+      expect(resUsado.status).toBe(400);
+
+      const tokenVencido = await crearTokenDePrueba(usuario.id, tenant.id, "vencido");
+      const resVencido = await request(app)
+        .post("/api/auth/reset-password")
+        .send({ token: tokenVencido, newPassword: "OtraClave789" });
+      expect(resVencido.status).toBe(400);
+
+      const resInexistente = await request(app)
+        .post("/api/auth/reset-password")
+        .send({ token: "token-que-nunca-existio", newPassword: "OtraClave789" });
+      expect(resInexistente.status).toBe(400);
+
+      // Ninguno de los tres cambió nada: la clave original sigue sirviendo.
+      const loginOriginal = await request(app)
+        .post("/api/auth/login")
+        .send({ tenantSlug: tenant.slug, email: usuario.email, password: "ClaveDePrueba123" });
+      expect(loginOriginal.status).toBe(200);
+    } finally {
+      await borrarTenantDePrueba(creado.tenant.id);
+    }
+  });
+});
+
+// Cierra el pool una sola vez, después de los describe de arriba -- antes
+// vivía en el afterAll de "auth" porque era el único describe del archivo;
+// con más de uno, cerrarlo ahí tumbaba el pool antes de que corriera el
+// resto.
 afterAll(async () => {
   await closeDatabase();
 });
