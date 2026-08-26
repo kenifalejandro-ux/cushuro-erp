@@ -1,0 +1,22 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Migración: clave temporal + cambio obligatorio en el primer login
+-- (usuarios de tenant)
+--
+-- Mismo mecanismo que migrations/0060 para platform_admins, aplicado a los
+-- usuarios de un tenant: cuando un admin da de alta un usuario con una
+-- contraseña genérica (POST /tenants/:id/usuarios, panel o SCIM), esa
+-- cuenta queda marcada para que el ERP la obligue a poner su propia
+-- contraseña antes de dejarla usar nada más (ver
+-- cambiarMiPasswordUsuarioService en auth.service.ts y el gate en
+-- client/src/App.tsx). No bloquea el login en sí -- viaja como dato en
+-- UsuarioPayload y la UI decide qué mostrar.
+--
+-- DEFAULT false para no afectar usuarios ya existentes -- se activa
+-- explícito en el INSERT de crearUsuarioService, no desde el default de
+-- la columna.
+--
+-- EJECUTAR (después de 0060):
+--   psql -d mincoreerp -f migrations/0061_usuarios_debe_cambiar_password.sql
+-- ═══════════════════════════════════════════════════════════════════════════
+
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS debe_cambiar_password BOOLEAN NOT NULL DEFAULT false;

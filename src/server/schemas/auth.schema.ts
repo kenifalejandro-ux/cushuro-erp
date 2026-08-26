@@ -40,3 +40,10 @@ export const resetPasswordSchema = z.object({
 });
 
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
+export const cambiarMiPasswordSchema = z.object({
+  passwordActual: z.string().min(1, "Contraseña actual requerida").max(200),
+  passwordNueva: z.string().min(8, "La contraseña debe tener al menos 8 caracteres").max(200),
+});
+
+export type CambiarMiPasswordInput = z.infer<typeof cambiarMiPasswordSchema>;

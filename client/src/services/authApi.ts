@@ -9,6 +9,7 @@ export interface UsuarioPayload {
   email: string;
   rol: "admin" | "operador" | "lectura";
   modulosPermitidos: string[];
+  debeCambiarPassword: boolean;
 }
 
 async function parseOrThrow(res: Response) {
@@ -92,4 +93,23 @@ export async function getMeApi(): Promise<UsuarioPayload> {
   const res = await apiFetch("/api/auth/me");
   const data = await parseOrThrow(res);
   return data.usuario;
+}
+
+/** Cambia la propia contraseña estando ya logueado -- pensado primero para
+ *  la pantalla obligatoria del primer login con clave temporal (ver
+ *  debeCambiarPassword). El JWT actual sigue diciendo `true` hasta el
+ *  próximo login/refresh (se arma en cada uno desde una lectura fresca de
+ *  la base, no vive en el token) -- por eso quien llama a esto debe
+ *  actualizar el `usuario` en memoria a mano en vez de volver a pedir
+ *  /api/auth/me, que devolvería el token viejo sin refrescar. */
+export async function cambiarMiPasswordApi(
+  passwordActual: string,
+  passwordNueva: string
+): Promise<void> {
+  const res = await apiFetch("/api/auth/mi-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ passwordActual, passwordNueva }),
+  });
+  await parseOrThrow(res);
 }

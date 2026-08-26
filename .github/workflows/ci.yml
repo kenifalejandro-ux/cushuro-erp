@@ -352,7 +352,8 @@ jobs:
             --tenantSlug="$E2E_TENANT_SLUG" \
             --adminNombre="$E2E_ADMIN_NOMBRE" \
             --adminEmail="$E2E_ADMIN_EMAIL" \
-            --adminPassword="$E2E_ADMIN_PASSWORD"
+            --adminPassword="$E2E_ADMIN_PASSWORD" \
+            --sinCambioObligatorio
 
       - name: Sembrar segundo tenant (para el spec de aislamiento)
         run: |
@@ -361,7 +362,8 @@ jobs:
             --tenantSlug="$E2E_TENANT_B_SLUG" \
             --adminNombre="$E2E_ADMIN_B_NOMBRE" \
             --adminEmail="$E2E_ADMIN_B_EMAIL" \
-            --adminPassword="$E2E_ADMIN_B_PASSWORD"
+            --adminPassword="$E2E_ADMIN_B_PASSWORD" \
+            --sinCambioObligatorio
 
       - name: Instalar dependencias del frontend
         working-directory: client

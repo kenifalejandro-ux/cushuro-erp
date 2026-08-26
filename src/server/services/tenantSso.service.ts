@@ -234,7 +234,7 @@ async function resolverUsuarioSso(
 
   const fila = await withTenant(tenantId, async (dbClient) => {
     const porSubject = await dbClient.query(
-      `SELECT id, tenant_id, nombre, email, rol, token_version
+      `SELECT id, tenant_id, nombre, email, rol, token_version, debe_cambiar_password
        FROM usuarios WHERE tenant_id = $1 AND sso_provider = $2 AND sso_subject = $3 AND activo = true`,
       [tenantId, proveedor, claims.sub]
     );
@@ -246,7 +246,7 @@ async function resolverUsuarioSso(
     const linkeado = await dbClient.query(
       `UPDATE usuarios SET sso_provider = $2, sso_subject = $3
        WHERE tenant_id = $1 AND email = $4 AND activo = true AND sso_provider IS NULL
-       RETURNING id, tenant_id, nombre, email, rol, token_version`,
+       RETURNING id, tenant_id, nombre, email, rol, token_version, debe_cambiar_password`,
       [tenantId, proveedor, claims.sub, claims.email]
     );
     return linkeado.rows[0];
@@ -267,6 +267,7 @@ async function resolverUsuarioSso(
     rol: fila.rol,
     modulosPermitidos: await obtenerModulosPermitidos(fila.id, fila.tenant_id),
     tokenVersion: fila.token_version,
+    debeCambiarPassword: fila.debe_cambiar_password,
   };
 }
 

@@ -4,6 +4,7 @@ import { Suspense, lazy, useState } from "react";
 import Layout from "./components/layout/Layout";
 import { useAuth } from "./context/AuthContext";
 import { MODULOS_CLIENTE } from "./modules/registry";
+import CambiarPasswordObligatoria from "./pages/CambiarPasswordObligatoria";
 import LoginPage from "./pages/LoginPage";
 
 // Facturación no es un módulo del registry (ver Sidebar.tsx) -- se resuelve
@@ -12,7 +13,7 @@ const FacturacionView = lazy(() => import("./components/facturacion/FacturacionV
 
 function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
-  const { cargando, estaAutenticado } = useAuth();
+  const { usuario, cargando, estaAutenticado, login } = useAuth();
 
   if (cargando) {
     return (
@@ -24,6 +25,17 @@ function App() {
 
   if (!estaAutenticado) {
     return <LoginPage />;
+  }
+
+  if (usuario!.debeCambiarPassword) {
+    // Actualiza el usuario en memoria en vez de re-pedir /api/auth/me: el
+    // JWT actual seguiría diciendo `true` hasta el próximo login/refresh
+    // (ver el comentario de cambiarMiPasswordApi en services/authApi.ts).
+    return (
+      <CambiarPasswordObligatoria
+        onListo={() => login({ ...usuario!, debeCambiarPassword: false })}
+      />
+    );
   }
 
   // El componente de cada módulo viaja al navegador recién cuando se abre
