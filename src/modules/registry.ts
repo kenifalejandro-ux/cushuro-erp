@@ -87,6 +87,15 @@ export const MODULOS: ModuloDefinicion[] = [
           anulada_por: "usuarios",
         },
       },
+      // Fase B, precios (migrations/0063) -- catálogo chico de grifos
+      // externos (PRIMAX, VELASQUEZ...). Va ANTES de combustible_despachos
+      // y combustible_precios en este array: las dos lo referencian por FK,
+      // y el restore necesita padres antes que hijos.
+      {
+        nombre: "combustible_grifos",
+        pk: "serial",
+        fks: { usuario_id: "usuarios" },
+      },
       // Fase B (migrations/0062) -- el vale digital. A diferencia de
       // combustible_lecturas, NO cascadea desde `combustible`:
       // combustible_id es nullable (solo aplica a origen='tanque_propio',
@@ -99,14 +108,29 @@ export const MODULOS: ModuloDefinicion[] = [
         fks: {
           combustible_id: "combustible",
           equipo_id: "equipos",
+          grifo_id: "combustible_grifos",
           usuario_id: "usuarios",
+        },
+      },
+      // Precios (migrations/0063) -- historial apilado, nunca se pisa. Sin
+      // ON DELETE, mismo motivo que combustible_despachos: necesita su
+      // propia entrada en `raices`.
+      {
+        nombre: "combustible_precios",
+        pk: "serial",
+        fks: {
+          combustible_id: "combustible",
+          grifo_id: "combustible_grifos",
+          usuario_id: "usuarios",
+          anulada_por: "usuarios",
         },
       },
     ],
     // combustible_lecturas cascadea desde su padre (ON DELETE CASCADE, ver
-    // migrations/0045) -- no necesita DELETE propio. combustible_despachos
-    // sí lo necesita (ver el comentario de su entrada en `tablas` arriba).
-    raices: ["combustible", "combustible_despachos"],
+    // migrations/0045) -- no necesita DELETE propio. combustible_grifos,
+    // combustible_despachos y combustible_precios sí lo necesitan (ver el
+    // comentario de sus entradas en `tablas` arriba).
+    raices: ["combustible", "combustible_grifos", "combustible_despachos", "combustible_precios"],
     // Fase A (migrations/0057) le dio a Combustible su propio POST / y
     // POST /bulk que crean el recurso base -- un solo `cuota.tabla`
     // compartido con las lecturas habría dejado esas altas sin límite real,

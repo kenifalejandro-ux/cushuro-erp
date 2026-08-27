@@ -437,10 +437,14 @@ export class CombustibleRepository {
   // ── Despachos (Fase B, ver docs/architecture/control-de-combustible.md
   // puntos 1, 2 y 5, y migrations/0062) ──────────────────────────────────
 
+  // costo_total NUNCA se persiste (migrations/0063) -- se calcula acá, igual
+  // que `porcentaje` en COLUMNAS_TANQUE, para que nunca pueda desincronizarse
+  // de cantidad/costo_unitario.
   private static readonly COLUMNAS_DESPACHO = `
-    id, tenant_id, origen, combustible_id, grifo_externo, tipo_combustible,
+    id, tenant_id, origen, combustible_id, grifo_id, tipo_combustible,
     tipo_destino, equipo_id, serie_talonario, n_vale, cantidad,
     lectura_contometro, lectura_horometro, lectura_odometro, horas_abastecidas,
+    costo_unitario, (cantidad * costo_unitario) AS costo_total, observaciones,
     usuario_id, despachado_en, creado_en
   `;
 
@@ -461,7 +465,7 @@ export class CombustibleRepository {
     data: {
       origen: string;
       combustibleId: number | null;
-      grifoExterno: string | null;
+      grifoId: number | null;
       tipoCombustible: string;
       tipoDestino: string;
       equipoId: number | null;
@@ -472,6 +476,8 @@ export class CombustibleRepository {
       lecturaHorometro: number | null;
       lecturaOdometro: number | null;
       horasAbastecidas: number | null;
+      costoUnitario: number;
+      observaciones: string | null;
       despachadoEn: string;
     }
   ) {
@@ -479,19 +485,19 @@ export class CombustibleRepository {
       const result = await client.query(
         `
         INSERT INTO combustible_despachos (
-          tenant_id, origen, combustible_id, grifo_externo, tipo_combustible,
+          tenant_id, origen, combustible_id, grifo_id, tipo_combustible,
           tipo_destino, equipo_id, serie_talonario, n_vale, cantidad,
           lectura_contometro, lectura_horometro, lectura_odometro, horas_abastecidas,
-          usuario_id, despachado_en
+          costo_unitario, observaciones, usuario_id, despachado_en
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
         RETURNING ${CombustibleRepository.COLUMNAS_DESPACHO}
         `,
         [
           tenantId,
           data.origen,
           data.combustibleId,
-          data.grifoExterno,
+          data.grifoId,
           data.tipoCombustible,
           data.tipoDestino,
           data.equipoId,
@@ -502,6 +508,8 @@ export class CombustibleRepository {
           data.lecturaHorometro,
           data.lecturaOdometro,
           data.horasAbastecidas,
+          data.costoUnitario,
+          data.observaciones,
           usuarioId,
           data.despachadoEn,
         ]
@@ -514,9 +522,9 @@ export class CombustibleRepository {
           { cause: err }
         );
       }
-      // combustible_id (tanque) o equipo_id apuntan a una fila que no
-      // existe en este tenant -- el nombre del constraint (Postgres lo
-      // arma solo, `<tabla>_<columna>_fkey`) dice cuál de las dos FK fue.
+      // combustible_id (tanque), equipo_id o grifo_id apuntan a una fila
+      // que no existe en este tenant -- el nombre del constraint (Postgres
+      // lo arma solo, `<tabla>_<columna>_fkey`) dice cuál de las tres FK fue.
       if (esViolacionForeignKey(err)) {
         const constraint = (err as { constraint?: string }).constraint ?? "";
         if (constraint.includes("combustible_id")) {
@@ -526,6 +534,9 @@ export class CombustibleRepository {
         }
         if (constraint.includes("equipo_id")) {
           throw new Error(`equipo_id ${data.equipoId} no existe en este tenant`, { cause: err });
+        }
+        if (constraint.includes("grifo_id")) {
+          throw new Error(`grifo_id ${data.grifoId} no existe en este tenant`, { cause: err });
         }
       }
       throw err;
@@ -626,5 +637,211 @@ export class CombustibleRepository {
       huecos: huecos.rows.map((f) => f.n_vale),
       ultimo: maximo,
     };
+  }
+
+  // ── Grifos externos (migrations/0063) ────────────────────────────────
+
+  async findGrifos(client: PoolClient, tenantId: string) {
+    const result = await client.query(
+      `SELECT id, nombre, activo, usuario_id, creado_en
+       FROM combustible_grifos WHERE tenant_id = $1 ORDER BY nombre ASC`,
+      [tenantId]
+    );
+    return result.rows;
+  }
+
+  async findGrifoPorId(client: PoolClient, tenantId: string, id: number) {
+    const result = await client.query(
+      `SELECT id, nombre, activo, usuario_id, creado_en
+       FROM combustible_grifos WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async crearGrifo(client: PoolClient, tenantId: string, usuarioId: string, nombre: string) {
+    try {
+      const result = await client.query(
+        `INSERT INTO combustible_grifos (tenant_id, nombre, usuario_id)
+         VALUES ($1, $2, $3)
+         RETURNING id, nombre, activo, usuario_id, creado_en`,
+        [tenantId, nombre, usuarioId]
+      );
+      return result.rows[0];
+    } catch (err) {
+      if (esViolacionUnicidad(err)) {
+        throw new Error(`ya existe un grifo llamado "${nombre}" en este tenant`, { cause: err });
+      }
+      throw err;
+    }
+  }
+
+  async actualizarGrifo(
+    client: PoolClient,
+    tenantId: string,
+    id: number,
+    data: { nombre: string; activo: boolean }
+  ) {
+    try {
+      const result = await client.query(
+        `UPDATE combustible_grifos SET nombre = $1, activo = $2
+         WHERE id = $3 AND tenant_id = $4
+         RETURNING id, nombre, activo, usuario_id, creado_en`,
+        [data.nombre, data.activo, id, tenantId]
+      );
+      return result.rows[0] ?? null;
+    } catch (err) {
+      if (esViolacionUnicidad(err)) {
+        throw new Error(`ya existe un grifo llamado "${data.nombre}" en este tenant`, {
+          cause: err,
+        });
+      }
+      throw err;
+    }
+  }
+
+  // ── Precios de combustible (migrations/0063) ─────────────────────────
+
+  private static readonly COLUMNAS_PRECIO = `
+    id, tenant_id, tipo_combustible, combustible_id, grifo_id, precio_unitario,
+    vigente_desde, usuario_id, creado_en, anulada_en, anulada_por, motivo_anulacion
+  `;
+
+  async crearPrecio(
+    client: PoolClient,
+    tenantId: string,
+    usuarioId: string,
+    data: {
+      tipoCombustible: string;
+      combustibleId: number | null;
+      grifoId: number | null;
+      precioUnitario: number;
+      vigenteDesde: string;
+    }
+  ) {
+    try {
+      const result = await client.query(
+        `
+        INSERT INTO combustible_precios (
+          tenant_id, tipo_combustible, combustible_id, grifo_id, precio_unitario,
+          vigente_desde, usuario_id
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
+        RETURNING ${CombustibleRepository.COLUMNAS_PRECIO}
+        `,
+        [
+          tenantId,
+          data.tipoCombustible,
+          data.combustibleId,
+          data.grifoId,
+          data.precioUnitario,
+          data.vigenteDesde,
+          usuarioId,
+        ]
+      );
+      return result.rows[0];
+    } catch (err) {
+      if (esViolacionForeignKey(err)) {
+        const constraint = (err as { constraint?: string }).constraint ?? "";
+        if (constraint.includes("combustible_id")) {
+          throw new Error(`combustible_id ${data.combustibleId} no existe en este tenant`, {
+            cause: err,
+          });
+        }
+        if (constraint.includes("grifo_id")) {
+          throw new Error(`grifo_id ${data.grifoId} no existe en este tenant`, { cause: err });
+        }
+      }
+      throw err;
+    }
+  }
+
+  /** Listado del historial de precios, más reciente primero -- misma forma
+   *  que findLecturas (dos LEFT JOIN a usuarios, por quién cargó y quién
+   *  anuló). Sin paginación real todavía: el volumen esperado (unos pocos
+   *  tanques/grifos, precios que cambian cada tanto) es chico -- si crece,
+   *  se le suma después el mismo patrón de `Paginacion` que ya usa
+   *  findLecturas. */
+  async findPrecios(client: PoolClient, tenantId: string) {
+    const result = await client.query(
+      `
+      SELECT p.id, p.tipo_combustible, p.combustible_id, p.grifo_id, p.precio_unitario,
+             p.vigente_desde, p.usuario_id, p.creado_en,
+             p.anulada_en, p.anulada_por, p.motivo_anulacion,
+             c.tanque_nombre, g.nombre AS grifo_nombre,
+             autor.nombre AS registrado_por_nombre,
+             anulador.nombre AS anulado_por_nombre
+      FROM combustible_precios p
+      LEFT JOIN combustible c ON c.id = p.combustible_id
+      LEFT JOIN combustible_grifos g ON g.id = p.grifo_id
+      LEFT JOIN usuarios autor ON autor.id = p.usuario_id
+      LEFT JOIN usuarios anulador ON anulador.id = p.anulada_por
+      WHERE p.tenant_id = $1
+      ORDER BY p.vigente_desde DESC, p.id DESC
+      `,
+      [tenantId]
+    );
+    return result.rows;
+  }
+
+  async findPrecioPorId(client: PoolClient, tenantId: string, id: number) {
+    const result = await client.query(
+      `SELECT id, combustible_id, grifo_id, anulada_en
+       FROM combustible_precios WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  /** El precio "vigente" a una fecha: el más reciente cuyo vigente_desde
+   *  no supere esa fecha, ignorando los anulados -- si el más nuevo está
+   *  anulado, cae solo al anterior válido (mismo criterio que
+   *  combustible_lecturas: la fila anulada deja de contar, pero no se
+   *  borra). Exactamente uno de combustibleId/grifoId viene con valor --
+   *  lo garantiza el caller (combustible.service.ts). */
+  async findPrecioVigente(
+    client: PoolClient,
+    tenantId: string,
+    tipoCombustible: string,
+    destino: { combustibleId: number | null; grifoId: number | null },
+    fecha: string
+  ) {
+    const columna = destino.combustibleId !== null ? "combustible_id" : "grifo_id";
+    const valor = destino.combustibleId ?? destino.grifoId;
+    const result = await client.query(
+      `
+      SELECT ${CombustibleRepository.COLUMNAS_PRECIO}
+      FROM combustible_precios
+      WHERE tenant_id = $1 AND tipo_combustible = $2 AND ${columna} = $3
+        AND anulada_en IS NULL AND vigente_desde <= $4
+      ORDER BY vigente_desde DESC, id DESC
+      LIMIT 1
+      `,
+      [tenantId, tipoCombustible, valor, fecha]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  /** Anula un precio mal cargado -- mismo mecanismo exacto que
+   *  anularLectura: nunca se borra ni se edita, el UPDATE lleva
+   *  `anulada_en IS NULL` en el WHERE para que dos anulaciones simultáneas
+   *  no se pisen (ver fix_race_condition_iperc_estado). */
+  async anularPrecio(
+    client: PoolClient,
+    tenantId: string,
+    precioId: number,
+    usuarioId: string,
+    motivo: string
+  ) {
+    const result = await client.query(
+      `
+      UPDATE combustible_precios
+      SET anulada_en = now(), anulada_por = $1, motivo_anulacion = $2
+      WHERE id = $3 AND tenant_id = $4 AND anulada_en IS NULL
+      RETURNING ${CombustibleRepository.COLUMNAS_PRECIO}
+      `,
+      [usuarioId, motivo, precioId, tenantId]
+    );
+    return result.rows[0] ?? null;
   }
 }
