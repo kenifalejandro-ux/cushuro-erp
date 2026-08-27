@@ -1,6 +1,6 @@
 # Control de combustible y anti-fuga de capital
 
-- **Estado**: diseño aceptado — Fase A (fundación de tanques) en implementación. Fases B, C y D pendientes, ver hoja de ruta al final.
+- **Estado**: Fases A, B y C implementadas. Fase D (conciliación, anomalías, anulación de despachos, sobredespacho) pendiente — ver hoja de ruta al final.
 - **Relacionado**: [ADR-0002](../adr/0002-contrato-de-modulo.md) (Combustible ya es un módulo con contrato; §8 documenta la cola offline de la que depende todo el punto 1).
 
 ---
@@ -124,7 +124,53 @@ Mismo martes, tres momentos:
 |---|---|
 | **A** | Fundación: tanques/puntos de abastecimiento como entidad completa (ABM real, hoy solo existe `PUT /:id/nivel`). Ver prompt de ejecución en la rama `feat/combustible-tanques-crud`. |
 | **B** | `combustible_despachos` + extensión de equipos + N°VALE (talonario) como secuencia + cola offline + validación síncrona del registro (puntos 1, 2 y 5 de este documento). El corazón del módulo. |
-| **C** | `combustible_recepciones` + costo ponderado (`costo_promedio`, reservado desde la Fase A pero sin lógica hasta acá). |
+| **C** | `combustible_recepciones` + costo ponderado (`costo_promedio`, reservado desde la Fase A pero sin lógica hasta acá). Ver el detalle abajo. |
 | **D** | Conciliación de período, `combustible_anomalias`, reportes, y talonarios con anulación (puntos 3 y 4) si se decide que entran. |
 
 Cada fase depende de que la anterior esté en `main` — en particular, B no arranca sin que el ABM de tanques (A) esté completo, porque el talonario (N°VALE, punto 2) se administra por punto de abastecimiento, no por despacho aislado.
+
+---
+
+## Fase C — recepciones y costo ponderado (migración 0064)
+
+Las fases A y B cubren cuánto **hay** en el tanque (varilla) y cuánto **sale** (vales). Falta cuánto **entra** y a qué costo — sin ese dato, `combustible.costo_promedio` (reservado desde 0057) queda en 0 para siempre y el combustible parado en el tanque no se puede valorizar.
+
+Una recepción es "llegó la cisterna y cargó el tanque X con Y galones a Z de costo". **Solo existe para tanque propio**: una compra en un grifo de la ruta ya es el evento completo en `combustible_despachos` con `origen='compra_externa'`.
+
+### No hay talonario acá
+
+El N°VALE (punto 2) existe para detectar combustible que *sale* sin quedar declarado. Una recepción es el movimiento opuesto: la fuga sería combustible que entra y no se registra, y eso ninguna secuencia propia lo detecta — se detecta cruzando el nivel medido contra lo esperado, que es conciliación (Fase D).
+
+### Una recepción no mueve el nivel
+
+Igual que un despacho, y por el mismo motivo: si una declaración de papel moviera el nivel, el nivel dejaría de ser un dato medido y pasaría a ser "lo que alguien dijo" — y un tanque así nunca podría delatar una fuga real. Recepción y lectura de varilla son dos actos independientes.
+
+### La primera recepción FIJA el promedio, no lo mezcla
+
+El detalle sutil de toda la fase. La fórmula ponderada es:
+
+```
+nuevo_promedio = (nivel_antes × promedio_actual + cantidad × costo_unitario)
+                 / (nivel_antes + cantidad)
+```
+
+donde `nivel_antes` es el nivel de la última lectura vigente **anterior a `recibido_en`** (no "el de hoy": una recepción cargada tarde se valoriza contra el nivel que el tanque tenía ese día).
+
+Pero arrancar con `promedio_actual = 0` y aplicar esa fórmula da un número sin significado: si el tanque ya tenía 1.000 gal y entran 500 a S/18, el resultado es `(1000×0 + 500×18)/1500 = S/6` — el cero se mete en la mezcla como si el combustible que ya estaba hubiera salido gratis. Por eso **la primera recepción vigente fija el promedio en su propio costo unitario**. Equivale a asumir que lo que ya había costó lo mismo que la primera compra conocida: la única suposición honesta sin ningún dato de costo previo, y se autocorrige a medida que entran recepciones reales.
+
+### Sin lectura vigente, la recepción se rechaza
+
+Si el tanque no tiene lectura vigente anterior a `recibido_en`, el endpoint responde `400` en vez de asumir nivel 0. Es la coherencia con la migración 0059: un tanque sin lecturas tiene nivel **desconocido**, no cero — y valorizar sobre un cero inventado deja el inventario mal costeado sin que nadie se entere. Pedir la lectura primero cuesta 30 segundos.
+
+### La anulación reproduce todo desde cero
+
+El promedio ponderado es secuencial: cada recepción se apoya en el promedio que dejó la anterior, así que **no existe la operación inversa de una mezcla**. Anular una recepción vieja invalida la base de todas las posteriores. Por eso al crear o anular se recalcula reproduciendo en orden cronológico todas las recepciones vigentes del tanque — misma lección que 0059 (no guardes estado mutable que podés derivar). El volumen lo permite: las recepciones son semanales o mensuales, no una por despacho.
+
+### Dos cosas configurables por tanque
+
+| Columna | Qué hace | Default |
+|---|---|---|
+| `tolerancia_capacidad_pct` | Margen sobre `capacidad_total` antes de rechazar la recepción. Porcentaje y no litros fijos porque escala solo con el tamaño del tanque. Va por tanque porque el error de la varilla es una propiedad física de *ese* tanque. | `0` (estricto) |
+| `requiere_documento` | Si exige factura/guía de remisión. En Perú el consumo de combustible casi siempre se sustenta con factura, pero el papel no siempre está a mano al descargar. Por eso `tipo_documento`/`numero_documento` son **nullable en la base**: un `NOT NULL` haría imposible desactivar la exigencia. | `true` |
+
+Las dos las administra el cliente desde el ABM de tanques, sin tocar código. El bloqueo por capacidad sí es duro (`400`): a diferencia del sobredespacho, no hay forma física de que entre más combustible del que cabe — el dato se contradice a sí mismo, como el punto 5.

@@ -125,12 +125,33 @@ export const MODULOS: ModuloDefinicion[] = [
           anulada_por: "usuarios",
         },
       },
+      // Fase C (migrations/0064) -- cuánto ENTRA al tanque y a qué costo.
+      // Mismo criterio que combustible_despachos/combustible_precios: sin
+      // ON DELETE, así que necesita su propia entrada en `raices`. A
+      // diferencia de aquellas dos, combustible_id y grifo_id son NOT NULL
+      // (una recepción sin tanque o sin proveedor no existe).
+      {
+        nombre: "combustible_recepciones",
+        pk: "serial",
+        fks: {
+          combustible_id: "combustible",
+          grifo_id: "combustible_grifos",
+          usuario_id: "usuarios",
+          anulada_por: "usuarios",
+        },
+      },
     ],
     // combustible_lecturas cascadea desde su padre (ON DELETE CASCADE, ver
     // migrations/0045) -- no necesita DELETE propio. combustible_grifos,
-    // combustible_despachos y combustible_precios sí lo necesitan (ver el
-    // comentario de sus entradas en `tablas` arriba).
-    raices: ["combustible", "combustible_grifos", "combustible_despachos", "combustible_precios"],
+    // combustible_despachos, combustible_precios y combustible_recepciones
+    // sí lo necesitan (ver el comentario de sus entradas en `tablas`).
+    raices: [
+      "combustible",
+      "combustible_grifos",
+      "combustible_despachos",
+      "combustible_precios",
+      "combustible_recepciones",
+    ],
     // Fase A (migrations/0057) le dio a Combustible su propio POST / y
     // POST /bulk que crean el recurso base -- un solo `cuota.tabla`
     // compartido con las lecturas habría dejado esas altas sin límite real,
@@ -164,6 +185,18 @@ export const MODULOS: ModuloDefinicion[] = [
         tabla: "combustible_despachos",
         porDefecto: 100_000,
       },
+      // Fase C -- recurso propio por el mismo motivo, pero con un techo
+      // mucho más bajo a propósito: una recepción es la llegada de una
+      // cisterna (semanal o mensual), no un movimiento de cancha. Miles de
+      // recepciones en un tenant serían señal de que algo se está usando
+      // mal, no de un cliente grande.
+      {
+        ruta: "/recepciones",
+        metodo: "POST",
+        recurso: "combustible_recepciones",
+        tabla: "combustible_recepciones",
+        porDefecto: 10_000,
+      },
     ],
     // Solo registrar una lectura o un despacho califica para offline --
     // ver ADR-0002 §8. combustible_id/equipo_id viajan en el body porque
@@ -172,6 +205,12 @@ export const MODULOS: ModuloDefinicion[] = [
     // configuración de planta, se hace desde la oficina con red (mismo
     // criterio que las plantillas de Checklists). GET /despachos y GET
     // /despachos/huecos tampoco: son lecturas, no escrituras.
+    //
+    // POST /recepciones (Fase C) tampoco está acá: una cisterna descarga en
+    // planta, con red, y quien la registra es admin desde la oficina -- no
+    // es el caso de uso sin señal que justifica la cola (ADR-0002 §8). Sí
+    // usa `cliente_uuid` igual, pero por el doble clic, no por offline (ver
+    // el comentario del campo en combustible.schema.ts).
     offline: {
       escrituras: [
         { metodo: "POST", ruta: "/lecturas" },

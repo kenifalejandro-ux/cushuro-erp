@@ -12,7 +12,8 @@ const TIPOS_PUNTO_COMBUSTIBLE = ["fijo", "cisterna", "surtidor"] as const;
 // el historial de combustible_lecturas nunca quede desincronizado del valor
 // vigente -- mismo motivo por el que existe 0045_combustible_lecturas.sql.
 // `totalizador_actual` tampoco: nace en 0 en esta fase, lo mueve la Fase B
-// (despachos). `costo_promedio` tampoco: lo calcula la Fase C.
+// (despachos). `costo_promedio` TAMPOCO, y sigue sin estar: desde la Fase C
+// lo calcula el motor de recepciones (migrations/0064), no se tipea a mano.
 export const crearTanqueCombustibleSchema = z.object({
   codigo: z.string().trim().min(1).max(50),
   tanque_nombre: z.string().trim().min(1).max(100),
@@ -24,6 +25,14 @@ export const crearTanqueCombustibleSchema = z.object({
   nivel_actual: z.number().nonnegative().default(0),
   nivel_minimo: z.number().nonnegative().default(0),
   moneda: z.string().trim().length(3).default("PEN"),
+  // Configuración de Fase C (migrations/0064). Los defaults reproducen el
+  // comportamiento anterior a esa migración -- un tanque creado sin tocar
+  // estos campos se comporta igual que siempre.
+  tolerancia_capacidad_pct: z.number().min(0).max(100).default(0),
+  requiere_documento: z.boolean().default(true),
+  // 0 = "no alertar todavía", no "tolerancia cero" (migrations/0066): hasta
+  // tener historial propio del tanque, cualquier número sería inventado.
+  umbral_diferencia_pct: z.number().min(0).max(100).default(0),
 });
 
 export type CrearTanqueCombustibleInput = z.infer<typeof crearTanqueCombustibleSchema>;
@@ -44,6 +53,11 @@ export const actualizarTanqueCombustibleSchema = z.object({
   nivel_minimo: z.number().nonnegative(),
   moneda: z.string().trim().length(3),
   activo: z.boolean(),
+  // Sin `.default()`, como el resto de este schema: PUT reemplaza la fila
+  // entera, omitir un campo no significa "dejalo como está".
+  tolerancia_capacidad_pct: z.number().min(0).max(100),
+  requiere_documento: z.boolean(),
+  umbral_diferencia_pct: z.number().min(0).max(100),
 });
 
 export type ActualizarTanqueCombustibleInput = z.infer<typeof actualizarTanqueCombustibleSchema>;
@@ -283,8 +297,17 @@ export type CrearDespachoCombustibleInput = z.infer<typeof crearDespachoCombusti
 // libre `grifo_externo` de 0062 para poder engancharle un precio de forma
 // confiable. Solo admin los da de alta (ver combustible.routes.ts).
 
+// Los dos roles (migrations/0065): el mismo catálogo sirve para el grifo de
+// ruta (Fase B) y para el proveedor que llena el tanque propio (Fase C). Una
+// empresa que hace las dos cosas se marca con los dos y sigue siendo UNA ficha.
+//
+// `.default(true)` acá, requeridos en el schema de actualización de abajo:
+// mismo criterio que `moneda`/`activo` en los tanques -- el POST completa lo
+// que falte, el PUT reemplaza la fila entera y no admite omisiones.
 export const crearGrifoCombustibleSchema = z.object({
   nombre: z.string().trim().min(1, "El nombre del grifo es obligatorio").max(150),
+  abastece_ruta: z.boolean().default(true),
+  abastece_tanque: z.boolean().default(true),
 });
 
 export type CrearGrifoCombustibleInput = z.infer<typeof crearGrifoCombustibleSchema>;
@@ -292,6 +315,8 @@ export type CrearGrifoCombustibleInput = z.infer<typeof crearGrifoCombustibleSch
 export const actualizarGrifoCombustibleSchema = z.object({
   nombre: z.string().trim().min(1, "El nombre del grifo es obligatorio").max(150),
   activo: z.boolean(),
+  abastece_ruta: z.boolean(),
+  abastece_tanque: z.boolean(),
 });
 
 export type ActualizarGrifoCombustibleInput = z.infer<typeof actualizarGrifoCombustibleSchema>;
@@ -332,3 +357,67 @@ export const anularPrecioCombustibleSchema = z.object({
 });
 
 export type AnularPrecioCombustibleInput = z.infer<typeof anularPrecioCombustibleSchema>;
+
+// ── Recepciones (Fase C, ver migrations/0064) ───────────────────────────
+// Cuánto ENTRA al tanque propio y a qué costo -- lo único que escribe
+// `combustible.costo_promedio`. Una compra en grifo de ruta NO pasa por
+// acá: eso ya es un despacho con origen='compra_externa' (Fase B).
+
+const TIPOS_DOCUMENTO_RECEPCION = ["factura", "guia_remision"] as const;
+
+export const crearRecepcionCombustibleSchema = z
+  .object({
+    // Mismo mecanismo que lecturas y despachos. Acá NO es por la cola
+    // offline (una recepción se carga en planta, con red -- ver
+    // registry.ts), sino por el doble clic: el modal lo genera al abrirse,
+    // así dos envíos del mismo formulario no crean dos recepciones y, de
+    // paso, no duplican el recálculo del costo promedio.
+    cliente_uuid: z.string().uuid().optional(),
+
+    // Las dos FK son obligatorias, a diferencia del despacho (donde son
+    // polimórficas por origen): una recepción sin tanque no existe, y el
+    // grifo/proveedor va SIEMPRE por catálogo -- alta previa obligatoria,
+    // nunca texto libre.
+    combustible_id: z.number().int().positive(),
+    grifo_id: z.number().int().positive(),
+
+    cantidad: z.number().positive(),
+    costo_unitario: z.number().positive(),
+
+    // Opcionales acá porque la obligatoriedad NO es fija: depende de
+    // `combustible.requiere_documento` de ESE tanque, un dato de otra fila
+    // que Zod no puede consultar. La exige el service; este schema solo
+    // valida la coherencia del par (los dos o ninguno).
+    tipo_documento: z.enum(TIPOS_DOCUMENTO_RECEPCION).optional(),
+    numero_documento: z.string().trim().min(1).max(100).optional(),
+
+    // Cuándo entró físicamente. Opcional: sin dato, el service usa now() --
+    // mismo criterio que despachado_en/leido_en/vigente_desde.
+    recibido_en: z.string().datetime().optional(),
+  })
+  .superRefine((data, ctx) => {
+    // Espejo del CHECK combustible_recepciones_documento_check (0064): un
+    // número sin tipo no dice qué documento es, y un tipo sin número no
+    // sirve para encontrar el papel.
+    const tieneTipo = data.tipo_documento !== undefined;
+    const tieneNumero = data.numero_documento !== undefined;
+    if (tieneTipo !== tieneNumero) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["numero_documento"],
+        message: "Mandá tipo_documento y numero_documento juntos, o ninguno de los dos",
+      });
+    }
+  });
+
+export type CrearRecepcionCombustibleInput = z.infer<typeof crearRecepcionCombustibleSchema>;
+
+/** Anular una recepción mal cargada -- mismo criterio que lecturas y
+ *  precios: `motivo` obligatorio, la fila NUNCA se borra ni se edita. Al
+ *  anularla, el costo promedio del tanque se recalcula sin ella (ver
+ *  CombustibleRepository.recalcularCostoPromedio). */
+export const anularRecepcionCombustibleSchema = z.object({
+  motivo: z.string().trim().min(1, "El motivo de la anulación es obligatorio").max(500),
+});
+
+export type AnularRecepcionCombustibleInput = z.infer<typeof anularRecepcionCombustibleSchema>;

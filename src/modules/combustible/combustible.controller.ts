@@ -19,6 +19,8 @@ import type {
   ActualizarGrifoCombustibleInput,
   CrearPrecioCombustibleInput,
   AnularPrecioCombustibleInput,
+  CrearRecepcionCombustibleInput,
+  AnularRecepcionCombustibleInput,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleService } from "./combustible.service";
 
@@ -397,7 +399,9 @@ export class CombustibleController {
         (err.message.includes("el contómetro marcó") ||
           err.message.includes("no existe en este tenant") ||
           err.message.includes("no tiene tipo de medidor configurado") ||
-          err.message.includes("se mide por"))
+          err.message.includes("se mide por") ||
+          // Grifo del rol equivocado (migrations/0065).
+          err.message.includes("no está marcado como"))
       ) {
         // Todos estos son datos que se contradicen a sí mismos o a una
         // fila que el propio request referenció mal -- 400, corregible ahí
@@ -470,15 +474,20 @@ export class CombustibleController {
   async crearGrifo(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const { nombre } = req.validatedBody as CrearGrifoCombustibleInput;
+      const data = req.validatedBody as CrearGrifoCombustibleInput;
       const grifo = await withTenant(tenantId, (client) =>
-        service.crearGrifo(client, tenantId, req.usuario!.id, nombre)
+        service.crearGrifo(client, tenantId, req.usuario!.id, data)
       );
       await registrarAuditoria({
         accion: "combustible.grifo_crear",
         tenantId,
         usuarioId: req.usuario!.id,
-        detalle: { grifoId: grifo.id, nombre },
+        detalle: {
+          grifoId: grifo.id,
+          nombre: data.nombre,
+          abasteceRuta: data.abastece_ruta,
+          abasteceTanque: data.abastece_tanque,
+        },
         contexto: contextoAuditoriaModulo(req),
       });
       res.status(201).json(grifo);
@@ -507,7 +516,11 @@ export class CombustibleController {
         accion: "combustible.grifo_actualizar",
         tenantId,
         usuarioId: req.usuario!.id,
-        detalle: { grifoId: id },
+        detalle: {
+          grifoId: id,
+          abasteceRuta: data.abastece_ruta,
+          abasteceTanque: data.abastece_tanque,
+        },
         contexto: contextoAuditoriaModulo(req),
       });
       res.json(grifo);
@@ -651,6 +664,138 @@ export class CombustibleController {
       res.json(resultado.precio);
     } catch {
       res.status(500).json({ error: "Error al anular el precio" });
+    }
+  }
+
+  // ── Recepciones (Fase C, ver migrations/0064) ─────────────────────────
+
+  /** POST /recepciones -- registra cuánto ENTRÓ al tanque propio y a qué
+   *  costo. Es lo único que escribe `combustible.costo_promedio` (el
+   *  recálculo va adentro del service, en la misma transacción).
+   *
+   *  NO mueve el nivel del tanque: eso sigue siendo exclusivo de una
+   *  lectura de varilla (migración 0059). Ver el encabezado de 0064 sobre
+   *  por qué esa independencia es deliberada. */
+  async crearRecepcion(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const data = req.validatedBody as CrearRecepcionCombustibleInput;
+      const { fila, creado } = await withTenant(tenantId, (client) =>
+        service.crearRecepcion(client, tenantId, req.usuario!.id, data)
+      );
+
+      // Reintento de un envío ya guardado (doble clic sobre el mismo
+      // formulario) -- 200, no 201: no creó nada, y así el costo promedio
+      // no se vuelve a tocar ni se duplica la auditoría.
+      if (!creado) {
+        res.status(200).json(fila ?? { error: "Esta recepción ya se había registrado" });
+        return;
+      }
+
+      await registrarAuditoria({
+        accion: "combustible.recepcion_crear",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: {
+          recepcionId: fila!.id,
+          combustibleId: data.combustible_id,
+          cantidad: data.cantidad,
+          costoUnitario: data.costo_unitario,
+        },
+        contexto: contextoAuditoriaModulo(req),
+      });
+      await publicarEventoTenant(tenantId, "combustible.recepcion_creada", {
+        recepcionId: fila!.id,
+        combustibleId: data.combustible_id,
+      });
+      res.status(201).json(fila);
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        (err.message.includes("no existe en este tenant") ||
+          err.message.includes("exige factura o guía") ||
+          err.message.includes("no tiene ninguna lectura vigente") ||
+          err.message.includes("supera la capacidad del tanque") ||
+          // Grifo del rol equivocado (migrations/0065).
+          err.message.includes("no está marcado como"))
+      ) {
+        // Todos son datos que se contradicen a sí mismos o a la
+        // configuración del tanque que el propio request referenció -- 400,
+        // corregible en el momento (punto 5 del documento de diseño).
+        res.status(400).json({ error: err.message });
+        return;
+      }
+      res.status(500).json({ error: "Error al registrar la recepción" });
+    }
+  }
+
+  /** GET /recepciones -- historial paginado, con filtro opcional por
+   *  tanque. Incluye las anuladas (marcadas): son evidencia, no ruido. */
+  async listarRecepciones(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const paginacion = parsePaginacion(req.query);
+      const combustibleIdRaw = req.query.combustible_id;
+      const combustibleId =
+        typeof combustibleIdRaw === "string" && combustibleIdRaw.trim() !== ""
+          ? Number(combustibleIdRaw)
+          : undefined;
+
+      const filas = await withTenant(tenantId, (client) =>
+        service.listarRecepciones(client, tenantId, { combustibleId }, paginacion)
+      );
+      res.json(armarRespuestaPaginada(filas, paginacion));
+    } catch {
+      res.status(500).json({ error: "Error al listar recepciones" });
+    }
+  }
+
+  /** PATCH /recepciones/:recepcionId/anular -- mismo mecanismo exacto que
+   *  anularLectura/anularPrecio (404 vs 409), con una diferencia: acá el
+   *  costo promedio del tanque se recalcula sin la fila anulada, así que la
+   *  respuesta devuelve también el tanque con su promedio ya actualizado. */
+  async anularRecepcion(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const recepcionId = Number(req.params.recepcionId);
+      const { motivo } = req.validatedBody as AnularRecepcionCombustibleInput;
+
+      const resultado = await withTenant(tenantId, async (client) => {
+        const anulada = await service.anularRecepcion(
+          client,
+          tenantId,
+          recepcionId,
+          req.usuario!.id,
+          motivo
+        );
+        if (anulada) return { estado: "anulada" as const, ...anulada };
+
+        const existente = await service.getRecepcionPorId(client, tenantId, recepcionId);
+        return existente ? { estado: "ya_anulada" as const } : { estado: "inexistente" as const };
+      });
+
+      if (resultado.estado === "inexistente") {
+        res.status(404).json({ error: "Recepción no encontrada" });
+        return;
+      }
+      if (resultado.estado === "ya_anulada") {
+        res.status(409).json({ error: "Esta recepción ya estaba anulada" });
+        return;
+      }
+
+      await registrarAuditoria({
+        accion: "combustible.recepcion_anular",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { recepcionId, motivo },
+        contexto: contextoAuditoriaModulo(req),
+      });
+      await publicarEventoTenant(tenantId, "combustible.recepcion_anulada", {
+        recepcionId,
+      });
+      res.json({ recepcion: resultado.recepcion, tanque: resultado.tanque });
+    } catch {
+      res.status(500).json({ error: "Error al anular la recepción" });
     }
   }
 }

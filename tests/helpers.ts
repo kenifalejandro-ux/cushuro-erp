@@ -162,8 +162,12 @@ export async function borrarTenantDePrueba(tenantId: string) {
     // combustible_grifos, sin ON DELETE -- va primero. combustible_despachos
     // (Fase B, migrations/0062) referencia combustible, equipos Y
     // combustible_grifos (0063), también sin ON DELETE.
+    // combustible_recepciones (Fase C, migrations/0064) referencia
+    // combustible y combustible_grifos, ídem -- tiene que borrarse antes que
+    // los dos padres, igual que las otras dos.
     await client.query("DELETE FROM combustible_precios WHERE tenant_id = $1", [tenantId]);
     await client.query("DELETE FROM combustible_despachos WHERE tenant_id = $1", [tenantId]);
+    await client.query("DELETE FROM combustible_recepciones WHERE tenant_id = $1", [tenantId]);
     await client.query("DELETE FROM combustible_grifos WHERE tenant_id = $1", [tenantId]);
     await client.query("DELETE FROM combustible WHERE tenant_id = $1", [tenantId]);
     // Orden importa: checklists/ipercs/ordenes_trabajo referencian equipos y

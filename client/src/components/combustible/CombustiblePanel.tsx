@@ -24,7 +24,61 @@ interface Tanque {
   activo: boolean;
   porcentaje: string | null;
   fecha_actualizacion: string | null;
+  // Fase C (migrations/0064). Lo calcula el motor de recepciones -- acá es
+  // SOLO LECTURA: no hay campo de formulario que lo escriba. 0 significa
+  // "todavía no hay ninguna recepción registrada", no "sale gratis".
+  costo_promedio: string;
+  // Margen sobre capacidad_total (en %) antes de bloquear una recepción, y
+  // si este tanque exige factura/guía. Los dos se editan en el ABM.
+  tolerancia_capacidad_pct: string;
+  requiere_documento: boolean;
+  // Desde cuántos % de diferencia entre lo facturado y lo medido se considera
+  // sospechosa una recepción (migrations/0066). 0 = no alertar todavía.
+  umbral_diferencia_pct: string;
 }
+
+/** Una fila del historial de recepciones (GET /recepciones, Fase C). A
+ *  diferencia del historial de despachos, el backend ya resuelve los
+ *  nombres de tanque/grifo/usuarios con JOIN -- acá no hay que cruzarlos
+ *  contra el estado del panel. */
+interface RecepcionHistorial {
+  id: number;
+  combustible_id: number;
+  grifo_id: number;
+  cantidad: string;
+  costo_unitario: string;
+  costo_total: string;
+  tipo_documento: "factura" | "guia_remision" | null;
+  numero_documento: string | null;
+  recibido_en: string;
+  tanque_nombre: string;
+  grifo_nombre: string;
+  registrada_por_nombre: string | null;
+  anulada_en: string | null;
+  motivo_anulacion: string | null;
+  anulada_por_nombre: string | null;
+  // Lo medido menos lo facturado, ya con los despachos del período sumados de
+  // vuelta. null = no se puede comparar (falta una lectura, o hubo otra
+  // recepción en la misma ventana). Ver findRecepciones en el repository.
+  diferencia_litros: string | null;
+  nivel_antes: string | null;
+  nivel_despues: string | null;
+  umbral_diferencia_pct: string;
+}
+
+const ETIQUETA_TIPO_DOCUMENTO: Record<"factura" | "guia_remision", string> = {
+  factura: "Factura",
+  guia_remision: "Guía de remisión",
+};
+
+const RECEPCION_FORM_INICIAL = {
+  combustible_id: "",
+  grifo_id: "",
+  cantidad: "",
+  costo_unitario: "",
+  tipo_documento: "factura" as "factura" | "guia_remision",
+  numero_documento: "",
+};
 
 /** Una fila del histórico de aforos (combustible_lecturas, migración
  *  0045). Llega de GET /combustible/:id/lecturas, ya ordenada de la más
@@ -72,6 +126,12 @@ interface Grifo {
   id: number;
   nombre: string;
   activo: boolean;
+  // Los dos roles del catálogo (migrations/0065). El mismo grifo puede servir
+  // para los dos: en ruta (Fase B) y como proveedor del tanque propio (Fase C).
+  // Los desplegables filtran por acá, pero la regla de verdad la impone el
+  // servidor -- ver validarRolGrifo en combustible.service.ts.
+  abastece_ruta: boolean;
+  abastece_tanque: boolean;
 }
 
 /** Historial de precios (migrations/0063) -- se apila, nunca se pisa. Un
@@ -242,6 +302,11 @@ const FORM_INICIAL = {
   nivel_minimo: "0",
   moneda: "PEN",
   activo: true,
+  // Fase C (0064). Los defaults reproducen el comportamiento anterior a esa
+  // migración: sin margen de tolerancia y con documento exigido.
+  tolerancia_capacidad_pct: "0",
+  requiere_documento: true,
+  umbral_diferencia_pct: "0",
 };
 
 function formatearFecha(iso: string): string {
@@ -322,6 +387,13 @@ export default function CombustiblePanel() {
   const [grifos, setGrifos] = useState<Grifo[]>([]);
   const [modalGrifosAbierto, setModalGrifosAbierto] = useState(false);
   const [nombreGrifoNuevo, setNombreGrifoNuevo] = useState("");
+  // Los dos roles arrancan marcados (migrations/0065): el caso más común es un
+  // proveedor que sirve para todo, y así el alta rápida sigue siendo un campo
+  // y un botón como antes.
+  const [rolesGrifoNuevo, setRolesGrifoNuevo] = useState({
+    abastece_ruta: true,
+    abastece_tanque: true,
+  });
   const [guardandoGrifo, setGuardandoGrifo] = useState(false);
 
   // --- Precios de combustible (migrations/0063) ---
@@ -345,6 +417,26 @@ export default function CombustiblePanel() {
   const [historialDespachos, setHistorialDespachos] = useState<DespachoHistorial[]>([]);
   const [cargandoHistorialDespachos, setCargandoHistorialDespachos] = useState(false);
 
+  // --- Recepciones (Fase C, migrations/0064) ---
+  const [modalRecepcionAbierto, setModalRecepcionAbierto] = useState(false);
+  const [recepcionForm, setRecepcionForm] = useState(RECEPCION_FORM_INICIAL);
+  const [recibidoEn, setRecibidoEn] = useState(ahoraParaInputLocal());
+  // Mismo mecanismo que en lecturas y despachos: si el operador no toca el
+  // campo, se manda `new Date()` con segundos -- el input datetime-local
+  // recorta a minutos, y esa pérdida de precisión hacía que una recepción
+  // recién cargada quedara fechada ANTES de la última lectura.
+  const [horaRecepcionEditadaAMano, setHoraRecepcionEditadaAMano] = useState(false);
+  const [enviandoRecepcion, setEnviandoRecepcion] = useState(false);
+  // Se fija al ABRIR el modal, no al apretar el botón -- ver
+  // patron_doble_clic_formularios: el botón bloqueado solo no alcanza.
+  const [clienteUuidRecepcion, setClienteUuidRecepcion] = useState("");
+  const [modalHistorialRecepcionesAbierto, setModalHistorialRecepcionesAbierto] = useState(false);
+  const [historialRecepciones, setHistorialRecepciones] = useState<RecepcionHistorial[]>([]);
+  const [cargandoHistorialRecepciones, setCargandoHistorialRecepciones] = useState(false);
+  const [recepcionAAnular, setRecepcionAAnular] = useState<RecepcionHistorial | null>(null);
+  const [motivoAnulacionRecepcion, setMotivoAnulacionRecepcion] = useState("");
+  const [anulandoRecepcion, setAnulandoRecepcion] = useState(false);
+
   const cargarTanques = useCallback(async () => {
     const res = await apiFetch("/api/erp/combustible");
     const data = await res.json();
@@ -366,6 +458,16 @@ export default function CombustiblePanel() {
     const data = await res.json().catch(() => null);
     setGrifos(Array.isArray(data) ? data : []);
   }, []);
+
+  // Los dos desplegables filtran por rol además de por `activo`
+  // (migrations/0065). El filtro es comodidad: la regla la impone el servidor
+  // (validarRolGrifo), así que un estado viejo en memoria no puede colar un
+  // grifo del rol equivocado.
+  const grifosDeRuta = useMemo(() => grifos.filter((g) => g.activo && g.abastece_ruta), [grifos]);
+  const grifosDeTanque = useMemo(
+    () => grifos.filter((g) => g.activo && g.abastece_tanque),
+    [grifos]
+  );
 
   const cargarPrecios = useCallback(async () => {
     const res = await apiFetch("/api/erp/combustible/precios");
@@ -416,6 +518,9 @@ export default function CombustiblePanel() {
       nivel_minimo: t.nivel_minimo,
       moneda: t.moneda,
       activo: t.activo,
+      tolerancia_capacidad_pct: t.tolerancia_capacidad_pct,
+      requiere_documento: t.requiere_documento,
+      umbral_diferencia_pct: t.umbral_diferencia_pct,
     });
     setModalTanqueAbierto(true);
   };
@@ -439,6 +544,9 @@ export default function CombustiblePanel() {
             nivel_minimo: Number(formData.nivel_minimo),
             moneda: formData.moneda,
             activo: formData.activo,
+            tolerancia_capacidad_pct: Number(formData.tolerancia_capacidad_pct),
+            requiere_documento: formData.requiere_documento,
+            umbral_diferencia_pct: Number(formData.umbral_diferencia_pct),
           }
         : {
             codigo: formData.codigo,
@@ -451,6 +559,9 @@ export default function CombustiblePanel() {
             nivel_actual: Number(formData.nivel_actual),
             nivel_minimo: Number(formData.nivel_minimo),
             moneda: formData.moneda,
+            tolerancia_capacidad_pct: Number(formData.tolerancia_capacidad_pct),
+            requiere_documento: formData.requiere_documento,
+            umbral_diferencia_pct: Number(formData.umbral_diferencia_pct),
           };
 
       const res = await apiFetch(url, {
@@ -884,6 +995,7 @@ export default function CombustiblePanel() {
 
   const abrirModalGrifos = () => {
     setNombreGrifoNuevo("");
+    setRolesGrifoNuevo({ abastece_ruta: true, abastece_tanque: true });
     setModalGrifosAbierto(true);
     cargarGrifos();
   };
@@ -891,12 +1003,22 @@ export default function CombustiblePanel() {
   const handleCrearGrifo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (guardandoGrifo || !nombreGrifoNuevo.trim()) return;
+    // Un grifo sin ningún rol no sirve para nada: no aparecería en ningún
+    // desplegable y el servidor lo rechazaría en los dos casos.
+    if (!rolesGrifoNuevo.abastece_ruta && !rolesGrifoNuevo.abastece_tanque) {
+      alert("Marcá al menos un rol: abastece unidades en ruta, el tanque, o los dos.");
+      return;
+    }
     setGuardandoGrifo(true);
     try {
       const res = await apiFetch("/api/erp/combustible/grifos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nombre: nombreGrifoNuevo.trim() }),
+        body: JSON.stringify({
+          nombre: nombreGrifoNuevo.trim(),
+          abastece_ruta: rolesGrifoNuevo.abastece_ruta,
+          abastece_tanque: rolesGrifoNuevo.abastece_tanque,
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -904,17 +1026,50 @@ export default function CombustiblePanel() {
         return;
       }
       setNombreGrifoNuevo("");
+      setRolesGrifoNuevo({ abastece_ruta: true, abastece_tanque: true });
       await cargarGrifos();
     } finally {
       setGuardandoGrifo(false);
     }
   };
 
+  /** El PUT reemplaza la fila entera (el schema no tiene defaults), así que
+   *  hay que mandar TODOS los campos aunque este botón solo cambie `activo` --
+   *  omitir los roles daría 400. */
   const handleCambiarActivoGrifo = async (grifo: Grifo) => {
     const res = await apiFetch(`/api/erp/combustible/grifos/${grifo.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nombre: grifo.nombre, activo: !grifo.activo }),
+      body: JSON.stringify({
+        nombre: grifo.nombre,
+        activo: !grifo.activo,
+        abastece_ruta: grifo.abastece_ruta,
+        abastece_tanque: grifo.abastece_tanque,
+      }),
+    });
+    if (!res.ok) {
+      alert("No se pudo actualizar el grifo.");
+      return;
+    }
+    await cargarGrifos();
+  };
+
+  /** Cambia UN rol dejando el otro y `activo` como estaban -- mismo motivo que
+   *  arriba: el PUT manda la fila completa. */
+  const handleCambiarRolGrifo = async (
+    grifo: Grifo,
+    rol: "abastece_ruta" | "abastece_tanque",
+    valor: boolean
+  ) => {
+    const res = await apiFetch(`/api/erp/combustible/grifos/${grifo.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        nombre: grifo.nombre,
+        activo: grifo.activo,
+        abastece_ruta: rol === "abastece_ruta" ? valor : grifo.abastece_ruta,
+        abastece_tanque: rol === "abastece_tanque" ? valor : grifo.abastece_tanque,
+      }),
     });
     if (!res.ok) {
       alert("No se pudo actualizar el grifo.");
@@ -1005,6 +1160,138 @@ export default function CombustiblePanel() {
     }
   };
 
+  // --- Recepciones (Fase C, migrations/0064) ---
+
+  const abrirModalRecepcion = () => {
+    setRecepcionForm(RECEPCION_FORM_INICIAL);
+    setRecibidoEn(ahoraParaInputLocal());
+    setHoraRecepcionEditadaAMano(false);
+    setMensajeExito(null);
+    setClienteUuidRecepcion(crypto.randomUUID());
+    setModalRecepcionAbierto(true);
+  };
+
+  const tanqueRecepcion = tanques.find((t) => t.id === Number(recepcionForm.combustible_id));
+
+  const costoTotalRecepcion =
+    recepcionForm.cantidad !== "" && recepcionForm.costo_unitario !== ""
+      ? Number(recepcionForm.cantidad) * Number(recepcionForm.costo_unitario)
+      : null;
+
+  /** Espejo en el cliente del bloqueo por capacidad del service: avisa
+   *  ANTES de mandar, con el mismo criterio (nivel medido + cantidad contra
+   *  capacidad * (1 + tolerancia)). El servidor lo revalida igual -- esto es
+   *  para que el usuario lo vea mientras tipea, no una defensa.
+   *
+   *  Devuelve null si no hay nada que advertir o si falta algún dato. */
+  const avisoCapacidadRecepcion = (() => {
+    if (!tanqueRecepcion || recepcionForm.cantidad === "") return null;
+    // nivel_actual null = el tanque no tiene lectura vigente. El servidor va
+    // a rechazar la recepción por eso mismo, así que conviene decirlo acá.
+    if (tanqueRecepcion.nivel_actual === null) {
+      return "Este tanque no tiene ninguna lectura de varilla vigente. Registrá primero la lectura: sin ella no se puede validar la capacidad ni calcular el costo promedio.";
+    }
+    const nivel = Number(tanqueRecepcion.nivel_actual);
+    const capacidad = Number(tanqueRecepcion.capacidad_total);
+    const techo = capacidad * (1 + Number(tanqueRecepcion.tolerancia_capacidad_pct) / 100);
+    if (nivel + Number(recepcionForm.cantidad) > techo) {
+      return `No entra: el tanque tiene ${nivel.toLocaleString("es-PE")} ${tanqueRecepcion.unidad} medidos y su tope es ${techo.toLocaleString("es-PE")} ${tanqueRecepcion.unidad}.`;
+    }
+    return null;
+  })();
+
+  const handleRegistrarRecepcion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (enviandoRecepcion) return;
+
+    const recibidoEnIso = horaRecepcionEditadaAMano
+      ? new Date(recibidoEn).toISOString()
+      : new Date().toISOString();
+
+    // El documento solo viaja si se llenó -- tipo y número van juntos o no
+    // van (lo exige el superRefine del schema y el CHECK de 0064). Un tanque
+    // con requiere_documento=false puede mandarlos igual si el operador los
+    // tiene a mano.
+    const conDocumento = recepcionForm.numero_documento.trim() !== "";
+
+    setEnviandoRecepcion(true);
+    try {
+      const res = await apiFetch("/api/erp/combustible/recepciones", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cliente_uuid: clienteUuidRecepcion,
+          combustible_id: Number(recepcionForm.combustible_id),
+          grifo_id: Number(recepcionForm.grifo_id),
+          cantidad: Number(recepcionForm.cantidad),
+          costo_unitario: Number(recepcionForm.costo_unitario),
+          tipo_documento: conDocumento ? recepcionForm.tipo_documento : undefined,
+          numero_documento: conDocumento ? recepcionForm.numero_documento.trim() : undefined,
+          recibido_en: recibidoEnIso,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert(body.error || body.errors?.[0]?.message || "Error al registrar la recepción.");
+        return;
+      }
+
+      setModalRecepcionAbierto(false);
+      // Recargar: el costo promedio del tanque acaba de cambiar y se muestra
+      // en la tabla.
+      await cargarTanques();
+      setMensajeExito(
+        `Recepción registrada: ${Number(recepcionForm.cantidad).toLocaleString("es-PE")} ` +
+          `${tanqueRecepcion?.unidad ?? ""} en ${tanqueRecepcion?.tanque_nombre ?? "el tanque"}. ` +
+          `El nivel NO cambia hasta la próxima lectura de varilla.`
+      );
+    } finally {
+      setEnviandoRecepcion(false);
+    }
+  };
+
+  const cargarHistorialRecepciones = useCallback(async () => {
+    setCargandoHistorialRecepciones(true);
+    try {
+      // pageSize=100, mismo techo que los otros dos historiales.
+      const res = await apiFetch("/api/erp/combustible/recepciones?pageSize=100");
+      const body = await res.json().catch(() => null);
+      setHistorialRecepciones(Array.isArray(body?.data) ? body.data : []);
+    } finally {
+      setCargandoHistorialRecepciones(false);
+    }
+  }, []);
+
+  const abrirModalHistorialRecepciones = async () => {
+    setModalHistorialRecepcionesAbierto(true);
+    await cargarHistorialRecepciones();
+  };
+
+  const handleAnularRecepcion = async () => {
+    if (anulandoRecepcion || !recepcionAAnular || !motivoAnulacionRecepcion.trim()) return;
+    setAnulandoRecepcion(true);
+    try {
+      const res = await apiFetch(`/api/erp/combustible/recepciones/${recepcionAAnular.id}/anular`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ motivo: motivoAnulacionRecepcion }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert(body.error || "No se pudo anular la recepción.");
+        return;
+      }
+      setRecepcionAAnular(null);
+      setMotivoAnulacionRecepcion("");
+      // El costo promedio del tanque se recalculó sin esta fila -- hay que
+      // recargar las dos cosas.
+      await Promise.all([cargarHistorialRecepciones(), cargarTanques()]);
+    } finally {
+      setAnulandoRecepcion(false);
+    }
+  };
+
   if (loading) {
     return <div className="p-10">Cargando combustible...</div>;
   }
@@ -1040,16 +1327,28 @@ export default function CombustiblePanel() {
             📋 Historial de despachos
           </button>
           <button
+            onClick={abrirModalHistorialRecepciones}
+            className="px-4 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium rounded-xl transition-all"
+          >
+            🧾 Historial de recepciones
+          </button>
+          <button
             onClick={abrirModalGrifos}
             className="px-4 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium rounded-xl transition-all"
           >
-            Grifos
+            Grifos / Proveedores
           </button>
           <button
             onClick={abrirModalPrecios}
             className="px-4 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium rounded-xl transition-all"
           >
             Precios
+          </button>
+          <button
+            onClick={abrirModalRecepcion}
+            className="px-6 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-medium rounded-xl transition-all"
+          >
+            🚚 Registrar recepción
           </button>
           <button
             onClick={abrirModalDespacho}
@@ -1118,6 +1417,9 @@ export default function CombustiblePanel() {
                   Nivel
                 </th>
                 <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                  Costo prom.
+                </th>
+                <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-widest">
                   Estado
                 </th>
                 <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
@@ -1182,6 +1484,20 @@ export default function CombustiblePanel() {
                             Última lectura: {formatearFecha(t.fecha_actualizacion!)}
                           </p>
                         </>
+                      )}
+                    </td>
+                    {/* Fase C (0064) -- solo lectura: lo escribe el motor de
+                        recepciones. 0 significa "todavía no se registró
+                        ninguna compra", no "sale gratis": decirlo con
+                        palabras evita que se lea como un precio real. */}
+                    <td className="p-4 text-sm">
+                      {Number(t.costo_promedio) === 0 ? (
+                        <span className="text-slate-400 italic text-xs">Sin recepciones</span>
+                      ) : (
+                        <span className="font-medium text-slate-700">
+                          {t.moneda} {Number(t.costo_promedio).toFixed(4)}
+                          <span className="text-slate-400 font-normal"> / {t.unidad}</span>
+                        </span>
                       )}
                     </td>
                     <td className="p-4 text-sm">
@@ -1436,6 +1752,103 @@ export default function CombustiblePanel() {
                   />
                 </div>
               )}
+              {/* Fase C (0064) -- configuración que solo afecta a las
+                  recepciones. Va junta y al final para no competir con los
+                  campos que se llenan siempre. */}
+              <div className="border-t border-slate-100 pt-4 space-y-4">
+                <p className="text-xs font-bold text-slate-400 uppercase">
+                  Recepciones de combustible
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label
+                      htmlFor="tanque-moneda"
+                      className="text-xs font-bold text-slate-500 uppercase"
+                    >
+                      Moneda
+                    </label>
+                    {/* Hasta la Fase C este campo viajaba fijo en "PEN" sin
+                        control visible: `moneda` solo tiene sentido
+                        acompañando a un costo, y no había ninguno. Ahora que
+                        el costo promedio existe de verdad, se muestra. */}
+                    <select
+                      id="tanque-moneda"
+                      className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                      value={formData.moneda}
+                      onChange={(e) => setFormData({ ...formData, moneda: e.target.value })}
+                    >
+                      <option value="PEN">PEN (S/)</option>
+                      <option value="USD">USD ($)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label
+                      htmlFor="tanque-tolerancia"
+                      className="text-xs font-bold text-slate-500 uppercase"
+                    >
+                      Tolerancia de capacidad (%)
+                    </label>
+                    <input
+                      id="tanque-tolerancia"
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.01"
+                      className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                      value={formData.tolerancia_capacidad_pct}
+                      onChange={(e) =>
+                        setFormData({ ...formData, tolerancia_capacidad_pct: e.target.value })
+                      }
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Margen sobre la capacidad antes de rechazar una recepción. 0 = estricto.
+                    </p>
+                  </div>
+                  <div className="space-y-1 col-span-2">
+                    <label
+                      htmlFor="tanque-umbral-diferencia"
+                      className="text-xs font-bold text-slate-500 uppercase"
+                    >
+                      Umbral de diferencia (%)
+                    </label>
+                    <input
+                      id="tanque-umbral-diferencia"
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.01"
+                      className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                      value={formData.umbral_diferencia_pct}
+                      onChange={(e) =>
+                        setFormData({ ...formData, umbral_diferencia_pct: e.target.value })
+                      }
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Desde cuánta diferencia entre lo facturado y lo medido con varilla se marca
+                      una recepción como sospechosa. <strong>0 = no alertar todavía</strong> (no es
+                      &quot;tolerancia cero&quot;): conviene dejarlo así hasta juntar historial
+                      propio del tanque.
+                    </p>
+                  </div>
+                </div>
+                <label className="flex items-start gap-2 text-sm text-slate-600">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={formData.requiere_documento}
+                    onChange={(e) =>
+                      setFormData({ ...formData, requiere_documento: e.target.checked })
+                    }
+                  />
+                  <span>
+                    Exigir factura o guía de remisión al registrar una recepción
+                    <span className="block text-[11px] text-slate-400">
+                      Desactivalo si el papel del proveedor no siempre está a mano al descargar.
+                    </span>
+                  </span>
+                </label>
+              </div>
+
               {editandoId !== null && (
                 <label className="flex items-center gap-2 text-sm text-slate-600">
                   <input
@@ -1955,18 +2368,19 @@ export default function CombustiblePanel() {
                       <option value="" disabled>
                         Elegir grifo
                       </option>
-                      {grifos
-                        .filter((g) => g.activo)
-                        .map((g) => (
-                          <option key={g.id} value={g.id}>
-                            {g.nombre}
-                          </option>
-                        ))}
+                      {/* Solo los de ruta (migrations/0065): un proveedor que
+                          solo llena el tanque propio no es donde una unidad
+                          carga camino a Bambamarca. */}
+                      {grifosDeRuta.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.nombre}
+                        </option>
+                      ))}
                     </select>
-                    {grifos.length === 0 && (
+                    {grifosDeRuta.length === 0 && (
                       <p className="text-xs text-red-600">
-                        No hay grifos cargados todavía -- agregalos desde "Grifos" en la barra
-                        superior.
+                        No hay grifos de ruta cargados -- agregalos desde "Grifos / Proveedores" en
+                        la barra superior, marcando "Abastece unidades en ruta".
                       </p>
                     )}
                   </div>
@@ -2325,7 +2739,12 @@ export default function CombustiblePanel() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
           <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b flex justify-between items-center">
-              <h3 className="text-xl font-bold">Grifos</h3>
+              <div>
+                <h3 className="text-xl font-bold">Grifos / Proveedores</h3>
+                <p className="text-sm text-slate-500">
+                  Los que abastecen unidades en ruta y los que llenan los tanques propios
+                </p>
+              </div>
               <button
                 onClick={() => setModalGrifosAbierto(false)}
                 className="text-slate-400 hover:text-slate-900 text-2xl"
@@ -2338,7 +2757,7 @@ export default function CombustiblePanel() {
                 htmlFor="grifo-nombre-nuevo"
                 className="text-xs font-bold text-slate-500 uppercase"
               >
-                Nuevo grifo
+                Nuevo grifo o proveedor
               </label>
               <div className="flex gap-2">
                 <input
@@ -2358,6 +2777,33 @@ export default function CombustiblePanel() {
                   +
                 </button>
               </div>
+              {/* Los dos roles (migrations/0065) -- marcados por defecto porque
+                  el caso más común es un proveedor que sirve para todo. */}
+              <div className="space-y-2 pt-1">
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={rolesGrifoNuevo.abastece_ruta}
+                    onChange={(e) =>
+                      setRolesGrifoNuevo({ ...rolesGrifoNuevo, abastece_ruta: e.target.checked })
+                    }
+                  />
+                  Abastece unidades en ruta
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={rolesGrifoNuevo.abastece_tanque}
+                    onChange={(e) =>
+                      setRolesGrifoNuevo({ ...rolesGrifoNuevo, abastece_tanque: e.target.checked })
+                    }
+                  />
+                  Abastece el tanque (cisterna)
+                </label>
+                <p className="text-[11px] text-slate-400">
+                  Marcá los dos si el mismo proveedor te vende en ruta y a granel.
+                </p>
+              </div>
             </form>
             <div className="p-6 space-y-2">
               {grifos.length === 0 ? (
@@ -2366,23 +2812,47 @@ export default function CombustiblePanel() {
                 </p>
               ) : (
                 grifos.map((g) => (
-                  <div
-                    key={g.id}
-                    className="flex items-center justify-between p-3 rounded-xl border border-slate-100"
-                  >
-                    <span className={g.activo ? "text-slate-800" : "text-slate-400 line-through"}>
-                      {g.nombre}
-                    </span>
-                    <button
-                      onClick={() => handleCambiarActivoGrifo(g)}
-                      className={`text-xs font-bold px-3 py-1 rounded-full ${
-                        g.activo
-                          ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                          : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                      }`}
-                    >
-                      {g.activo ? "Activo" : "Desactivado"}
-                    </button>
+                  <div key={g.id} className="p-3 rounded-xl border border-slate-100 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className={g.activo ? "text-slate-800" : "text-slate-400 line-through"}>
+                        {g.nombre}
+                      </span>
+                      <button
+                        onClick={() => handleCambiarActivoGrifo(g)}
+                        className={`text-xs font-bold px-3 py-1 rounded-full ${
+                          g.activo
+                            ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                            : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                        }`}
+                      >
+                        {g.activo ? "Activo" : "Desactivado"}
+                      </button>
+                    </div>
+                    {/* Editar los roles de una ficha existente, sin pantalla
+                        aparte: el catálogo es chico y cambiar un rol es un
+                        clic, igual que activar/desactivar. */}
+                    <div className="flex flex-wrap gap-4">
+                      <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                        <input
+                          type="checkbox"
+                          checked={g.abastece_ruta}
+                          onChange={(e) =>
+                            handleCambiarRolGrifo(g, "abastece_ruta", e.target.checked)
+                          }
+                        />
+                        En ruta
+                      </label>
+                      <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                        <input
+                          type="checkbox"
+                          checked={g.abastece_tanque}
+                          onChange={(e) =>
+                            handleCambiarRolGrifo(g, "abastece_tanque", e.target.checked)
+                          }
+                        />
+                        Tanque (cisterna)
+                      </label>
+                    </div>
                   </div>
                 ))
               )}
@@ -2430,13 +2900,24 @@ export default function CombustiblePanel() {
                     ))}
                   </select>
                 </div>
-                <div className="space-y-1">
+                {/* col-span-2: la etiqueta larga ("Precio de venta interna
+                    (tanque → flotas)") se corta a la mitad de la flecha en
+                    media columna, y truncada dice otra cosa. */}
+                <div className="space-y-1 col-span-2">
                   <label
                     htmlFor="precio-aplica-a"
                     className="text-xs font-bold text-slate-500 uppercase"
                   >
-                    Aplica a
+                    Tipo de precio
                   </label>
+                  {/* Las dos opciones son precios DISTINTOS y hay que decirlo:
+                      el del tanque es lo que se le cobra a las flotas (venta
+                      interna), el del grifo es lo que cobra un tercero en la
+                      ruta (compra). Cuando decían solo "Tanque propio" /
+                      "Grifo externo" era fácil leer el primero como "lo que me
+                      cuesta el combustible del tanque", que es otra cosa: ese
+                      es el costo promedio, y lo calcula el motor de
+                      recepciones (Fase C), no se carga acá. */}
                   <select
                     id="precio-aplica-a"
                     className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
@@ -2450,11 +2931,16 @@ export default function CombustiblePanel() {
                       })
                     }
                   >
-                    <option value="tanque">Tanque propio</option>
-                    <option value="grifo">Grifo externo</option>
+                    <option value="tanque">Precio de venta interna (tanque → flotas)</option>
+                    <option value="grifo">Precio de compra en grifo de ruta</option>
                   </select>
                 </div>
               </div>
+
+              <p className="text-[11px] text-slate-400 -mt-1">
+                Acá no va el costo de las cisternas que llenan el tanque: ese se carga en cada
+                recepción, desde su factura.
+              </p>
 
               {precioForm.aplicaA === "tanque" ? (
                 <div className="space-y-1">
@@ -2579,6 +3065,12 @@ export default function CombustiblePanel() {
                         {ETIQUETA_TIPO_COMBUSTIBLE[p.tipo_combustible]} —{" "}
                         {p.tanque_nombre ?? p.grifo_nombre} — S/{" "}
                         {Number(p.precio_unitario).toLocaleString("es-PE")}
+                        {/* Sin esto, dos filas del historial se ven idénticas
+                            y no hay forma de saber si el número es de venta o
+                            de compra -- misma ambigüedad que el selector. */}
+                        <span className="ml-2 text-[11px] font-normal text-slate-400">
+                          {p.combustible_id !== null ? "venta interna" : "compra en ruta"}
+                        </span>
                       </span>
                       {!p.anulada_en && (
                         <button
@@ -2656,6 +3148,515 @@ export default function CombustiblePanel() {
               >
                 {anulandoPrecio ? "Anulando..." : "Anular precio"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal: registrar recepción (Fase C, migrations/0064) */}
+      {modalRecepcionAbierto && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b flex justify-between items-center">
+              <div>
+                <h3 className="text-xl font-bold">Registrar recepción</h3>
+                <p className="text-sm text-slate-500">
+                  Entrada de combustible al tanque propio (cisterna / proveedor)
+                </p>
+              </div>
+              <button
+                onClick={() => setModalRecepcionAbierto(false)}
+                className="text-slate-400 hover:text-slate-900 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleRegistrarRecepcion} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="recepcion-tanque"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Tanque *
+                  </label>
+                  <select
+                    id="recepcion-tanque"
+                    required
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                    value={recepcionForm.combustible_id}
+                    onChange={(e) =>
+                      setRecepcionForm({ ...recepcionForm, combustible_id: e.target.value })
+                    }
+                  >
+                    <option value="">Elegí un tanque...</option>
+                    {tanques
+                      .filter((t) => t.activo)
+                      .map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.codigo} — {t.tanque_nombre}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label
+                    htmlFor="recepcion-grifo"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Proveedor / grifo *
+                  </label>
+                  <select
+                    id="recepcion-grifo"
+                    required
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                    value={recepcionForm.grifo_id}
+                    onChange={(e) =>
+                      setRecepcionForm({ ...recepcionForm, grifo_id: e.target.value })
+                    }
+                  >
+                    <option value="">Elegí un proveedor...</option>
+                    {/* Solo los que abastecen el tanque (migrations/0065): un
+                        grifo de ruta no es quien manda la cisterna. */}
+                    {grifosDeTanque.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.nombre}
+                      </option>
+                    ))}
+                  </select>
+                  {/* El catálogo es obligatorio a propósito: el alta va
+                      primero, para que el gasto por proveedor se pueda
+                      agrupar de verdad (ver migrations/0063). */}
+                  <p className="text-[11px] text-slate-400">
+                    ¿No está en la lista? Cargalo primero en{" "}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setModalRecepcionAbierto(false);
+                        abrirModalGrifos();
+                      }}
+                      className="underline hover:text-slate-600"
+                    >
+                      Grifos / Proveedores
+                    </button>
+                    , marcando "Abastece el tanque (cisterna)".
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="recepcion-cantidad"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Cantidad recibida * {tanqueRecepcion ? `(${tanqueRecepcion.unidad})` : ""}
+                  </label>
+                  <input
+                    id="recepcion-cantidad"
+                    type="number"
+                    required
+                    min={0}
+                    step="0.01"
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                    value={recepcionForm.cantidad}
+                    onChange={(e) =>
+                      setRecepcionForm({ ...recepcionForm, cantidad: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label
+                    htmlFor="recepcion-costo"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Costo unitario *
+                  </label>
+                  <input
+                    id="recepcion-costo"
+                    type="number"
+                    required
+                    min={0}
+                    step="0.0001"
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                    value={recepcionForm.costo_unitario}
+                    onChange={(e) =>
+                      setRecepcionForm({ ...recepcionForm, costo_unitario: e.target.value })
+                    }
+                  />
+                </div>
+              </div>
+
+              {costoTotalRecepcion !== null && (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm">
+                  <span className="text-slate-500">Costo total: </span>
+                  <span className="font-bold text-slate-800">
+                    {tanqueRecepcion?.moneda ?? "PEN"}{" "}
+                    {costoTotalRecepcion.toLocaleString("es-PE", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                </div>
+              )}
+
+              {/* Referencia del tanque elegido: nivel medido, capacidad y
+                  costo promedio actual. Sin esto el operador tipea a ciegas
+                  -- mismo criterio que el modal de lectura. */}
+              {tanqueRecepcion && (
+                <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 text-xs text-sky-900 space-y-1">
+                  <p>
+                    <strong>Nivel medido:</strong>{" "}
+                    {tanqueRecepcion.nivel_actual === null
+                      ? "sin lecturas vigentes"
+                      : `${Number(tanqueRecepcion.nivel_actual).toLocaleString("es-PE")} ${tanqueRecepcion.unidad}`}{" "}
+                    · <strong>Capacidad:</strong>{" "}
+                    {Number(tanqueRecepcion.capacidad_total).toLocaleString("es-PE")}{" "}
+                    {tanqueRecepcion.unidad}
+                    {Number(tanqueRecepcion.tolerancia_capacidad_pct) > 0 &&
+                      ` (+${Number(tanqueRecepcion.tolerancia_capacidad_pct)}% tolerancia)`}
+                  </p>
+                  <p>
+                    <strong>Costo promedio actual:</strong>{" "}
+                    {Number(tanqueRecepcion.costo_promedio) === 0
+                      ? "sin recepciones previas — esta compra lo define"
+                      : `${tanqueRecepcion.moneda} ${Number(tanqueRecepcion.costo_promedio).toFixed(4)}`}
+                  </p>
+                  <p className="text-sky-700">
+                    Registrar la recepción <strong>no cambia el nivel</strong> del tanque: eso lo
+                    hace la próxima lectura de varilla.
+                  </p>
+                </div>
+              )}
+
+              {avisoCapacidadRecepcion && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-800">
+                  {avisoCapacidadRecepcion}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="recepcion-tipo-doc"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Documento {tanqueRecepcion?.requiere_documento !== false ? "*" : "(opcional)"}
+                  </label>
+                  <select
+                    id="recepcion-tipo-doc"
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                    value={recepcionForm.tipo_documento}
+                    onChange={(e) =>
+                      setRecepcionForm({
+                        ...recepcionForm,
+                        tipo_documento: e.target.value as "factura" | "guia_remision",
+                      })
+                    }
+                  >
+                    <option value="factura">Factura</option>
+                    <option value="guia_remision">Guía de remisión</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label
+                    htmlFor="recepcion-num-doc"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    N° de documento{" "}
+                    {tanqueRecepcion?.requiere_documento !== false ? "*" : "(opcional)"}
+                  </label>
+                  <input
+                    id="recepcion-num-doc"
+                    type="text"
+                    // Obligatorio solo si el tanque elegido lo exige -- el
+                    // servidor aplica la misma regla leyendo
+                    // combustible.requiere_documento.
+                    required={tanqueRecepcion?.requiere_documento !== false}
+                    maxLength={100}
+                    placeholder="F001-00012345"
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                    value={recepcionForm.numero_documento}
+                    onChange={(e) =>
+                      setRecepcionForm({ ...recepcionForm, numero_documento: e.target.value })
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label
+                  htmlFor="recepcion-fecha"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Fecha y hora de recepción
+                </label>
+                <input
+                  id="recepcion-fecha"
+                  type="datetime-local"
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                  value={recibidoEn}
+                  onChange={(e) => {
+                    setRecibidoEn(e.target.value);
+                    setHoraRecepcionEditadaAMano(true);
+                  }}
+                />
+                <p className="text-[11px] text-slate-400">
+                  Cuándo entró el combustible, no cuándo se carga al sistema. Define contra qué
+                  lectura se calcula el costo promedio.
+                </p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={enviandoRecepcion || avisoCapacidadRecepcion !== null}
+                className="w-full bg-sky-600 text-white font-bold py-4 rounded-2xl hover:bg-sky-700 transition-all mt-2 disabled:opacity-50"
+              >
+                {enviandoRecepcion ? "Registrando..." : "Registrar recepción"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Modal: historial de recepciones (con anulación) */}
+      {modalHistorialRecepcionesAbierto && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+          <div className="bg-white w-full max-w-5xl rounded-3xl shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="p-6 border-b flex justify-between items-center shrink-0">
+              <div>
+                <h3 className="text-xl font-bold">Historial de recepciones</h3>
+                <p className="text-sm text-slate-500">
+                  Últimas 100 entradas de combustible, de la más reciente a la más antigua
+                </p>
+              </div>
+              <button
+                onClick={() => setModalHistorialRecepcionesAbierto(false)}
+                className="text-slate-400 hover:text-slate-900 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto overflow-x-auto">
+              {cargandoHistorialRecepciones ? (
+                <p className="text-center text-slate-500 py-8">Cargando historial...</p>
+              ) : historialRecepciones.length === 0 ? (
+                <p className="text-center text-slate-500 py-8">
+                  Todavía no hay recepciones registradas.
+                </p>
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        Fecha
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        Tanque
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        Proveedor
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        Documento
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
+                        Cantidad
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
+                        C.U
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
+                        C.TOTAL
+                      </th>
+                      <th
+                        className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right"
+                        title="Lo medido con varilla menos lo facturado, ya descontados los despachos del período"
+                      >
+                        Diferencia
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
+                        Acciones
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {historialRecepciones.map((r) => {
+                      const anulada = r.anulada_en !== null;
+                      return (
+                        <tr
+                          key={r.id}
+                          className={anulada ? "bg-slate-50/60 text-slate-400" : undefined}
+                        >
+                          <td className="p-3 text-sm">
+                            {formatearFecha(r.recibido_en)}
+                            {r.registrada_por_nombre && (
+                              <p className="text-xs text-slate-400">{r.registrada_por_nombre}</p>
+                            )}
+                          </td>
+                          <td className="p-3 text-sm">{r.tanque_nombre}</td>
+                          <td className="p-3 text-sm">{r.grifo_nombre}</td>
+                          <td className="p-3 text-sm">
+                            {r.tipo_documento ? (
+                              <>
+                                <span className="text-xs text-slate-500">
+                                  {ETIQUETA_TIPO_DOCUMENTO[r.tipo_documento]}
+                                </span>
+                                <p className="font-mono text-xs">{r.numero_documento}</p>
+                              </>
+                            ) : (
+                              <span className="text-xs text-slate-400 italic">Sin documento</span>
+                            )}
+                          </td>
+                          <td className="p-3 text-sm text-right">
+                            {Number(r.cantidad).toLocaleString("es-PE")}
+                          </td>
+                          <td className="p-3 text-sm text-right">
+                            {Number(r.costo_unitario).toFixed(4)}
+                          </td>
+                          <td className="p-3 text-sm text-right font-medium">
+                            {Number(r.costo_total).toLocaleString("es-PE", {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </td>
+                          {/* La diferencia entre lo facturado y lo medido. Es
+                              el dato que delata una entrega corta -- y el que
+                              va a alimentar la calibración del umbral en Fase
+                              D, por eso se muestra desde ya aunque todavía no
+                              haya motor de conciliación. */}
+                          <td className="p-3 text-sm text-right">
+                            {r.diferencia_litros === null ? (
+                              <span
+                                className="text-slate-300"
+                                title="Falta la lectura de varilla antes o después de la descarga, o hubo otra recepción en el mismo período: sin eso no se puede atribuir la diferencia a esta entrega."
+                              >
+                                —
+                              </span>
+                            ) : (
+                              (() => {
+                                const litros = Number(r.diferencia_litros);
+                                const pct = (litros / Number(r.cantidad)) * 100;
+                                const umbral = Number(r.umbral_diferencia_pct);
+                                // Solo pinta en rojo si el tanque tiene umbral
+                                // configurado Y se pasa: con umbral 0 el dato
+                                // se muestra sin juzgar, que es lo correcto
+                                // hasta tener historial con qué calibrar.
+                                const excede = umbral > 0 && Math.abs(pct) > umbral;
+                                return (
+                                  <span
+                                    className={
+                                      excede
+                                        ? "font-bold text-red-600"
+                                        : litros < 0
+                                          ? "text-amber-600"
+                                          : "text-slate-500"
+                                    }
+                                    title={`Medido: ${Number(r.nivel_antes).toLocaleString("es-PE")} → ${Number(r.nivel_despues).toLocaleString("es-PE")}`}
+                                  >
+                                    {litros > 0 ? "+" : ""}
+                                    {litros.toLocaleString("es-PE", {
+                                      maximumFractionDigits: 2,
+                                    })}
+                                    <span className="block text-[11px] font-normal">
+                                      {pct > 0 ? "+" : ""}
+                                      {pct.toFixed(1)}%
+                                    </span>
+                                  </span>
+                                );
+                              })()
+                            )}
+                          </td>
+                          <td className="p-3 text-sm text-right">
+                            {anulada ? (
+                              // La anulada NO se esconde: es evidencia de que
+                              // hubo un error, igual que una lectura o un
+                              // precio anulado (0058 / 0063).
+                              <span
+                                className="text-xs text-red-400"
+                                title={r.motivo_anulacion ?? undefined}
+                              >
+                                Anulada
+                                {r.anulada_por_nombre ? ` por ${r.anulada_por_nombre}` : ""}
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  setRecepcionAAnular(r);
+                                  setMotivoAnulacionRecepcion("");
+                                }}
+                                className="text-xs text-red-500 hover:text-red-700 hover:underline"
+                              >
+                                Anular
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal: anular recepción -- motivo OBLIGATORIO, mismo criterio que
+          lecturas y precios: es lo único que distingue un error de tipeo de
+          alguien borrando un número que no le conviene. */}
+      {recepcionAAnular && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-[60] p-4">
+          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl">
+            <div className="p-6 border-b">
+              <h3 className="text-xl font-bold">Anular recepción</h3>
+              <p className="text-sm text-slate-500">
+                La fila no se borra: queda marcada como anulada y el costo promedio del tanque se
+                recalcula sin ella.
+              </p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm">
+                <p>
+                  <strong>{recepcionAAnular.tanque_nombre}</strong> ·{" "}
+                  {Number(recepcionAAnular.cantidad).toLocaleString("es-PE")} a{" "}
+                  {Number(recepcionAAnular.costo_unitario).toFixed(4)}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {recepcionAAnular.grifo_nombre} · {formatearFecha(recepcionAAnular.recibido_en)}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <label
+                  htmlFor="motivo-anulacion-recepcion"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Motivo de la anulación *
+                </label>
+                <textarea
+                  id="motivo-anulacion-recepcion"
+                  rows={3}
+                  maxLength={500}
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                  placeholder="Ej: se cargó la factura de otra cisterna"
+                  value={motivoAnulacionRecepcion}
+                  onChange={(e) => setMotivoAnulacionRecepcion(e.target.value)}
+                />
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setRecepcionAAnular(null)}
+                  className="flex-1 border border-slate-200 text-slate-600 font-medium py-3 rounded-2xl hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleAnularRecepcion}
+                  disabled={anulandoRecepcion || !motivoAnulacionRecepcion.trim()}
+                  className="flex-1 bg-red-600 text-white font-bold py-3 rounded-2xl hover:bg-red-700 disabled:opacity-50"
+                >
+                  {anulandoRecepcion ? "Anulando..." : "Anular recepción"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

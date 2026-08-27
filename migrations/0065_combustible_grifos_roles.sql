@@ -1,0 +1,42 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Migración: el catálogo de grifos distingue sus dos roles
+--
+-- `combustible_grifos` nació en la Fase B (migrations/0063) para UN caso: el
+-- grifo de terceros donde una unidad carga combustible camino a Bambamarca
+-- (PRIMAX, VELASQUEZ...). La Fase C (migrations/0064) reusó el mismo catálogo
+-- para otro caso: el proveedor que manda la cisterna y llena el tanque propio
+-- de Huamachuco.
+--
+-- Como entidad son lo mismo (los dos son grifos externos, y una empresa puede
+-- perfectamente hacer las dos cosas), por eso NO se parte el catálogo en dos
+-- tablas. Lo que cambia es el ROL, y una lista plana no lo dice: al registrar
+-- una recepción aparecían también los grifos de ruta, y viceversa.
+--
+-- Por qué eso importa más que una molestia de UI: si alguien elige el grifo
+-- equivocado en una recepción, el costo de esa compra queda atribuido al
+-- proveedor que no fue -- y de esa atribución sale `combustible.costo_promedio`,
+-- que es el número que la Fase C existe para calcular bien. Es un error
+-- silencioso: nada falla, el promedio simplemente queda mal.
+--
+-- Los dos flags nacen en `true` a propósito: reproducen exactamente el
+-- comportamiento anterior a esta migración (todo grifo servía para todo), así
+-- que ningún grifo ya cargado cambia de conducta ni desaparece de ningún
+-- desplegable al aplicarla.
+--
+-- El filtro de los desplegables es solo comodidad. La regla de verdad se
+-- valida en el SERVIDOR (combustible.service.ts): un grifo sin el rol
+-- correspondiente da 400 aunque llegue por API directa o desde un frontend con
+-- el estado viejo en memoria. Mismo criterio que la validación de
+-- `equipos.tipo_medidor` en los despachos -- un cruce entre filas que ningún
+-- CHECK puede hacer.
+--
+-- EJECUTAR (después de 0064):
+--   psql -d mincoreerp -f migrations/0065_combustible_grifos_roles.sql
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- Postgres 11+ no reescribe la tabla al agregar una columna NOT NULL con
+-- default constante -- mismo motivo por el que 0057 pudo agregar cinco de una
+-- sin backfill.
+ALTER TABLE combustible_grifos
+  ADD COLUMN IF NOT EXISTS abastece_ruta   BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS abastece_tanque BOOLEAN NOT NULL DEFAULT true;
