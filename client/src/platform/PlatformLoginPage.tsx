@@ -36,9 +36,13 @@ export default function PlatformLoginPage({ onExito }: { onExito: () => void }) 
     <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center gap-3 mb-8">
-          <div className="w-11 h-11 bg-slate-100 rounded-lg flex items-center justify-center">
-            <span className="text-slate-900 font-semibold text-base">M</span>
-          </div>
+          {/**logo-mincore */}
+          <img
+            src="/logos/mincore-logo-512-badge.png"
+            alt="MinCore"
+            className="w-14 h-14 rounded-xl"
+          />
+
           <h1 className="text-xl font-light text-slate-100 tracking-tight">Panel de plataforma</h1>
           <p className="text-xs text-slate-400 text-center">
             No es el login del ERP — esto administra todos los tenants a la vez.

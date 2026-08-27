@@ -230,9 +230,13 @@ export default function LoginPage() {
     <div className="min-h-screen bg-[#DDF500] flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center gap-3 mb-8">
-          <div className="w-11 h-11 bg-[#FFFFFF] rounded-lg flex items-center justify-center">
-            <span className="text-zinc-900 font-semibold text-base">M</span>
-          </div>
+          {/**logo-mincore */}
+          <img
+            src="/logos/mincore-logo-512-badge.png"
+            alt="MinCore"
+            className="w-14 h-14 rounded-xl"
+          />
+
           <h1 className="text-xl font-light text-slate-900 tracking-tight">MinCore ERP</h1>
         </div>
 
