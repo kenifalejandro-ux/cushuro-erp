@@ -131,9 +131,10 @@ export const crearDespachoCombustibleSchema = z
     origen: z.enum(ORIGENES_DESPACHO),
     // Solo tanque_propio.
     combustible_id: z.number().int().positive().optional(),
-    // Solo compra_externa. Texto libre -- ver el comentario de la columna
-    // en 0062.
-    grifo_externo: z.string().trim().min(1).max(150).optional(),
+    // Solo compra_externa. FK al catálogo -- ver migrations/0063: texto
+    // libre (0062) no alcanzaba para engancharle un precio de forma
+    // confiable (cada grifo franquiciado cobra distinto en Perú).
+    grifo_id: z.number().int().positive().optional(),
 
     // Mismo enum que combustible.tipo_combustible (Fase A) -- se reusa a
     // propósito, ver hallazgo 2 de la memoria de columnas reales.
@@ -161,6 +162,14 @@ export const crearDespachoCombustibleSchema = z
     // Cuándo se hizo el despacho en cancha -- opcional, mismo criterio que
     // `leido_en` de una lectura: sin dato, el service usa now().
     despachado_en: z.string().datetime().optional(),
+
+    // Costos (migrations/0063). Obligatorio siempre -- Kenif lo confirmó
+    // contra su planilla real, donde C.U está lleno en cada fila, para los
+    // dos orígenes. El AUTOCOMPLETADO (buscar el precio vigente a
+    // despachado_en) es responsabilidad del frontend -- este schema no
+    // sabe nada de `combustible_precios`, solo exige el número.
+    costo_unitario: z.number().positive(),
+    observaciones: z.string().trim().max(500).optional(),
   })
   .superRefine((data, ctx) => {
     if (data.tipo_destino === "equipo" && data.equipo_id === undefined) {
@@ -193,11 +202,11 @@ export const crearDespachoCombustibleSchema = z
           message: "lectura_contometro es obligatoria cuando origen es 'tanque_propio'",
         });
       }
-      if (data.grifo_externo !== undefined) {
+      if (data.grifo_id !== undefined) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          path: ["grifo_externo"],
-          message: "grifo_externo no aplica a 'tanque_propio'",
+          path: ["grifo_id"],
+          message: "grifo_id no aplica a 'tanque_propio'",
         });
       }
       if (
@@ -233,6 +242,13 @@ export const crearDespachoCombustibleSchema = z
           message: "combustible_id no aplica a 'compra_externa'",
         });
       }
+      if (data.grifo_id === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["grifo_id"],
+          message: "grifo_id es obligatorio cuando origen es 'compra_externa'",
+        });
+      }
       if (data.lectura_contometro !== undefined) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -261,3 +277,58 @@ export const crearDespachoCombustibleSchema = z
   });
 
 export type CrearDespachoCombustibleInput = z.infer<typeof crearDespachoCombustibleSchema>;
+
+// ── Grifos externos (migrations/0063) ───────────────────────────────────
+// Catálogo chico (3-4 típicos: PRIMAX, VELASQUEZ) -- reemplaza el texto
+// libre `grifo_externo` de 0062 para poder engancharle un precio de forma
+// confiable. Solo admin los da de alta (ver combustible.routes.ts).
+
+export const crearGrifoCombustibleSchema = z.object({
+  nombre: z.string().trim().min(1, "El nombre del grifo es obligatorio").max(150),
+});
+
+export type CrearGrifoCombustibleInput = z.infer<typeof crearGrifoCombustibleSchema>;
+
+export const actualizarGrifoCombustibleSchema = z.object({
+  nombre: z.string().trim().min(1, "El nombre del grifo es obligatorio").max(150),
+  activo: z.boolean(),
+});
+
+export type ActualizarGrifoCombustibleInput = z.infer<typeof actualizarGrifoCombustibleSchema>;
+
+// ── Precios de combustible (migrations/0063) ────────────────────────────
+// Historial apilado -- nunca se pisa. Exactamente uno de combustible_id/
+// grifo_id, mismo patrón que el destino polimórfico de un despacho.
+
+export const crearPrecioCombustibleSchema = z
+  .object({
+    tipo_combustible: z.enum(TIPOS_COMBUSTIBLE),
+    combustible_id: z.number().int().positive().optional(),
+    grifo_id: z.number().int().positive().optional(),
+    precio_unitario: z.number().positive(),
+    // Opcional: sin dato, el service usa now() -- mismo criterio que
+    // despachado_en/leido_en en el resto del módulo.
+    vigente_desde: z.string().datetime().optional(),
+  })
+  .superRefine((data, ctx) => {
+    const tieneCombustible = data.combustible_id !== undefined;
+    const tieneGrifo = data.grifo_id !== undefined;
+    if (tieneCombustible === tieneGrifo) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["combustible_id"],
+        message: "Un precio va exactamente a un tanque o a un grifo, nunca los dos ni ninguno",
+      });
+    }
+  });
+
+export type CrearPrecioCombustibleInput = z.infer<typeof crearPrecioCombustibleSchema>;
+
+/** Anular un precio mal cargado -- mismo criterio que
+ *  anularLecturaCombustibleSchema: `motivo` obligatorio, la fila NUNCA se
+ *  borra ni se edita. */
+export const anularPrecioCombustibleSchema = z.object({
+  motivo: z.string().trim().min(1, "El motivo de la anulación es obligatorio").max(500),
+});
+
+export type AnularPrecioCombustibleInput = z.infer<typeof anularPrecioCombustibleSchema>;

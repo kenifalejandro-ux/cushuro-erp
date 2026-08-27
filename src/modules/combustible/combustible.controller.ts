@@ -15,6 +15,10 @@ import type {
   CargaMasivaTanquesCombustibleInput,
   AnularLecturaCombustibleInput,
   CrearDespachoCombustibleInput,
+  CrearGrifoCombustibleInput,
+  ActualizarGrifoCombustibleInput,
+  CrearPrecioCombustibleInput,
+  AnularPrecioCombustibleInput,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleService } from "./combustible.service";
 
@@ -448,6 +452,205 @@ export class CombustibleController {
       res.json(resultado);
     } catch {
       res.status(500).json({ error: "Error al calcular huecos de talonario" });
+    }
+  }
+
+  // ── Grifos externos (migrations/0063) ─────────────────────────────────
+
+  async listarGrifos(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const grifos = await withTenant(tenantId, (client) => service.listarGrifos(client, tenantId));
+      res.json(grifos);
+    } catch {
+      res.status(500).json({ error: "Error al listar grifos" });
+    }
+  }
+
+  async crearGrifo(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const { nombre } = req.validatedBody as CrearGrifoCombustibleInput;
+      const grifo = await withTenant(tenantId, (client) =>
+        service.crearGrifo(client, tenantId, req.usuario!.id, nombre)
+      );
+      await registrarAuditoria({
+        accion: "combustible.grifo_crear",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { grifoId: grifo.id, nombre },
+        contexto: contextoAuditoriaModulo(req),
+      });
+      res.status(201).json(grifo);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("ya existe un grifo")) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
+      res.status(500).json({ error: "Error al crear el grifo" });
+    }
+  }
+
+  async actualizarGrifo(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const id = Number(req.params.id);
+      const data = req.validatedBody as ActualizarGrifoCombustibleInput;
+      const grifo = await withTenant(tenantId, (client) =>
+        service.actualizarGrifo(client, tenantId, id, data)
+      );
+      if (!grifo) {
+        res.status(404).json({ error: "Grifo no encontrado" });
+        return;
+      }
+      await registrarAuditoria({
+        accion: "combustible.grifo_actualizar",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { grifoId: id },
+        contexto: contextoAuditoriaModulo(req),
+      });
+      res.json(grifo);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("ya existe un grifo")) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
+      res.status(500).json({ error: "Error al actualizar el grifo" });
+    }
+  }
+
+  // ── Precios de combustible (migrations/0063) ──────────────────────────
+
+  async listarPrecios(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const precios = await withTenant(tenantId, (client) =>
+        service.listarPrecios(client, tenantId)
+      );
+      res.json(precios);
+    } catch {
+      res.status(500).json({ error: "Error al listar precios" });
+    }
+  }
+
+  async crearPrecio(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const data = req.validatedBody as CrearPrecioCombustibleInput;
+      const precio = await withTenant(tenantId, (client) =>
+        service.crearPrecio(client, tenantId, req.usuario!.id, data)
+      );
+      await registrarAuditoria({
+        accion: "combustible.precio_crear",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: {
+          precioId: precio.id,
+          tipoCombustible: data.tipo_combustible,
+          precioUnitario: data.precio_unitario,
+        },
+        contexto: contextoAuditoriaModulo(req),
+      });
+      res.status(201).json(precio);
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        (err.message.includes("no existe en este tenant") ||
+          err.message.includes("ya existe un grifo"))
+      ) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
+      res.status(500).json({ error: "Error al crear el precio" });
+    }
+  }
+
+  /** GET /precios/vigente -- el que el frontend llama para autocompletar
+   *  el C.U del despacho ANTES de mandar el POST. Devuelve 200 con
+   *  `precio: null` si no hay ninguno cargado todavía -- no es un error,
+   *  el operador simplemente tipea el costo a mano esta vez. */
+  async getPrecioVigente(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const tipoCombustible = req.query.tipo_combustible;
+      const combustibleIdRaw = req.query.combustible_id;
+      const grifoIdRaw = req.query.grifo_id;
+      const fecha = typeof req.query.fecha === "string" ? req.query.fecha : undefined;
+
+      if (typeof tipoCombustible !== "string" || !fecha) {
+        res
+          .status(400)
+          .json({ error: "Los query params tipo_combustible y fecha son obligatorios" });
+        return;
+      }
+      const combustibleId =
+        typeof combustibleIdRaw === "string" && combustibleIdRaw !== ""
+          ? Number(combustibleIdRaw)
+          : null;
+      const grifoId =
+        typeof grifoIdRaw === "string" && grifoIdRaw !== "" ? Number(grifoIdRaw) : null;
+      if ((combustibleId === null) === (grifoId === null)) {
+        res
+          .status(400)
+          .json({ error: "Mandá exactamente uno de combustible_id o grifo_id, nunca los dos" });
+        return;
+      }
+
+      const precio = await withTenant(tenantId, (client) =>
+        service.obtenerPrecioVigente(
+          client,
+          tenantId,
+          tipoCombustible,
+          { combustibleId, grifoId },
+          fecha
+        )
+      );
+      res.json({ precio });
+    } catch {
+      res.status(500).json({ error: "Error al buscar el precio vigente" });
+    }
+  }
+
+  async anularPrecio(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const precioId = Number(req.params.precioId);
+      const { motivo } = req.validatedBody as AnularPrecioCombustibleInput;
+
+      const resultado = await withTenant(tenantId, async (client) => {
+        const anulado = await service.anularPrecio(
+          client,
+          tenantId,
+          precioId,
+          req.usuario!.id,
+          motivo
+        );
+        if (anulado) return { estado: "anulada" as const, precio: anulado };
+
+        const existente = await service.getPrecioPorId(client, tenantId, precioId);
+        return existente ? { estado: "ya_anulada" as const } : { estado: "inexistente" as const };
+      });
+
+      if (resultado.estado === "inexistente") {
+        res.status(404).json({ error: "Precio no encontrado" });
+        return;
+      }
+      if (resultado.estado === "ya_anulada") {
+        res.status(409).json({ error: "Este precio ya estaba anulado" });
+        return;
+      }
+
+      await registrarAuditoria({
+        accion: "combustible.precio_anular",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { precioId, motivo },
+        contexto: contextoAuditoriaModulo(req),
+      });
+      res.json(resultado.precio);
+    } catch {
+      res.status(500).json({ error: "Error al anular el precio" });
     }
   }
 }

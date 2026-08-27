@@ -6,6 +6,11 @@
  * orígenes, el 409 de vale duplicado, el 400 de contómetro, la validación
  * de tipo_medidor por equipo, y el motor de huecos (punto 1) como consulta
  * bajo demanda -- sin conciliación, sin anomalías, sin anulación (Fase D).
+ *
+ * Suma el catálogo de grifos + precios (migrations/0063): grifo_id
+ * reemplaza al texto libre grifo_externo, costo_unitario es obligatorio en
+ * los dos orígenes, y el "precio vigente" se resuelve a una fecha concreta
+ * ignorando los precios anulados.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
@@ -41,6 +46,7 @@ describe("combustible: despachos (Fase B)", () => {
   let equipoVolquete: number; // tipo_medidor = horometro
   let equipoTrailer: number; // tipo_medidor = odometro
   let equipoSinMedidor: number; // tipo_medidor sin configurar
+  let grifoId: number;
 
   beforeAll(async () => {
     const creado = await crearTenantDePrueba(password);
@@ -65,6 +71,11 @@ describe("combustible: despachos (Fase B)", () => {
       .post("/api/erp/equipos")
       .send({ placa_codigo: idUnico("CM"), tipo: "CAMIONETA" });
     equipoSinMedidor = sinMedidor.body.id;
+
+    const grifo = await agente
+      .post("/api/erp/combustible/grifos")
+      .send({ nombre: idUnico("PRIMAX") });
+    grifoId = grifo.body.id;
   });
 
   afterAll(async () => {
@@ -83,6 +94,7 @@ describe("combustible: despachos (Fase B)", () => {
       n_vale: 1,
       cantidad: 35,
       lectura_contometro: 35,
+      costo_unitario: 16.8,
       despachado_en: new Date().toISOString(),
       ...overrides,
     };
@@ -91,7 +103,7 @@ describe("combustible: despachos (Fase B)", () => {
   function payloadCompraExterna(overrides: Partial<Record<string, unknown>> = {}) {
     return {
       origen: "compra_externa",
-      grifo_externo: "PRIMAX",
+      grifo_id: grifoId,
       tipo_combustible: "diesel_b5",
       tipo_destino: "equipo",
       equipo_id: equipoVolquete,
@@ -100,17 +112,22 @@ describe("combustible: despachos (Fase B)", () => {
       cantidad: 40,
       lectura_horometro: 9707,
       horas_abastecidas: 12,
+      costo_unitario: 17.5,
       despachado_en: new Date().toISOString(),
       ...overrides,
     };
   }
 
-  it("happy path tanque_propio: crea el despacho con 201", async () => {
-    const res = await agente.post("/api/erp/combustible/despachos").send(payloadTanquePropio());
+  it("happy path tanque_propio: crea el despacho con 201 y calcula costo_total", async () => {
+    const res = await agente
+      .post("/api/erp/combustible/despachos")
+      .send(payloadTanquePropio({ cantidad: 35, costo_unitario: 16.8 }));
     expect(res.status).toBe(201);
     expect(res.body.origen).toBe("tanque_propio");
     expect(Number(res.body.combustible_id)).toBe(tanqueId);
     expect(res.body.lectura_horometro).toBeNull();
+    // 35 * 16.8 = 588 -- calculado en la respuesta, nunca guardado aparte.
+    expect(Number(res.body.costo_total)).toBeCloseTo(588, 2);
   });
 
   it("happy path compra_externa con horómetro: crea el despacho con 201", async () => {
@@ -292,6 +309,159 @@ describe("combustible: despachos (Fase B)", () => {
       expect(
         res.body.data.some((d: { serie_talonario: string }) => d.serie_talonario === serie)
       ).toBe(true);
+    });
+  });
+
+  describe("Grifos externos (migrations/0063)", () => {
+    it("admin puede crear un grifo y aparece en el listado", async () => {
+      const nombre = idUnico("VELASQUEZ");
+      const res = await agente.post("/api/erp/combustible/grifos").send({ nombre });
+      expect(res.status).toBe(201);
+      expect(res.body.nombre).toBe(nombre);
+      expect(res.body.activo).toBe(true);
+
+      const listado = await agente.get("/api/erp/combustible/grifos");
+      expect(listado.status).toBe(200);
+      expect(listado.body.some((g: { id: number }) => g.id === res.body.id)).toBe(true);
+    });
+
+    it("409: no se puede repetir el nombre de un grifo en el mismo tenant", async () => {
+      const nombre = idUnico("REPETIDO");
+      const primero = await agente.post("/api/erp/combustible/grifos").send({ nombre });
+      expect(primero.status).toBe(201);
+
+      const repetido = await agente.post("/api/erp/combustible/grifos").send({ nombre });
+      expect(repetido.status).toBe(409);
+    });
+
+    it("un despacho de compra_externa exige grifo_id (400 si falta)", async () => {
+      const res = await agente
+        .post("/api/erp/combustible/despachos")
+        .send(payloadCompraExterna({ grifo_id: undefined }));
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe("Precios de combustible (migrations/0063)", () => {
+    it("autocompletado: el precio vigente es el más reciente <= la fecha pedida, no el de hoy", async () => {
+      const combustibleIdPropio = tanqueId;
+      const base = Date.now();
+      const hace10dias = new Date(base - 10 * 24 * 60 * 60 * 1000).toISOString();
+      const hace5dias = new Date(base - 5 * 24 * 60 * 60 * 1000).toISOString();
+      const ayer = new Date(base - 1 * 24 * 60 * 60 * 1000).toISOString();
+
+      await agente.post("/api/erp/combustible/precios").send({
+        tipo_combustible: "diesel_b5",
+        combustible_id: combustibleIdPropio,
+        precio_unitario: 15.0,
+        vigente_desde: hace10dias,
+      });
+      await agente.post("/api/erp/combustible/precios").send({
+        tipo_combustible: "diesel_b5",
+        combustible_id: combustibleIdPropio,
+        precio_unitario: 16.8,
+        vigente_desde: hace5dias,
+      });
+
+      // Vale offline con fecha de ayer: tiene que resolver 16.8 (el
+      // vigente A ESA FECHA), no un precio más nuevo que se cargue después.
+      const vigenteAyer = await agente.get(
+        `/api/erp/combustible/precios/vigente?tipo_combustible=diesel_b5&combustible_id=${combustibleIdPropio}&fecha=${ayer}`
+      );
+      expect(vigenteAyer.status).toBe(200);
+      expect(Number(vigenteAyer.body.precio.precio_unitario)).toBeCloseTo(16.8, 2);
+
+      // A la fecha de hace 10 días, todavía no existía el de 16.8.
+      const vigenteHace10 = await agente.get(
+        `/api/erp/combustible/precios/vigente?tipo_combustible=diesel_b5&combustible_id=${combustibleIdPropio}&fecha=${hace10dias}`
+      );
+      expect(Number(vigenteHace10.body.precio.precio_unitario)).toBeCloseTo(15.0, 2);
+    });
+
+    it("sin ningún precio cargado, 'vigente' devuelve null (no es error)", async () => {
+      const otroTanque = await crearTanque(tenantId);
+      const res = await agente.get(
+        `/api/erp/combustible/precios/vigente?tipo_combustible=glp&combustible_id=${otroTanque}&fecha=${new Date().toISOString()}`
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.precio).toBeNull();
+    });
+
+    it("400 (Zod): un precio va exactamente a un tanque o a un grifo, nunca los dos ni ninguno", async () => {
+      const ninguno = await agente.post("/api/erp/combustible/precios").send({
+        tipo_combustible: "diesel_b5",
+        precio_unitario: 16.8,
+      });
+      expect(ninguno.status).toBe(400);
+
+      const losDos = await agente.post("/api/erp/combustible/precios").send({
+        tipo_combustible: "diesel_b5",
+        combustible_id: tanqueId,
+        grifo_id: grifoId,
+        precio_unitario: 16.8,
+      });
+      expect(losDos.status).toBe(400);
+    });
+
+    it("anular un precio: el 'vigente' cae al anterior no anulado, no queda en null", async () => {
+      const otroGrifo = await agente
+        .post("/api/erp/combustible/grifos")
+        .send({ nombre: idUnico("ANULACION") });
+
+      const viejo = await agente.post("/api/erp/combustible/precios").send({
+        tipo_combustible: "diesel_b5",
+        grifo_id: otroGrifo.body.id,
+        precio_unitario: 17.0,
+        vigente_desde: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      });
+      const nuevoMalCargado = await agente.post("/api/erp/combustible/precios").send({
+        tipo_combustible: "diesel_b5",
+        grifo_id: otroGrifo.body.id,
+        precio_unitario: 999, // typo real: sobraba un dígito
+      });
+      expect(nuevoMalCargado.status).toBe(201);
+
+      const anulacion = await agente
+        .patch(`/api/erp/combustible/precios/${nuevoMalCargado.body.id}/anular`)
+        .send({ motivo: "se tipeó 999 en vez de 17.9" });
+      expect(anulacion.status).toBe(200);
+      expect(anulacion.body.anulada_en).not.toBeNull();
+
+      const vigente = await agente.get(
+        `/api/erp/combustible/precios/vigente?tipo_combustible=diesel_b5&grifo_id=${otroGrifo.body.id}&fecha=${new Date().toISOString()}`
+      );
+      // El anulado (999) queda descartado -- cae al anterior válido (17.0),
+      // no al viejo... y NO devuelve null como si no hubiera ninguno.
+      expect(Number(vigente.body.precio.precio_unitario)).toBeCloseTo(17.0, 2);
+      expect(Number(vigente.body.precio.id)).toBe(Number(viejo.body.id));
+    });
+
+    it("409: un precio ya anulado no se puede volver a anular", async () => {
+      const precio = await agente.post("/api/erp/combustible/precios").send({
+        tipo_combustible: "diesel_b5",
+        combustible_id: tanqueId,
+        precio_unitario: 16.5,
+      });
+      const primeraAnulacion = await agente
+        .patch(`/api/erp/combustible/precios/${precio.body.id}/anular`)
+        .send({ motivo: "correccion" });
+      expect(primeraAnulacion.status).toBe(200);
+
+      const segundaAnulacion = await agente
+        .patch(`/api/erp/combustible/precios/${precio.body.id}/anular`)
+        .send({ motivo: "de nuevo" });
+      expect(segundaAnulacion.status).toBe(409);
+    });
+
+    it("un despacho compra_externa acepta el costo_unitario editado a mano, sin importar el catálogo", async () => {
+      // El autocompletado es responsabilidad del FRONTEND -- el endpoint de
+      // despachos nunca resuelve precio por su cuenta, solo exige el campo.
+      const res = await agente
+        .post("/api/erp/combustible/despachos")
+        .send(payloadCompraExterna({ costo_unitario: 18.35 }));
+      expect(res.status).toBe(201);
+      expect(Number(res.body.costo_unitario)).toBeCloseTo(18.35, 2);
+      expect(Number(res.body.costo_total)).toBeCloseTo(40 * 18.35, 2);
     });
   });
 });

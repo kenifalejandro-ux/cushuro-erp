@@ -12,6 +12,10 @@ import {
   cargaMasivaTanquesCombustibleSchema,
   anularLecturaCombustibleSchema,
   crearDespachoCombustibleSchema,
+  crearGrifoCombustibleSchema,
+  actualizarGrifoCombustibleSchema,
+  crearPrecioCombustibleSchema,
+  anularPrecioCombustibleSchema,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleController } from "./combustible.controller";
 
@@ -30,6 +34,39 @@ router.post(
   requireRole("admin", "operador"),
   validate(crearDespachoCombustibleSchema),
   asyncHandler(controller.crearDespacho.bind(controller))
+);
+
+// Grifos externos y precios (migrations/0063) -- segmentos literales,
+// mismo motivo que /despachos: tienen que ir ANTES de /:id.
+router.get("/grifos", asyncHandler(controller.listarGrifos.bind(controller)));
+router.post(
+  "/grifos",
+  requireRole("admin"),
+  validate(crearGrifoCombustibleSchema),
+  asyncHandler(controller.crearGrifo.bind(controller))
+);
+router.put(
+  "/grifos/:id",
+  requireRole("admin"),
+  validate(actualizarGrifoCombustibleSchema),
+  asyncHandler(controller.actualizarGrifo.bind(controller))
+);
+
+// GET /precios/vigente ANTES de GET /precios y de GET /:id -- Express
+// matchea por orden de registro, no por especificidad.
+router.get("/precios/vigente", asyncHandler(controller.getPrecioVigente.bind(controller)));
+router.get("/precios", asyncHandler(controller.listarPrecios.bind(controller)));
+router.post(
+  "/precios",
+  requireRole("admin"),
+  validate(crearPrecioCombustibleSchema),
+  asyncHandler(controller.crearPrecio.bind(controller))
+);
+router.patch(
+  "/precios/:precioId/anular",
+  requireRole("admin"),
+  validate(anularPrecioCombustibleSchema),
+  asyncHandler(controller.anularPrecio.bind(controller))
 );
 
 router.get("/:id", asyncHandler(controller.getById.bind(controller)));

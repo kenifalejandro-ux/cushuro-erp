@@ -7,6 +7,7 @@ import type {
   CrearTanqueCombustibleInput,
   ActualizarTanqueCombustibleInput,
   CrearDespachoCombustibleInput,
+  CrearPrecioCombustibleInput,
 } from "../../server/schemas/combustible.schema";
 import { idempotentInsert } from "../../server/shared/utils/idempotentInsert";
 import { CombustibleRepository } from "./combustible.repository";
@@ -157,7 +158,7 @@ export class CombustibleService {
         const fila = await this.repository.crearDespacho(client, tenantId, usuarioId, {
           origen: data.origen,
           combustibleId: data.combustible_id ?? null,
-          grifoExterno: data.grifo_externo ?? null,
+          grifoId: data.grifo_id ?? null,
           tipoCombustible: data.tipo_combustible,
           tipoDestino: data.tipo_destino,
           equipoId: data.equipo_id ?? null,
@@ -168,6 +169,8 @@ export class CombustibleService {
           lecturaHorometro: data.lectura_horometro ?? null,
           lecturaOdometro: data.lectura_odometro ?? null,
           horasAbastecidas: data.horas_abastecidas ?? null,
+          costoUnitario: data.costo_unitario,
+          observaciones: data.observaciones ?? null,
           despachadoEn: data.despachado_en ?? new Date().toISOString(),
         });
         return { id: Number(fila.id), fila };
@@ -238,5 +241,77 @@ export class CombustibleService {
    *  CombustibleRepository.findHuecosTalonario. */
   detectarHuecos(client: PoolClient, tenantId: string, serieTalonario: string) {
     return this.repository.findHuecosTalonario(client, tenantId, serieTalonario);
+  }
+
+  // ── Grifos externos (migrations/0063) ───────────────────────────────
+
+  listarGrifos(client: PoolClient, tenantId: string) {
+    return this.repository.findGrifos(client, tenantId);
+  }
+
+  crearGrifo(client: PoolClient, tenantId: string, usuarioId: string, nombre: string) {
+    return this.repository.crearGrifo(client, tenantId, usuarioId, nombre);
+  }
+
+  actualizarGrifo(
+    client: PoolClient,
+    tenantId: string,
+    id: number,
+    data: { nombre: string; activo: boolean }
+  ) {
+    return this.repository.actualizarGrifo(client, tenantId, id, data);
+  }
+
+  // ── Precios de combustible (migrations/0063) ─────────────────────────
+
+  listarPrecios(client: PoolClient, tenantId: string) {
+    return this.repository.findPrecios(client, tenantId);
+  }
+
+  crearPrecio(
+    client: PoolClient,
+    tenantId: string,
+    usuarioId: string,
+    data: CrearPrecioCombustibleInput
+  ) {
+    return this.repository.crearPrecio(client, tenantId, usuarioId, {
+      tipoCombustible: data.tipo_combustible,
+      combustibleId: data.combustible_id ?? null,
+      grifoId: data.grifo_id ?? null,
+      precioUnitario: data.precio_unitario,
+      vigenteDesde: data.vigente_desde ?? new Date().toISOString(),
+    });
+  }
+
+  /** Precio vigente a una fecha, para un tanque O un grifo (nunca los
+   *  dos) -- el frontend lo consulta para autocompletar el C.U del
+   *  despacho antes de mostrar el formulario; ver el comentario en
+   *  CombustibleRepository.findPrecioVigente sobre por qué ignora los
+   *  anulados. */
+  obtenerPrecioVigente(
+    client: PoolClient,
+    tenantId: string,
+    tipoCombustible: string,
+    destino: { combustibleId: number | null; grifoId: number | null },
+    fecha: string
+  ) {
+    return this.repository.findPrecioVigente(client, tenantId, tipoCombustible, destino, fecha);
+  }
+
+  getPrecioPorId(client: PoolClient, tenantId: string, id: number) {
+    return this.repository.findPrecioPorId(client, tenantId, id);
+  }
+
+  /** Devuelve null si el precio no existe en este tenant o si ya estaba
+   *  anulado -- mismo criterio que anularLectura: el controller distingue
+   *  los dos casos con getPrecioPorId para responder 404 o 409. */
+  anularPrecio(
+    client: PoolClient,
+    tenantId: string,
+    precioId: number,
+    usuarioId: string,
+    motivo: string
+  ) {
+    return this.repository.anularPrecio(client, tenantId, precioId, usuarioId, motivo);
   }
 }

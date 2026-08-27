@@ -59,15 +59,42 @@ type OrigenDespacho = "tanque_propio" | "compra_externa";
 type TipoDestinoDespacho = "equipo" | "planta" | "reserva_cubeta";
 
 const ETIQUETA_TIPO_DESTINO: Record<TipoDestinoDespacho, string> = {
-  equipo: "Un equipo",
+  equipo: "Unidad",
   planta: "Planta (sin placa)",
   reserva_cubeta: "Reserva en cubeta",
 };
 
+/** Catálogo de grifos externos (migrations/0063) -- reemplaza el texto
+ *  libre `grifo_externo` de Fase B: cada grifo franquiciado cobra un
+ *  precio distinto, así que hace falta engancharlo a algo más estable
+ *  que un string tipeado a mano. */
+interface Grifo {
+  id: number;
+  nombre: string;
+  activo: boolean;
+}
+
+/** Historial de precios (migrations/0063) -- se apila, nunca se pisa. Un
+ *  precio mal cargado se anula (anulada_en no-null), no se borra. */
+interface Precio {
+  id: number;
+  tipo_combustible: Tanque["tipo_combustible"];
+  combustible_id: number | null;
+  grifo_id: number | null;
+  precio_unitario: string;
+  vigente_desde: string;
+  tanque_nombre: string | null;
+  grifo_nombre: string | null;
+  registrado_por_nombre: string | null;
+  anulada_en: string | null;
+  motivo_anulacion: string | null;
+  anulado_por_nombre: string | null;
+}
+
 const DESPACHO_FORM_INICIAL = {
   origen: "tanque_propio" as OrigenDespacho,
   combustible_id: "",
-  grifo_externo: "",
+  grifo_id: "",
   tipo_combustible: "diesel_b5" as Tanque["tipo_combustible"],
   tipo_destino: "equipo" as TipoDestinoDespacho,
   equipo_id: "",
@@ -78,6 +105,8 @@ const DESPACHO_FORM_INICIAL = {
   lectura_horometro: "",
   lectura_odometro: "",
   horas_abastecidas: "",
+  costo_unitario: "",
+  observaciones: "",
 };
 
 const ETIQUETA_TIPO_COMBUSTIBLE: Record<Tanque["tipo_combustible"], string> = {
@@ -258,6 +287,32 @@ export default function CombustiblePanel() {
   const [horaDespachoEditadaAMano, setHoraDespachoEditadaAMano] = useState(false);
   const [enviandoDespacho, setEnviandoDespacho] = useState(false);
   const [clienteUuidDespacho, setClienteUuidDespacho] = useState("");
+  // El costo se autocompleta al elegir tanque/grifo -- pero si el operador
+  // YA lo tocó a mano, no lo pisamos con un nuevo autocompletado (ej. si
+  // cambia el tipo de combustible después de corregir el precio).
+  const [costoEditadoAMano, setCostoEditadoAMano] = useState(false);
+
+  // --- Grifos externos (migrations/0063) ---
+  const [grifos, setGrifos] = useState<Grifo[]>([]);
+  const [modalGrifosAbierto, setModalGrifosAbierto] = useState(false);
+  const [nombreGrifoNuevo, setNombreGrifoNuevo] = useState("");
+  const [guardandoGrifo, setGuardandoGrifo] = useState(false);
+
+  // --- Precios de combustible (migrations/0063) ---
+  const [precios, setPrecios] = useState<Precio[]>([]);
+  const [modalPreciosAbierto, setModalPreciosAbierto] = useState(false);
+  const [precioForm, setPrecioForm] = useState({
+    tipo_combustible: "diesel_b5" as Tanque["tipo_combustible"],
+    aplicaA: "tanque" as "tanque" | "grifo",
+    combustible_id: "",
+    grifo_id: "",
+    precio_unitario: "",
+  });
+  const [vigenteDesde, setVigenteDesde] = useState(ahoraParaInputLocal());
+  const [guardandoPrecio, setGuardandoPrecio] = useState(false);
+  const [precioAAnular, setPrecioAAnular] = useState<Precio | null>(null);
+  const [motivoAnulacionPrecio, setMotivoAnulacionPrecio] = useState("");
+  const [anulandoPrecio, setAnulandoPrecio] = useState(false);
 
   const cargarTanques = useCallback(async () => {
     const res = await apiFetch("/api/erp/combustible");
@@ -275,11 +330,25 @@ export default function CombustiblePanel() {
     setEquipos(Array.isArray(body?.data) ? body.data : []);
   }, []);
 
+  const cargarGrifos = useCallback(async () => {
+    const res = await apiFetch("/api/erp/combustible/grifos");
+    const data = await res.json().catch(() => null);
+    setGrifos(Array.isArray(data) ? data : []);
+  }, []);
+
+  const cargarPrecios = useCallback(async () => {
+    const res = await apiFetch("/api/erp/combustible/precios");
+    const data = await res.json().catch(() => null);
+    setPrecios(Array.isArray(data) ? data : []);
+  }, []);
+
   useEffect(() => {
     // Patrón estándar de carga al montar -- ver IpercView.tsx.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    Promise.all([cargarTanques(), cargarEquipos()]).finally(() => setLoading(false));
-  }, [cargarTanques, cargarEquipos]);
+    Promise.all([cargarTanques(), cargarEquipos(), cargarGrifos()]).finally(() =>
+      setLoading(false)
+    );
+  }, [cargarTanques, cargarEquipos, cargarGrifos]);
 
   // Cuando la cola offline termina de drenar, una lectura cargada sin señal
   // ya existe del lado del servidor -- recargar pone nivel_actual al día
@@ -629,12 +698,69 @@ export default function CombustiblePanel() {
     setDespachoForm(DESPACHO_FORM_INICIAL);
     setDespachadoEn(ahoraParaInputLocal());
     setHoraDespachoEditadaAMano(false);
+    setCostoEditadoAMano(false);
     setMensajeExito(null);
     setClienteUuidDespacho(crypto.randomUUID());
     setModalDespachoAbierto(true);
   };
 
   const equipoSeleccionado = equipos.find((eq) => eq.id === Number(despachoForm.equipo_id));
+
+  const costoTotalCalculado =
+    despachoForm.cantidad !== "" && despachoForm.costo_unitario !== ""
+      ? Number(despachoForm.cantidad) * Number(despachoForm.costo_unitario)
+      : null;
+
+  // Autocompletado del C.U (migrations/0063): apenas hay tanque/grifo +
+  // tipo de combustible elegidos, pide el precio vigente A LA FECHA DEL
+  // DESPACHO (no "ahora") -- importante para un vale offline que se carga
+  // en cancha y sincroniza horas después. Nunca pisa un valor que el
+  // operador ya haya tocado a mano.
+  useEffect(() => {
+    if (!modalDespachoAbierto || costoEditadoAMano) return;
+    const destinoId =
+      despachoForm.origen === "tanque_propio" ? despachoForm.combustible_id : despachoForm.grifo_id;
+    if (!destinoId) return;
+
+    const fecha = horaDespachoEditadaAMano
+      ? new Date(despachadoEn).toISOString()
+      : new Date().toISOString();
+    const params = new URLSearchParams({
+      tipo_combustible: despachoForm.tipo_combustible,
+      fecha,
+      ...(despachoForm.origen === "tanque_propio"
+        ? { combustible_id: destinoId }
+        : { grifo_id: destinoId }),
+    });
+
+    let cancelado = false;
+    apiFetch(`/api/erp/combustible/precios/vigente?${params.toString()}`)
+      .then((res) => res.json())
+      .then((body) => {
+        if (cancelado || !body?.precio) return;
+
+        setDespachoForm((prev) => ({
+          ...prev,
+          costo_unitario: String(body.precio.precio_unitario),
+        }));
+      })
+      .catch(() => {
+        // Sin precio cargado (o sin red): el campo queda como estaba, el
+        // operador lo tipea a mano -- no es un error que merezca alerta.
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [
+    modalDespachoAbierto,
+    costoEditadoAMano,
+    despachoForm.origen,
+    despachoForm.combustible_id,
+    despachoForm.grifo_id,
+    despachoForm.tipo_combustible,
+    despachadoEn,
+    horaDespachoEditadaAMano,
+  ]);
 
   const handleRegistrarDespacho = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -661,12 +787,14 @@ export default function CombustiblePanel() {
             n_vale: Number(despachoForm.n_vale),
             cantidad: Number(despachoForm.cantidad),
             lectura_contometro: Number(despachoForm.lectura_contometro),
+            costo_unitario: Number(despachoForm.costo_unitario),
+            observaciones: despachoForm.observaciones || undefined,
             despachado_en: despachadoEnIso,
           }
         : {
             cliente_uuid: clienteUuidDespacho,
             origen: "compra_externa",
-            grifo_externo: despachoForm.grifo_externo,
+            grifo_id: Number(despachoForm.grifo_id),
             tipo_combustible: despachoForm.tipo_combustible,
             tipo_destino: "equipo",
             equipo_id: Number(despachoForm.equipo_id),
@@ -682,6 +810,8 @@ export default function CombustiblePanel() {
                 ? Number(despachoForm.lectura_odometro)
                 : undefined,
             horas_abastecidas: Number(despachoForm.horas_abastecidas),
+            costo_unitario: Number(despachoForm.costo_unitario),
+            observaciones: despachoForm.observaciones || undefined,
             despachado_en: despachadoEnIso,
           };
 
@@ -719,6 +849,115 @@ export default function CombustiblePanel() {
     }
   };
 
+  // --- Grifos externos (migrations/0063) ---
+
+  const abrirModalGrifos = () => {
+    setNombreGrifoNuevo("");
+    setModalGrifosAbierto(true);
+    cargarGrifos();
+  };
+
+  const handleCrearGrifo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (guardandoGrifo || !nombreGrifoNuevo.trim()) return;
+    setGuardandoGrifo(true);
+    try {
+      const res = await apiFetch("/api/erp/combustible/grifos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre: nombreGrifoNuevo.trim() }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert(body.error || "No se pudo crear el grifo.");
+        return;
+      }
+      setNombreGrifoNuevo("");
+      await cargarGrifos();
+    } finally {
+      setGuardandoGrifo(false);
+    }
+  };
+
+  const handleCambiarActivoGrifo = async (grifo: Grifo) => {
+    const res = await apiFetch(`/api/erp/combustible/grifos/${grifo.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nombre: grifo.nombre, activo: !grifo.activo }),
+    });
+    if (!res.ok) {
+      alert("No se pudo actualizar el grifo.");
+      return;
+    }
+    await cargarGrifos();
+  };
+
+  // --- Precios de combustible (migrations/0063) ---
+
+  const abrirModalPrecios = () => {
+    setPrecioForm({
+      tipo_combustible: "diesel_b5",
+      aplicaA: "tanque",
+      combustible_id: "",
+      grifo_id: "",
+      precio_unitario: "",
+    });
+    setVigenteDesde(ahoraParaInputLocal());
+    setModalPreciosAbierto(true);
+    cargarPrecios();
+  };
+
+  const handleCrearPrecio = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (guardandoPrecio) return;
+    setGuardandoPrecio(true);
+    try {
+      const res = await apiFetch("/api/erp/combustible/precios", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tipo_combustible: precioForm.tipo_combustible,
+          combustible_id:
+            precioForm.aplicaA === "tanque" ? Number(precioForm.combustible_id) : undefined,
+          grifo_id: precioForm.aplicaA === "grifo" ? Number(precioForm.grifo_id) : undefined,
+          precio_unitario: Number(precioForm.precio_unitario),
+          vigente_desde: new Date(vigenteDesde).toISOString(),
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert(body.error || body.errors?.[0]?.message || "No se pudo cargar el precio.");
+        return;
+      }
+      setPrecioForm({ ...precioForm, precio_unitario: "" });
+      await cargarPrecios();
+    } finally {
+      setGuardandoPrecio(false);
+    }
+  };
+
+  const handleAnularPrecio = async () => {
+    if (anulandoPrecio || !precioAAnular || !motivoAnulacionPrecio.trim()) return;
+    setAnulandoPrecio(true);
+    try {
+      const res = await apiFetch(`/api/erp/combustible/precios/${precioAAnular.id}/anular`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ motivo: motivoAnulacionPrecio }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert(body.error || "No se pudo anular el precio.");
+        return;
+      }
+      setPrecioAAnular(null);
+      setMotivoAnulacionPrecio("");
+      await cargarPrecios();
+    } finally {
+      setAnulandoPrecio(false);
+    }
+  };
+
   if (loading) {
     return <div className="p-10">Cargando combustible...</div>;
   }
@@ -747,6 +986,18 @@ export default function CombustiblePanel() {
               onChange={handleExcelUpload}
             />
           </label>
+          <button
+            onClick={abrirModalGrifos}
+            className="px-4 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium rounded-xl transition-all"
+          >
+            Grifos
+          </button>
+          <button
+            onClick={abrirModalPrecios}
+            className="px-4 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium rounded-xl transition-all"
+          >
+            Precios
+          </button>
           <button
             onClick={abrirModalDespacho}
             className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition-all"
@@ -1607,7 +1858,7 @@ export default function CombustiblePanel() {
                         htmlFor="despacho-equipo"
                         className="text-xs font-bold text-slate-500 uppercase"
                       >
-                        Equipo
+                        Unidad
                       </label>
                       <select
                         id="despacho-equipo"
@@ -1619,7 +1870,7 @@ export default function CombustiblePanel() {
                         }
                       >
                         <option value="" disabled>
-                          Elegir equipo
+                          Elegir unidad
                         </option>
                         {equipos.map((eq) => (
                           <option key={eq.id} value={eq.id}>
@@ -1639,25 +1890,39 @@ export default function CombustiblePanel() {
                     >
                       Grifo
                     </label>
-                    <input
+                    <select
                       id="despacho-grifo"
-                      type="text"
                       required
-                      placeholder="Ej. PRIMAX, VELASQUEZ"
-                      maxLength={150}
-                      className="w-full border border-slate-200 rounded-xl p-3 outline-none"
-                      value={despachoForm.grifo_externo}
+                      className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
+                      value={despachoForm.grifo_id}
                       onChange={(e) =>
-                        setDespachoForm({ ...despachoForm, grifo_externo: e.target.value })
+                        setDespachoForm({ ...despachoForm, grifo_id: e.target.value })
                       }
-                    />
+                    >
+                      <option value="" disabled>
+                        Elegir grifo
+                      </option>
+                      {grifos
+                        .filter((g) => g.activo)
+                        .map((g) => (
+                          <option key={g.id} value={g.id}>
+                            {g.nombre}
+                          </option>
+                        ))}
+                    </select>
+                    {grifos.length === 0 && (
+                      <p className="text-xs text-red-600">
+                        No hay grifos cargados todavía -- agregalos desde "Grifos" en la barra
+                        superior.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <label
                       htmlFor="despacho-equipo-externo"
                       className="text-xs font-bold text-slate-500 uppercase"
                     >
-                      Equipo
+                      Unidad
                     </label>
                     <select
                       id="despacho-equipo-externo"
@@ -1669,7 +1934,7 @@ export default function CombustiblePanel() {
                       }
                     >
                       <option value="" disabled>
-                        Elegir equipo
+                        Elegir unidad
                       </option>
                       {equipos.map((eq) => (
                         <option key={eq.id} value={eq.id}>
@@ -1776,6 +2041,64 @@ export default function CombustiblePanel() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label
+                    htmlFor="despacho-costo-unitario"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    C.U (costo por galón)
+                  </label>
+                  <input
+                    id="despacho-costo-unitario"
+                    type="number"
+                    min={0}
+                    step="0.0001"
+                    required
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none"
+                    value={despachoForm.costo_unitario}
+                    onChange={(e) => {
+                      setCostoEditadoAMano(true);
+                      setDespachoForm({ ...despachoForm, costo_unitario: e.target.value });
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <span className="text-xs font-bold text-slate-500 uppercase">C.TOTAL</span>
+                  <div className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 text-slate-600">
+                    {costoTotalCalculado === null
+                      ? "—"
+                      : costoTotalCalculado.toLocaleString("es-PE", {
+                          style: "currency",
+                          currency: "PEN",
+                        })}
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-slate-400">
+                El costo se autocompleta con el precio vigente a la fecha del despacho -- podés
+                corregirlo si ese día pagaste distinto. C.TOTAL sale solo, no se guarda aparte.
+              </p>
+
+              <div className="space-y-1">
+                <label
+                  htmlFor="despacho-observaciones"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Observaciones (opcional)
+                </label>
+                <textarea
+                  id="despacho-observaciones"
+                  rows={2}
+                  maxLength={500}
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none"
+                  value={despachoForm.observaciones}
+                  onChange={(e) =>
+                    setDespachoForm({ ...despachoForm, observaciones: e.target.value })
+                  }
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label
                     htmlFor="despacho-serie"
                     className="text-xs font-bold text-slate-500 uppercase"
                   >
@@ -1840,6 +2163,346 @@ export default function CombustiblePanel() {
                 {enviandoDespacho ? "Registrando..." : "Registrar despacho"}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Modal: Grifos externos (migrations/0063) */}
+      {modalGrifosAbierto && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b flex justify-between items-center">
+              <h3 className="text-xl font-bold">Grifos</h3>
+              <button
+                onClick={() => setModalGrifosAbierto(false)}
+                className="text-slate-400 hover:text-slate-900 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            <form onSubmit={handleCrearGrifo} className="p-6 space-y-3 border-b">
+              <label
+                htmlFor="grifo-nombre-nuevo"
+                className="text-xs font-bold text-slate-500 uppercase"
+              >
+                Nuevo grifo
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="grifo-nombre-nuevo"
+                  type="text"
+                  placeholder="Ej. PRIMAX Bambamarca"
+                  maxLength={150}
+                  className="flex-1 border border-slate-200 rounded-xl p-3 outline-none"
+                  value={nombreGrifoNuevo}
+                  onChange={(e) => setNombreGrifoNuevo(e.target.value)}
+                />
+                <button
+                  type="submit"
+                  disabled={guardandoGrifo || !nombreGrifoNuevo.trim()}
+                  className="px-5 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-all disabled:opacity-50"
+                >
+                  +
+                </button>
+              </div>
+            </form>
+            <div className="p-6 space-y-2">
+              {grifos.length === 0 ? (
+                <p className="text-sm text-slate-400 text-center">
+                  Todavía no hay grifos cargados.
+                </p>
+              ) : (
+                grifos.map((g) => (
+                  <div
+                    key={g.id}
+                    className="flex items-center justify-between p-3 rounded-xl border border-slate-100"
+                  >
+                    <span className={g.activo ? "text-slate-800" : "text-slate-400 line-through"}>
+                      {g.nombre}
+                    </span>
+                    <button
+                      onClick={() => handleCambiarActivoGrifo(g)}
+                      className={`text-xs font-bold px-3 py-1 rounded-full ${
+                        g.activo
+                          ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                      }`}
+                    >
+                      {g.activo ? "Activo" : "Desactivado"}
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal: Precios de combustible (migrations/0063) */}
+      {modalPreciosAbierto && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b flex justify-between items-center">
+              <h3 className="text-xl font-bold">Precio de combustible</h3>
+              <button
+                onClick={() => setModalPreciosAbierto(false)}
+                className="text-slate-400 hover:text-slate-900 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            <form onSubmit={handleCrearPrecio} className="p-6 space-y-4 border-b">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="precio-tipo-combustible"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Combustible
+                  </label>
+                  <select
+                    id="precio-tipo-combustible"
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
+                    value={precioForm.tipo_combustible}
+                    onChange={(e) =>
+                      setPrecioForm({
+                        ...precioForm,
+                        tipo_combustible: e.target.value as Tanque["tipo_combustible"],
+                      })
+                    }
+                  >
+                    {Object.entries(ETIQUETA_TIPO_COMBUSTIBLE).map(([valor, etiqueta]) => (
+                      <option key={valor} value={valor}>
+                        {etiqueta}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label
+                    htmlFor="precio-aplica-a"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Aplica a
+                  </label>
+                  <select
+                    id="precio-aplica-a"
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
+                    value={precioForm.aplicaA}
+                    onChange={(e) =>
+                      setPrecioForm({
+                        ...precioForm,
+                        aplicaA: e.target.value as "tanque" | "grifo",
+                        combustible_id: "",
+                        grifo_id: "",
+                      })
+                    }
+                  >
+                    <option value="tanque">Tanque propio</option>
+                    <option value="grifo">Grifo externo</option>
+                  </select>
+                </div>
+              </div>
+
+              {precioForm.aplicaA === "tanque" ? (
+                <div className="space-y-1">
+                  <label
+                    htmlFor="precio-tanque"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Tanque
+                  </label>
+                  <select
+                    id="precio-tanque"
+                    required
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
+                    value={precioForm.combustible_id}
+                    onChange={(e) =>
+                      setPrecioForm({ ...precioForm, combustible_id: e.target.value })
+                    }
+                  >
+                    <option value="" disabled>
+                      Elegir tanque
+                    </option>
+                    {tanques.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.tanque_nombre}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <label
+                    htmlFor="precio-grifo"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Grifo
+                  </label>
+                  <select
+                    id="precio-grifo"
+                    required
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
+                    value={precioForm.grifo_id}
+                    onChange={(e) => setPrecioForm({ ...precioForm, grifo_id: e.target.value })}
+                  >
+                    <option value="" disabled>
+                      Elegir grifo
+                    </option>
+                    {grifos.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="precio-valor"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Precio por galón
+                  </label>
+                  <input
+                    id="precio-valor"
+                    type="number"
+                    min={0}
+                    step="0.0001"
+                    required
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none"
+                    value={precioForm.precio_unitario}
+                    onChange={(e) =>
+                      setPrecioForm({ ...precioForm, precio_unitario: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label
+                    htmlFor="precio-vigente-desde"
+                    className="text-xs font-bold text-slate-500 uppercase"
+                  >
+                    Vigente desde
+                  </label>
+                  <input
+                    id="precio-vigente-desde"
+                    type="datetime-local"
+                    required
+                    className="w-full border border-slate-200 rounded-xl p-3 outline-none"
+                    value={vigenteDesde}
+                    onChange={(e) => setVigenteDesde(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={guardandoPrecio}
+                className="w-full bg-slate-900 text-white font-bold py-3 rounded-2xl hover:bg-slate-800 transition-all disabled:opacity-50"
+              >
+                {guardandoPrecio ? "Guardando..." : "Cargar precio"}
+              </button>
+            </form>
+
+            <div className="p-6 space-y-2">
+              <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Historial</h4>
+              {precios.length === 0 ? (
+                <p className="text-sm text-slate-400 text-center">
+                  Todavía no hay precios cargados.
+                </p>
+              ) : (
+                precios.map((p) => (
+                  <div
+                    key={p.id}
+                    className={`p-3 rounded-xl border text-sm ${
+                      p.anulada_en ? "border-red-100 bg-red-50 text-slate-400" : "border-slate-100"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span
+                        className={p.anulada_en ? "line-through" : "font-medium text-slate-800"}
+                      >
+                        {ETIQUETA_TIPO_COMBUSTIBLE[p.tipo_combustible]} —{" "}
+                        {p.tanque_nombre ?? p.grifo_nombre} — S/{" "}
+                        {Number(p.precio_unitario).toLocaleString("es-PE")}
+                      </span>
+                      {!p.anulada_en && (
+                        <button
+                          onClick={() => setPrecioAAnular(p)}
+                          className="text-xs font-bold text-red-600 hover:text-red-800"
+                        >
+                          Anular
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Vigente desde {formatearFecha(p.vigente_desde)}
+                      {p.registrado_por_nombre ? ` · cargado por ${p.registrado_por_nombre}` : ""}
+                    </p>
+                    {p.anulada_en && (
+                      <p className="text-xs text-red-500 mt-1">
+                        Anulado{p.anulado_por_nombre ? ` por ${p.anulado_por_nombre}` : ""}: "
+                        {p.motivo_anulacion}"
+                      </p>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal: anular precio (motivo obligatorio) -- se monta por encima
+          del historial, que queda abierto detrás. */}
+      {precioAAnular && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-[60] p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl">
+            <div className="p-6 border-b flex justify-between items-center">
+              <h3 className="text-xl font-bold">Anular precio</h3>
+              <button
+                onClick={() => setPrecioAAnular(null)}
+                className="text-slate-400 hover:text-slate-900 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
+                <p>
+                  Vas a anular el precio de{" "}
+                  <span className="font-bold">
+                    S/ {Number(precioAAnular.precio_unitario).toLocaleString("es-PE")}
+                  </span>
+                  . No se borra: queda en el historial marcado como anulado, y el precio "vigente"
+                  cae al anterior válido.
+                </p>
+              </div>
+              <div className="space-y-1">
+                <label
+                  htmlFor="motivo-anulacion-precio"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Motivo (obligatorio)
+                </label>
+                <textarea
+                  id="motivo-anulacion-precio"
+                  required
+                  rows={3}
+                  maxLength={500}
+                  placeholder="Ej: se tipeó 999 en vez de 17.9"
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                  value={motivoAnulacionPrecio}
+                  onChange={(e) => setMotivoAnulacionPrecio(e.target.value)}
+                />
+              </div>
+              <button
+                onClick={handleAnularPrecio}
+                disabled={anulandoPrecio || motivoAnulacionPrecio.trim() === ""}
+                className="w-full bg-amber-700 text-white font-bold py-4 rounded-2xl hover:bg-amber-800 transition-all disabled:opacity-50"
+              >
+                {anulandoPrecio ? "Anulando..." : "Anular precio"}
+              </button>
+            </div>
           </div>
         </div>
       )}
