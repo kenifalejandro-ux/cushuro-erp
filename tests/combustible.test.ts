@@ -73,6 +73,11 @@ function payloadTanque(overrides: Partial<Record<string, unknown>> = {}) {
     nivel_minimo: 0,
     moneda: "PEN",
     activo: true,
+    // Fase C (migrations/0064) -- mismo caso que moneda/activo: el POST los
+    // completa por default, el PUT los exige.
+    tolerancia_capacidad_pct: 0,
+    requiere_documento: true,
+    umbral_diferencia_pct: 0,
     ...overrides,
   };
 }
@@ -321,6 +326,9 @@ describe("combustible: ABM de tanques (Fase A)", () => {
       nivel_minimo: 50,
       moneda: "USD",
       activo: true,
+      tolerancia_capacidad_pct: 0,
+      requiere_documento: true,
+      umbral_diferencia_pct: 0,
     });
     expect(res.status).toBe(200);
     expect(res.body.tanque_nombre).toBe("Editado");

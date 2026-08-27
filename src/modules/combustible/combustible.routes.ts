@@ -16,6 +16,8 @@ import {
   actualizarGrifoCombustibleSchema,
   crearPrecioCombustibleSchema,
   anularPrecioCombustibleSchema,
+  crearRecepcionCombustibleSchema,
+  anularRecepcionCombustibleSchema,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleController } from "./combustible.controller";
 
@@ -67,6 +69,28 @@ router.patch(
   requireRole("admin"),
   validate(anularPrecioCombustibleSchema),
   asyncHandler(controller.anularPrecio.bind(controller))
+);
+
+// Recepciones (Fase C, migrations/0064) -- segmentos literales, mismo
+// motivo que /despachos y /grifos: tienen que ir ANTES de /:id.
+//
+// Crear una recepción es admin únicamente, a diferencia de un despacho
+// (admin+operador): recibir combustible de un proveedor es un acto
+// administrativo con sustento tributario de por medio (factura/guía), y lo
+// que registra define cómo se valoriza TODO el inventario del tanque -- no
+// es trabajo de cancha. Mismo criterio que los precios (0063).
+router.get("/recepciones", asyncHandler(controller.listarRecepciones.bind(controller)));
+router.post(
+  "/recepciones",
+  requireRole("admin"),
+  validate(crearRecepcionCombustibleSchema),
+  asyncHandler(controller.crearRecepcion.bind(controller))
+);
+router.patch(
+  "/recepciones/:recepcionId/anular",
+  requireRole("admin"),
+  validate(anularRecepcionCombustibleSchema),
+  asyncHandler(controller.anularRecepcion.bind(controller))
 );
 
 router.get("/:id", asyncHandler(controller.getById.bind(controller)));

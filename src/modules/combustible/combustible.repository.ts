@@ -28,6 +28,7 @@ const COLUMNAS_TANQUE = `
   c.id, c.codigo, c.tanque_nombre, c.tipo_combustible, c.unidad, c.tipo_punto,
   c.ubicacion, c.capacidad_total, c.nivel_minimo, c.totalizador_actual,
   c.costo_promedio, c.moneda, c.activo,
+  c.tolerancia_capacidad_pct, c.requiere_documento, c.umbral_diferencia_pct,
   ultima.nivel AS nivel_actual,
   ultima.leido_en AS fecha_actualizacion,
   ROUND((ultima.nivel / c.capacidad_total) * 100, 2) AS porcentaje
@@ -82,9 +83,10 @@ export class CombustibleRepository {
       `
       INSERT INTO combustible (
         tenant_id, codigo, tanque_nombre, tipo_combustible, unidad, tipo_punto,
-        ubicacion, capacidad_total, nivel_minimo, moneda
+        ubicacion, capacidad_total, nivel_minimo, moneda,
+        tolerancia_capacidad_pct, requiere_documento, umbral_diferencia_pct
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       RETURNING id
       `,
       [
@@ -98,6 +100,9 @@ export class CombustibleRepository {
         data.capacidad_total,
         data.nivel_minimo,
         data.moneda,
+        data.tolerancia_capacidad_pct,
+        data.requiere_documento,
+        data.umbral_diferencia_pct,
       ]
     );
 
@@ -134,8 +139,11 @@ export class CombustibleRepository {
         capacidad_total = $7,
         nivel_minimo = $8,
         moneda = $9,
-        activo = $10
-      WHERE id = $11 AND tenant_id = $12
+        activo = $10,
+        tolerancia_capacidad_pct = $11,
+        requiere_documento = $12,
+        umbral_diferencia_pct = $13
+      WHERE id = $14 AND tenant_id = $15
       RETURNING id
       `,
       [
@@ -149,6 +157,9 @@ export class CombustibleRepository {
         data.nivel_minimo,
         data.moneda,
         data.activo,
+        data.tolerancia_capacidad_pct,
+        data.requiere_documento,
+        data.umbral_diferencia_pct,
         id,
         tenantId,
       ]
@@ -189,10 +200,15 @@ export class CombustibleRepository {
       for (const fila of lote) porCodigo.set(fila.codigo, fila);
       const filasUnicas = [...porCodigo.values()];
 
+      const COLUMNAS_POR_FILA = 12;
       const placeholders = filasUnicas
         .map((_, i) => {
-          const base = i * 9;
-          return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9})`;
+          const base = i * COLUMNAS_POR_FILA;
+          const params = Array.from(
+            { length: COLUMNAS_POR_FILA },
+            (_unused, j) => `$${base + j + 1}`
+          );
+          return `(${params.join(", ")})`;
         })
         .join(", ");
 
@@ -206,6 +222,11 @@ export class CombustibleRepository {
         d.ubicacion ?? null,
         d.capacidad_total,
         d.nivel_minimo,
+        // Fase C (0064) -- el Excel puede traerlas o no; Zod ya aplicó el
+        // default (0 / true) para las filas que no las incluyan.
+        d.tolerancia_capacidad_pct,
+        d.requiere_documento,
+        d.umbral_diferencia_pct,
       ]);
 
       // Qué códigos YA existían, antes de que el upsert los toque: es la
@@ -220,7 +241,8 @@ export class CombustibleRepository {
       const insertados = await client.query<{ id: number; codigo: string }>(
         `INSERT INTO combustible (
            tenant_id, codigo, tanque_nombre, tipo_combustible, unidad, tipo_punto,
-           ubicacion, capacidad_total, nivel_minimo
+           ubicacion, capacidad_total, nivel_minimo,
+           tolerancia_capacidad_pct, requiere_documento, umbral_diferencia_pct
          )
          VALUES ${placeholders}
          ON CONFLICT (tenant_id, codigo) DO UPDATE SET
@@ -230,7 +252,10 @@ export class CombustibleRepository {
            tipo_punto = EXCLUDED.tipo_punto,
            ubicacion = EXCLUDED.ubicacion,
            capacidad_total = EXCLUDED.capacidad_total,
-           nivel_minimo = EXCLUDED.nivel_minimo
+           nivel_minimo = EXCLUDED.nivel_minimo,
+           tolerancia_capacidad_pct = EXCLUDED.tolerancia_capacidad_pct,
+           requiere_documento = EXCLUDED.requiere_documento,
+           umbral_diferencia_pct = EXCLUDED.umbral_diferencia_pct
          RETURNING id, codigo`,
         valores
       );
@@ -643,7 +668,7 @@ export class CombustibleRepository {
 
   async findGrifos(client: PoolClient, tenantId: string) {
     const result = await client.query(
-      `SELECT id, nombre, activo, usuario_id, creado_en
+      `SELECT id, nombre, activo, abastece_ruta, abastece_tanque, usuario_id, creado_en
        FROM combustible_grifos WHERE tenant_id = $1 ORDER BY nombre ASC`,
       [tenantId]
     );
@@ -652,25 +677,33 @@ export class CombustibleRepository {
 
   async findGrifoPorId(client: PoolClient, tenantId: string, id: number) {
     const result = await client.query(
-      `SELECT id, nombre, activo, usuario_id, creado_en
+      `SELECT id, nombre, activo, abastece_ruta, abastece_tanque, usuario_id, creado_en
        FROM combustible_grifos WHERE id = $1 AND tenant_id = $2`,
       [id, tenantId]
     );
     return result.rows[0] ?? null;
   }
 
-  async crearGrifo(client: PoolClient, tenantId: string, usuarioId: string, nombre: string) {
+  async crearGrifo(
+    client: PoolClient,
+    tenantId: string,
+    usuarioId: string,
+    data: { nombre: string; abasteceRuta: boolean; abasteceTanque: boolean }
+  ) {
     try {
       const result = await client.query(
-        `INSERT INTO combustible_grifos (tenant_id, nombre, usuario_id)
-         VALUES ($1, $2, $3)
-         RETURNING id, nombre, activo, usuario_id, creado_en`,
-        [tenantId, nombre, usuarioId]
+        `INSERT INTO combustible_grifos
+           (tenant_id, nombre, abastece_ruta, abastece_tanque, usuario_id)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, nombre, activo, abastece_ruta, abastece_tanque, usuario_id, creado_en`,
+        [tenantId, data.nombre, data.abasteceRuta, data.abasteceTanque, usuarioId]
       );
       return result.rows[0];
     } catch (err) {
       if (esViolacionUnicidad(err)) {
-        throw new Error(`ya existe un grifo llamado "${nombre}" en este tenant`, { cause: err });
+        throw new Error(`ya existe un grifo llamado "${data.nombre}" en este tenant`, {
+          cause: err,
+        });
       }
       throw err;
     }
@@ -680,14 +713,15 @@ export class CombustibleRepository {
     client: PoolClient,
     tenantId: string,
     id: number,
-    data: { nombre: string; activo: boolean }
+    data: { nombre: string; activo: boolean; abasteceRuta: boolean; abasteceTanque: boolean }
   ) {
     try {
       const result = await client.query(
-        `UPDATE combustible_grifos SET nombre = $1, activo = $2
-         WHERE id = $3 AND tenant_id = $4
-         RETURNING id, nombre, activo, usuario_id, creado_en`,
-        [data.nombre, data.activo, id, tenantId]
+        `UPDATE combustible_grifos
+         SET nombre = $1, activo = $2, abastece_ruta = $3, abastece_tanque = $4
+         WHERE id = $5 AND tenant_id = $6
+         RETURNING id, nombre, activo, abastece_ruta, abastece_tanque, usuario_id, creado_en`,
+        [data.nombre, data.activo, data.abasteceRuta, data.abasteceTanque, id, tenantId]
       );
       return result.rows[0] ?? null;
     } catch (err) {
@@ -843,5 +877,392 @@ export class CombustibleRepository {
       [usuarioId, motivo, precioId, tenantId]
     );
     return result.rows[0] ?? null;
+  }
+
+  // ── Recepciones (Fase C, ver migrations/0064) ─────────────────────────
+
+  // costo_total no se persiste, se calcula -- mismo criterio que el
+  // costo_total de un despacho (0063) y que `porcentaje` en COLUMNAS_TANQUE.
+  private static readonly COLUMNAS_RECEPCION = `
+    id, tenant_id, combustible_id, grifo_id, cantidad, costo_unitario,
+    (cantidad * costo_unitario) AS costo_total,
+    tipo_documento, numero_documento, recibido_en, usuario_id, creado_en,
+    anulada_en, anulada_por, motivo_anulacion
+  `;
+
+  /** Los datos del tanque que la Fase C necesita para validar una recepción
+   *  -- capacidad y las dos columnas de configuración que agregó 0064. Va
+   *  aparte de `findById` porque eso devuelve la fila "de presentación"
+   *  (con el nivel derivado y el porcentaje), y acá hacen falta los crudos.
+   *
+   *  Devuelve null si el tanque no existe en este tenant -- el service lo
+   *  traduce a un 400 legible en vez de dejar reventar la FK. */
+  async findTanqueParaRecepcion(client: PoolClient, tenantId: string, combustibleId: number) {
+    const result = await client.query<{
+      id: number;
+      capacidad_total: string;
+      tolerancia_capacidad_pct: string;
+      requiere_documento: boolean;
+    }>(
+      `SELECT id, capacidad_total, tolerancia_capacidad_pct, requiere_documento
+       FROM combustible WHERE id = $1 AND tenant_id = $2`,
+      [combustibleId, tenantId]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  /** El nivel medido del tanque A UNA FECHA: la última lectura vigente
+   *  cuyo `leido_en` no supere esa fecha. Mismo mecanismo que
+   *  JOIN_ULTIMA_LECTURA (incluido el desempate por id, ver su comentario),
+   *  pero con techo de fecha -- una recepción cargada tarde tiene que
+   *  valorizarse contra el nivel que el tanque tenía EL DÍA que entró el
+   *  combustible, no contra el de hoy.
+   *
+   *  Devuelve null si no hay ninguna lectura vigente anterior. Eso NO es
+   *  "el tanque estaba vacío": es "no sabemos cuánto había" -- la distinción
+   *  que estableció la migración 0059 y de la que depende que el costo
+   *  promedio signifique algo (ver el comentario de recalcularCostoPromedio). */
+  async findNivelVigenteA(
+    client: PoolClient,
+    tenantId: string,
+    combustibleId: number,
+    fecha: string
+  ): Promise<number | null> {
+    const result = await client.query<{ nivel: string }>(
+      `
+      SELECT l.nivel
+      FROM combustible_lecturas l
+      WHERE l.combustible_id = $1 AND l.tenant_id = $2
+        AND l.anulada_en IS NULL AND l.leido_en <= $3
+      ORDER BY l.leido_en DESC, l.id DESC
+      LIMIT 1
+      `,
+      [combustibleId, tenantId, fecha]
+    );
+    if (result.rows.length === 0) return null;
+    return Number(result.rows[0].nivel);
+  }
+
+  /** Recalcula `combustible.costo_promedio` DESDE CERO, reproduciendo en
+   *  orden cronológico todas las recepciones vigentes del tanque.
+   *
+   *  ── Por qué replay completo y no un update incremental ──────────────
+   *  El promedio ponderado es secuencial: cada recepción se apoya en el
+   *  promedio que dejó la anterior. Eso hace que una anulación NO se pueda
+   *  deshacer restando (no existe la operación inversa de una mezcla: si
+   *  anulás una recepción vieja, todas las posteriores se calcularon sobre
+   *  una base que ya no vale). Reproducir todo es la única forma de que el
+   *  número quede bien sin importar QUÉ se anuló ni en qué orden.
+   *  Es la misma lección que la migración 0059: no guardes estado mutable
+   *  que podés derivar. El volumen lo permite de sobra -- las recepciones
+   *  son semanales o mensuales, no una por despacho.
+   *
+   *  ── La primera recepción define el promedio ─────────────────────────
+   *  Ojo con el caso de arranque, que es sutil: NO se puede empezar con
+   *  `promedio = 0` y aplicarle la fórmula ponderada, porque si el tanque
+   *  ya tenía combustible ese 0 se mete en la mezcla como si ese
+   *  combustible hubiera salido gratis, y hunde el promedio. Ejemplo real:
+   *  tanque con 1.000 gal, entra una recepción de 500 a S/18 ->
+   *  (1000*0 + 500*18) / 1500 = S/6, un número que no significa nada.
+   *
+   *  Lo correcto es que la PRIMERA recepción vigente fije el promedio en su
+   *  propio costo unitario. Equivale a asumir que lo que ya había costó lo
+   *  mismo que esta primera compra conocida -- que es la única suposición
+   *  honesta cuando no hay ningún dato de costo anterior (el módulo recién
+   *  empieza a registrar compras acá), y se autocorrige a medida que entran
+   *  recepciones reales.
+   *
+   *  Mismo tratamiento cuando el nivel a esa fecha es desconocido (no hay
+   *  lectura vigente anterior, o la que había se anuló después): sin nivel
+   *  no hay con qué ponderar, así que esa recepción vuelve a fijar el
+   *  promedio en vez de inventar un peso. */
+  async recalcularCostoPromedio(client: PoolClient, tenantId: string, combustibleId: number) {
+    // Una sola consulta: cada recepción vigente ya trae resuelto el nivel
+    // medido a SU fecha, vía LATERAL. Evita el N+1 de pedir la lectura por
+    // separado para cada fila del replay.
+    const recepciones = await client.query<{
+      cantidad: string;
+      costo_unitario: string;
+      nivel_antes: string | null;
+    }>(
+      `
+      SELECT r.cantidad, r.costo_unitario, nivel.nivel AS nivel_antes
+      FROM combustible_recepciones r
+      LEFT JOIN LATERAL (
+        SELECT l.nivel
+        FROM combustible_lecturas l
+        WHERE l.combustible_id = r.combustible_id AND l.anulada_en IS NULL
+          AND l.leido_en <= r.recibido_en
+        ORDER BY l.leido_en DESC, l.id DESC
+        LIMIT 1
+      ) nivel ON true
+      WHERE r.tenant_id = $1 AND r.combustible_id = $2 AND r.anulada_en IS NULL
+      ORDER BY r.recibido_en ASC, r.id ASC
+      `,
+      [tenantId, combustibleId]
+    );
+
+    let promedio = 0;
+    let esPrimera = true;
+
+    for (const fila of recepciones.rows) {
+      const cantidad = Number(fila.cantidad);
+      const costoUnitario = Number(fila.costo_unitario);
+      const nivelAntes = fila.nivel_antes === null ? null : Number(fila.nivel_antes);
+
+      // Ver el comentario largo de arriba: sin promedio previo o sin nivel
+      // con qué ponderar, esta recepción FIJA el promedio, no lo mezcla.
+      if (esPrimera || nivelAntes === null) {
+        promedio = costoUnitario;
+        esPrimera = false;
+        continue;
+      }
+
+      const total = nivelAntes + cantidad;
+      // total nunca es 0 acá (cantidad > 0 por CHECK, nivelAntes >= 0), pero
+      // la guarda cuesta nada y evita un NaN silencioso si eso cambiara.
+      promedio =
+        total === 0 ? costoUnitario : (nivelAntes * promedio + cantidad * costoUnitario) / total;
+    }
+
+    // Sin recepciones vigentes (todas anuladas, o ninguna todavía) el
+    // promedio vuelve a 0: es el valor con el que nace la columna en 0057 y
+    // significa "no hay ninguna compra registrada de la que derivar costo".
+    await client.query(
+      `UPDATE combustible SET costo_promedio = $1 WHERE id = $2 AND tenant_id = $3`,
+      [promedio, combustibleId, tenantId]
+    );
+
+    return promedio;
+  }
+
+  /** Inserta la recepción. Las validaciones que dependen de otras filas
+   *  (que el tanque exista, la capacidad con su tolerancia, la
+   *  obligatoriedad del documento) ya las hizo el service -- acá solo queda
+   *  traducir las violaciones de FK a mensajes que el controller reconozca,
+   *  mismo patrón que crearDespacho/crearPrecio. */
+  async crearRecepcion(
+    client: PoolClient,
+    tenantId: string,
+    usuarioId: string | null,
+    data: {
+      combustibleId: number;
+      grifoId: number;
+      cantidad: number;
+      costoUnitario: number;
+      tipoDocumento: string | null;
+      numeroDocumento: string | null;
+      recibidoEn: string;
+    }
+  ) {
+    try {
+      const result = await client.query(
+        `
+        INSERT INTO combustible_recepciones (
+          tenant_id, combustible_id, grifo_id, cantidad, costo_unitario,
+          tipo_documento, numero_documento, recibido_en, usuario_id
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        RETURNING ${CombustibleRepository.COLUMNAS_RECEPCION}
+        `,
+        [
+          tenantId,
+          data.combustibleId,
+          data.grifoId,
+          data.cantidad,
+          data.costoUnitario,
+          data.tipoDocumento,
+          data.numeroDocumento,
+          data.recibidoEn,
+          usuarioId,
+        ]
+      );
+      return result.rows[0];
+    } catch (err) {
+      if (esViolacionForeignKey(err)) {
+        const constraint = (err as { constraint?: string }).constraint ?? "";
+        if (constraint.includes("grifo_id")) {
+          throw new Error(`grifo_id ${data.grifoId} no existe en este tenant`, { cause: err });
+        }
+        if (constraint.includes("combustible_id")) {
+          throw new Error(`combustible_id ${data.combustibleId} no existe en este tenant`, {
+            cause: err,
+          });
+        }
+      }
+      throw err;
+    }
+  }
+
+  /** Historial de recepciones -- misma forma que findPrecios: resuelve del
+   *  lado del servidor los nombres de tanque/grifo y los dos usuarios (quién
+   *  registró y quién anuló). Paginado como findLecturas/findDespachos: a
+   *  diferencia de los precios, esto crece con la operación.
+   *
+   *  ── `diferencia_litros`: lo facturado contra lo medido ────────────────
+   *
+   *  Es el número que delata una entrega corta (el proveedor factura 6.000 y
+   *  descarga 5.800). Se calcula solo, por recepción:
+   *
+   *      (nivel_después − nivel_antes) + despachos_en_la_ventana − cantidad
+   *
+   *  donde "antes" es la última lectura vigente hasta `recibido_en` y
+   *  "después" la primera posterior. Los despachos de la ventana se suman de
+   *  vuelta porque son salidas legítimas: sin eso, cargar combustible a un
+   *  volquete entre las dos lecturas se vería como faltante.
+   *
+   *  Negativo = entró menos de lo facturado. Positivo = entró más.
+   *
+   *  **Devuelve NULL, y eso es deliberado, en dos casos:**
+   *  - Falta alguna de las dos lecturas. Sin medición no hay comparación
+   *    posible, y estimar sería exactamente lo que este módulo no hace.
+   *  - Hubo OTRA recepción entre las dos lecturas. Ahí la diferencia
+   *    pertenece a las dos entregas juntas y no se puede atribuir a una;
+   *    decir "esta entrega vino corta" sin poder probarlo señalaría a un
+   *    proveedor por el faltante de otro.
+   *
+   *  Esto NO es todavía el motor de conciliación (Fase D): es un dato por
+   *  fila, calculado al leer, sin período ni cierre ni `combustible_anomalias`.
+   *  Existe desde ahora para que la muestra empiece a acumularse -- sin
+   *  historial no hay con qué calibrar el umbral después. */
+  async findRecepciones(
+    client: PoolClient,
+    tenantId: string,
+    filtros: { combustibleId?: number },
+    { pageSize, offset }: Paginacion
+  ) {
+    const condiciones: string[] = ["r.tenant_id = $1"];
+    const valores: unknown[] = [tenantId];
+
+    if (filtros.combustibleId !== undefined) {
+      valores.push(filtros.combustibleId);
+      condiciones.push(`r.combustible_id = $${valores.length}`);
+    }
+
+    valores.push(pageSize, offset);
+    const result = await client.query(
+      `
+      SELECT r.id, r.combustible_id, r.grifo_id, r.cantidad, r.costo_unitario,
+             (r.cantidad * r.costo_unitario) AS costo_total,
+             r.tipo_documento, r.numero_documento, r.recibido_en, r.usuario_id,
+             r.creado_en, r.anulada_en, r.anulada_por, r.motivo_anulacion,
+             c.tanque_nombre, g.nombre AS grifo_nombre,
+             c.umbral_diferencia_pct,
+             autor.nombre AS registrada_por_nombre,
+             anulador.nombre AS anulada_por_nombre,
+             -- Cuánto se midió de menos (o de más) respecto de lo facturado.
+             -- NULL cuando no se puede atribuir a ESTA entrega -- ver el
+             -- comentario largo arriba de findRecepciones.
+             dif.diferencia_litros,
+             dif.nivel_antes,
+             dif.nivel_despues,
+             COUNT(*) OVER() AS total_count
+      FROM combustible_recepciones r
+      -- INNER para tanque y grifo (las dos FK son NOT NULL, siempre hay
+      -- fila); LEFT para los usuarios, que son nullable por el ON DELETE
+      -- SET NULL -- mismo criterio que findLecturas/findPrecios.
+      JOIN combustible c ON c.id = r.combustible_id
+      JOIN combustible_grifos g ON g.id = r.grifo_id
+      LEFT JOIN usuarios autor ON autor.id = r.usuario_id
+      LEFT JOIN usuarios anulador ON anulador.id = r.anulada_por
+      LEFT JOIN LATERAL (
+        SELECT
+          antes.nivel AS nivel_antes,
+          despues.nivel AS nivel_despues,
+          CASE
+            -- Sin las dos lecturas no hay nada que comparar. Y si en la misma
+            -- ventana entró OTRA recepción, la diferencia es de las dos
+            -- juntas: atribuírsela a esta sería inventar. En los dos casos
+            -- NULL, y la UI lo muestra como "—".
+            WHEN antes.nivel IS NULL OR despues.nivel IS NULL THEN NULL
+            WHEN otras.cuantas > 0 THEN NULL
+            ELSE (despues.nivel - antes.nivel) + COALESCE(salidas.total, 0) - r.cantidad
+          END AS diferencia_litros
+        FROM (
+          SELECT l.nivel, l.leido_en
+          FROM combustible_lecturas l
+          WHERE l.combustible_id = r.combustible_id AND l.anulada_en IS NULL
+            AND l.leido_en <= r.recibido_en
+          ORDER BY l.leido_en DESC, l.id DESC LIMIT 1
+        ) antes
+        FULL JOIN (
+          SELECT l.nivel, l.leido_en
+          FROM combustible_lecturas l
+          WHERE l.combustible_id = r.combustible_id AND l.anulada_en IS NULL
+            AND l.leido_en > r.recibido_en
+          ORDER BY l.leido_en ASC, l.id ASC LIMIT 1
+        ) despues ON true
+        -- Lo que SALIÓ del tanque entre las dos lecturas: sin sumarlo de
+        -- vuelta, un despacho hecho en el medio se vería como faltante.
+        LEFT JOIN LATERAL (
+          SELECT SUM(d.cantidad) AS total
+          FROM combustible_despachos d
+          WHERE d.combustible_id = r.combustible_id
+            AND d.despachado_en > antes.leido_en
+            AND d.despachado_en <= despues.leido_en
+        ) salidas ON true
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*) AS cuantas
+          FROM combustible_recepciones r2
+          WHERE r2.combustible_id = r.combustible_id AND r2.anulada_en IS NULL
+            AND r2.id <> r.id
+            AND r2.recibido_en > antes.leido_en
+            AND r2.recibido_en <= despues.leido_en
+        ) otras ON true
+      ) dif ON true
+      WHERE ${condiciones.join(" AND ")}
+      ORDER BY r.recibido_en DESC, r.id DESC
+      LIMIT $${valores.length - 1} OFFSET $${valores.length}
+      `,
+      valores
+    );
+    return result.rows;
+  }
+
+  /** Distingue "no existe / es de otro tenant" (404) de "ya estaba anulada"
+   *  (409) -- mismo motivo que findLecturaPorId/findPrecioPorId. */
+  async findRecepcionPorId(client: PoolClient, tenantId: string, id: number) {
+    const result = await client.query(
+      `SELECT ${CombustibleRepository.COLUMNAS_RECEPCION}
+       FROM combustible_recepciones WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  /** Anula una recepción y recalcula el costo promedio del tanque sin ella.
+   *
+   *  El UPDATE lleva `anulada_en IS NULL` en el WHERE por el mismo motivo
+   *  que anularLectura/anularPrecio: dos anulaciones simultáneas no pueden
+   *  terminar las dos en 200 pisando el motivo original (ver
+   *  fix_race_condition_iperc_estado).
+   *
+   *  A diferencia de anularLectura -- donde 0059 hizo que no hubiera nada
+   *  que recalcular -- acá el replay SÍ es necesario: el costo promedio es
+   *  un acumulado derivado, no se deduce mirando una sola fila. */
+  async anularRecepcion(
+    client: PoolClient,
+    tenantId: string,
+    recepcionId: number,
+    usuarioId: string,
+    motivo: string
+  ) {
+    const anulada = await client.query(
+      `
+      UPDATE combustible_recepciones
+      SET anulada_en = now(), anulada_por = $1, motivo_anulacion = $2
+      WHERE id = $3 AND tenant_id = $4 AND anulada_en IS NULL
+      RETURNING ${CombustibleRepository.COLUMNAS_RECEPCION}
+      `,
+      [usuarioId, motivo, recepcionId, tenantId]
+    );
+
+    if (anulada.rows.length === 0) return null;
+
+    const recepcion = anulada.rows[0];
+    await this.recalcularCostoPromedio(client, tenantId, recepcion.combustible_id);
+    const tanque = await this.findById(client, tenantId, recepcion.combustible_id);
+
+    return { recepcion, tanque };
   }
 }
