@@ -91,6 +91,32 @@ interface Precio {
   anulado_por_nombre: string | null;
 }
 
+/** Una fila del historial de despachos (GET /despachos). Trae los ids
+ *  crudos (combustible_id/grifo_id/equipo_id) -- el nombre se resuelve
+ *  del lado del cliente contra `tanques`/`grifos`/`equipos`, que el panel
+ *  ya tiene cargados; no hace falta pedirle al backend que haga los JOIN
+ *  para esta tabla de solo lectura. */
+interface DespachoHistorial {
+  id: number;
+  origen: OrigenDespacho;
+  combustible_id: number | null;
+  grifo_id: number | null;
+  equipo_id: number | null;
+  tipo_combustible: Tanque["tipo_combustible"];
+  serie_talonario: string;
+  n_vale: number;
+  cantidad: string;
+  costo_unitario: string;
+  costo_total: string;
+  observaciones: string | null;
+  despachado_en: string;
+}
+
+const ETIQUETA_ORIGEN_DESPACHO: Record<OrigenDespacho, string> = {
+  tanque_propio: "Tanque propio",
+  compra_externa: "Compra externa",
+};
+
 const DESPACHO_FORM_INICIAL = {
   origen: "tanque_propio" as OrigenDespacho,
   combustible_id: "",
@@ -313,6 +339,11 @@ export default function CombustiblePanel() {
   const [precioAAnular, setPrecioAAnular] = useState<Precio | null>(null);
   const [motivoAnulacionPrecio, setMotivoAnulacionPrecio] = useState("");
   const [anulandoPrecio, setAnulandoPrecio] = useState(false);
+
+  // --- Historial de despachos (solo lectura, GET /despachos) ---
+  const [modalHistorialDespachosAbierto, setModalHistorialDespachosAbierto] = useState(false);
+  const [historialDespachos, setHistorialDespachos] = useState<DespachoHistorial[]>([]);
+  const [cargandoHistorialDespachos, setCargandoHistorialDespachos] = useState(false);
 
   const cargarTanques = useCallback(async () => {
     const res = await apiFetch("/api/erp/combustible");
@@ -958,6 +989,22 @@ export default function CombustiblePanel() {
     }
   };
 
+  // --- Historial de despachos (solo lectura) ---
+
+  const abrirModalHistorialDespachos = async () => {
+    setModalHistorialDespachosAbierto(true);
+    setCargandoHistorialDespachos(true);
+    try {
+      // pageSize=100, mismo techo que el historial de lecturas -- ver
+      // pending_calidad_e2e_a11y (filtro por fecha queda para después).
+      const res = await apiFetch("/api/erp/combustible/despachos?pageSize=100");
+      const body = await res.json().catch(() => null);
+      setHistorialDespachos(Array.isArray(body?.data) ? body.data : []);
+    } finally {
+      setCargandoHistorialDespachos(false);
+    }
+  };
+
   if (loading) {
     return <div className="p-10">Cargando combustible...</div>;
   }
@@ -986,6 +1033,12 @@ export default function CombustiblePanel() {
               onChange={handleExcelUpload}
             />
           </label>
+          <button
+            onClick={abrirModalHistorialDespachos}
+            className="px-4 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium rounded-xl transition-all"
+          >
+            📋 Historial de despachos
+          </button>
           <button
             onClick={abrirModalGrifos}
             className="px-4 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium rounded-xl transition-all"
@@ -2163,6 +2216,107 @@ export default function CombustiblePanel() {
                 {enviandoDespacho ? "Registrando..." : "Registrar despacho"}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Modal: historial de despachos (solo lectura) */}
+      {modalHistorialDespachosAbierto && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+          <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="p-6 border-b flex justify-between items-center shrink-0">
+              <div>
+                <h3 className="text-xl font-bold">Historial de despachos</h3>
+                <p className="text-sm text-slate-500">
+                  Últimos 100 vales registrados, del más reciente al más antiguo
+                </p>
+              </div>
+              <button
+                onClick={() => setModalHistorialDespachosAbierto(false)}
+                className="text-slate-400 hover:text-slate-900 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto overflow-x-auto">
+              {cargandoHistorialDespachos ? (
+                <p className="text-center text-slate-500 py-8">Cargando historial...</p>
+              ) : historialDespachos.length === 0 ? (
+                <p className="text-center text-slate-500 py-8">
+                  Todavía no hay despachos registrados.
+                </p>
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        Vale
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        Fecha
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        Origen
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        Tanque / Grifo
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        Unidad
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
+                        Cantidad
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
+                        C.U
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
+                        C.TOTAL
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {historialDespachos.map((d) => {
+                      const tanque = tanques.find((t) => t.id === d.combustible_id);
+                      const grifo = grifos.find((g) => g.id === d.grifo_id);
+                      const equipo = equipos.find((eq) => eq.id === d.equipo_id);
+                      return (
+                        <tr key={d.id} className="hover:bg-slate-50/50 transition-colors align-top">
+                          <td className="p-3 text-sm text-slate-800 font-mono">
+                            {d.serie_talonario}-{d.n_vale}
+                          </td>
+                          <td className="p-3 text-sm text-slate-600 whitespace-nowrap">
+                            {formatearFecha(d.despachado_en)}
+                          </td>
+                          <td className="p-3 text-sm text-slate-600">
+                            {ETIQUETA_ORIGEN_DESPACHO[d.origen]}
+                          </td>
+                          <td className="p-3 text-sm text-slate-600">
+                            {tanque?.tanque_nombre ?? grifo?.nombre ?? "—"}
+                          </td>
+                          <td className="p-3 text-sm text-slate-600">
+                            {equipo ? `${equipo.placa_codigo} — ${equipo.tipo}` : "—"}
+                            {d.observaciones && (
+                              <p className="text-xs text-slate-400 mt-0.5">{d.observaciones}</p>
+                            )}
+                          </td>
+                          <td className="p-3 text-sm text-right text-slate-800 font-semibold whitespace-nowrap">
+                            {Number(d.cantidad).toLocaleString("es-PE")}{" "}
+                            {ETIQUETA_TIPO_COMBUSTIBLE[d.tipo_combustible]}
+                          </td>
+                          <td className="p-3 text-sm text-right text-slate-600 whitespace-nowrap">
+                            S/ {Number(d.costo_unitario).toLocaleString("es-PE")}
+                          </td>
+                          <td className="p-3 text-sm text-right text-slate-800 font-semibold whitespace-nowrap">
+                            S/ {Number(d.costo_total).toLocaleString("es-PE")}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         </div>
       )}
