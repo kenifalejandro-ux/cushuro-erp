@@ -245,6 +245,24 @@ export class CombustibleService {
     return this.repository.findDespachos(client, tenantId, filtros, paginacion);
   }
 
+  /** Devuelve null si el despacho no existe en este tenant o si ya estaba
+   *  anulado -- el controller distingue los dos casos con
+   *  getDespachoPorId para responder 404 o 409, igual que en lecturas,
+   *  precios y recepciones. */
+  anularDespacho(
+    client: PoolClient,
+    tenantId: string,
+    despachoId: number,
+    usuarioId: string,
+    motivo: string
+  ) {
+    return this.repository.anularDespacho(client, tenantId, despachoId, usuarioId, motivo);
+  }
+
+  getDespachoPorId(client: PoolClient, tenantId: string, id: number) {
+    return this.repository.findDespachoPorId(client, tenantId, id);
+  }
+
   /** Punto 1 reescrito: consulta bajo demanda -- ver el comentario de
    *  CombustibleRepository.findHuecosTalonario. */
   detectarHuecos(client: PoolClient, tenantId: string, serieTalonario: string) {

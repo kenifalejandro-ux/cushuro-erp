@@ -18,6 +18,7 @@ import {
   anularPrecioCombustibleSchema,
   crearRecepcionCombustibleSchema,
   anularRecepcionCombustibleSchema,
+  anularDespachoCombustibleSchema,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleController } from "./combustible.controller";
 
@@ -36,6 +37,17 @@ router.post(
   requireRole("admin", "operador"),
   validate(crearDespachoCombustibleSchema),
   asyncHandler(controller.crearDespacho.bind(controller))
+);
+
+// 🚫 anular un vale roto o mal tipeado -- admin Y operador, los mismos que
+// pueden registrarlo: el punto 3 del documento es literalmente sobre el
+// grifero que arruina un vale en cancha y necesita rendirlo ahí mismo, sin
+// depender de nadie (mismo criterio que anular una lectura).
+router.patch(
+  "/despachos/:despachoId/anular",
+  requireRole("admin", "operador"),
+  validate(anularDespachoCombustibleSchema),
+  asyncHandler(controller.anularDespacho.bind(controller))
 );
 
 // Grifos externos y precios (migrations/0063) -- segmentos literales,

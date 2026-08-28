@@ -170,6 +170,12 @@ interface DespachoHistorial {
   costo_total: string;
   observaciones: string | null;
   despachado_en: string;
+  // Válvula de escape del punto 3 (migrations/0067). Un vale anulado NUNCA
+  // se borra: queda visible como evidencia, deja de contar para la
+  // conciliación, y libera su número para que el mismo papel se pueda
+  // recargar con el dato corregido.
+  anulada_en: string | null;
+  motivo_anulacion: string | null;
 }
 
 const ETIQUETA_ORIGEN_DESPACHO: Record<OrigenDespacho, string> = {
@@ -416,6 +422,9 @@ export default function CombustiblePanel() {
   const [modalHistorialDespachosAbierto, setModalHistorialDespachosAbierto] = useState(false);
   const [historialDespachos, setHistorialDespachos] = useState<DespachoHistorial[]>([]);
   const [cargandoHistorialDespachos, setCargandoHistorialDespachos] = useState(false);
+  const [despachoAAnular, setDespachoAAnular] = useState<DespachoHistorial | null>(null);
+  const [motivoAnulacionDespacho, setMotivoAnulacionDespacho] = useState("");
+  const [anulandoDespacho, setAnulandoDespacho] = useState(false);
 
   // --- Recepciones (Fase C, migrations/0064) ---
   const [modalRecepcionAbierto, setModalRecepcionAbierto] = useState(false);
@@ -1157,6 +1166,31 @@ export default function CombustiblePanel() {
       setHistorialDespachos(Array.isArray(body?.data) ? body.data : []);
     } finally {
       setCargandoHistorialDespachos(false);
+    }
+  };
+
+  /** Anula un vale (punto 3 del documento). Recarga el historial: la fila no
+   *  desaparece, cambia de estado -- y su número queda libre por si hay que
+   *  recargar el mismo papel con el dato corregido. */
+  const handleAnularDespacho = async () => {
+    if (anulandoDespacho || !despachoAAnular || !motivoAnulacionDespacho.trim()) return;
+    setAnulandoDespacho(true);
+    try {
+      const res = await apiFetch(`/api/erp/combustible/despachos/${despachoAAnular.id}/anular`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ motivo: motivoAnulacionDespacho }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert(body.error || "No se pudo anular el despacho.");
+        return;
+      }
+      setDespachoAAnular(null);
+      setMotivoAnulacionDespacho("");
+      await abrirModalHistorialDespachos();
+    } finally {
+      setAnulandoDespacho(false);
     }
   };
 
@@ -2687,6 +2721,9 @@ export default function CombustiblePanel() {
                       <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
                         C.TOTAL
                       </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
+                        Acciones
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -2694,10 +2731,18 @@ export default function CombustiblePanel() {
                       const tanque = tanques.find((t) => t.id === d.combustible_id);
                       const grifo = grifos.find((g) => g.id === d.grifo_id);
                       const equipo = equipos.find((eq) => eq.id === d.equipo_id);
+                      const anulado = d.anulada_en !== null;
                       return (
-                        <tr key={d.id} className="hover:bg-slate-50/50 transition-colors align-top">
-                          <td className="p-3 text-sm text-slate-800 font-mono">
-                            {d.serie_talonario}-{d.n_vale}
+                        <tr
+                          key={d.id}
+                          className={`transition-colors align-top ${
+                            anulado ? "bg-slate-50/60 text-slate-400" : "hover:bg-slate-50/50"
+                          }`}
+                        >
+                          <td className="p-3 text-sm font-mono">
+                            <span className={anulado ? "line-through" : "text-slate-800"}>
+                              {d.serie_talonario}-{d.n_vale}
+                            </span>
                           </td>
                           <td className="p-3 text-sm text-slate-600 whitespace-nowrap">
                             {formatearFecha(d.despachado_en)}
@@ -2723,6 +2768,29 @@ export default function CombustiblePanel() {
                           </td>
                           <td className="p-3 text-sm text-right text-slate-800 font-semibold whitespace-nowrap">
                             S/ {Number(d.costo_total).toLocaleString("es-PE")}
+                          </td>
+                          <td className="p-3 text-sm text-right whitespace-nowrap">
+                            {anulado ? (
+                              // La anulada NO se esconde: es la evidencia de
+                              // que el vale se rindió, y lo que evita que el
+                              // hueco de talonario dispare (punto 3).
+                              <span
+                                className="text-xs text-red-400"
+                                title={d.motivo_anulacion ?? undefined}
+                              >
+                                Anulado
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  setDespachoAAnular(d);
+                                  setMotivoAnulacionDespacho("");
+                                }}
+                                className="text-xs text-red-500 hover:text-red-700 hover:underline"
+                              >
+                                Anular
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );
@@ -3148,6 +3216,66 @@ export default function CombustiblePanel() {
               >
                 {anulandoPrecio ? "Anulando..." : "Anular precio"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal: anular despacho -- la válvula de escape del punto 3. El motivo
+          es obligatorio: es lo único que distingue "se mojó con diésel" de
+          "estoy borrando un vale que no me conviene". */}
+      {despachoAAnular && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-[60] p-4">
+          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl">
+            <div className="p-6 border-b">
+              <h3 className="text-xl font-bold">Anular vale</h3>
+              <p className="text-sm text-slate-500">
+                El vale no se borra: queda rendido y visible. El número vuelve a quedar libre por si
+                hay que cargar el mismo papel con el dato corregido.
+              </p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm">
+                <p className="font-mono font-semibold">
+                  {despachoAAnular.serie_talonario}-{despachoAAnular.n_vale}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {Number(despachoAAnular.cantidad).toLocaleString("es-PE")}{" "}
+                  {ETIQUETA_TIPO_COMBUSTIBLE[despachoAAnular.tipo_combustible]} ·{" "}
+                  {formatearFecha(despachoAAnular.despachado_en)}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <label
+                  htmlFor="motivo-anulacion-despacho"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Motivo de la anulación *
+                </label>
+                <textarea
+                  id="motivo-anulacion-despacho"
+                  rows={3}
+                  maxLength={500}
+                  className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                  placeholder="Ej: se mojó con diésel, colilla guardada en el block"
+                  value={motivoAnulacionDespacho}
+                  onChange={(e) => setMotivoAnulacionDespacho(e.target.value)}
+                />
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDespachoAAnular(null)}
+                  className="flex-1 border border-slate-200 text-slate-600 font-medium py-3 rounded-2xl hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleAnularDespacho}
+                  disabled={anulandoDespacho || !motivoAnulacionDespacho.trim()}
+                  className="flex-1 bg-red-600 text-white font-bold py-3 rounded-2xl hover:bg-red-700 disabled:opacity-50"
+                >
+                  {anulandoDespacho ? "Anulando..." : "Anular vale"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
