@@ -706,6 +706,181 @@ export class CombustibleRepository {
     };
   }
 
+  // ── Alertas (migrations/0068) ──────────────────────────────────────────
+  // Gerencia (rol admin) se entera al momento de un hueco o una anulación,
+  // sin esperar a que alguien note el hueco ni al cierre de período (Fase D
+  // entrega 2, que sigue aparte). Ver el encabezado de la migración.
+
+  /** El momento exacto en que un hueco se puede probar: cuando aparece un
+   *  vale más allá de él -- antes de eso el número todavía podría estar
+   *  "por venir". `maxAnterior` es el mayor n_vale de esa serie ANTES de
+   *  este despacho (excluyendo la fila nueva); si el nuevo vale lo supera
+   *  en más de 1, todo lo que quedó en el medio es un hueco recién
+   *  revelado. No hace falta NOT EXISTS: la propia definición de MAX ya
+   *  garantiza que esos números no tienen fila todavía. */
+  async detectarHuecosRevelados(
+    client: PoolClient,
+    tenantId: string,
+    serieTalonario: string,
+    despachoId: number,
+    nuevoNVale: number
+  ): Promise<number[]> {
+    const result = await client.query<{ max_anterior: number | null }>(
+      `SELECT MAX(n_vale) AS max_anterior
+       FROM combustible_despachos
+       WHERE tenant_id = $1 AND serie_talonario = $2 AND id <> $3`,
+      [tenantId, serieTalonario, despachoId]
+    );
+    const maxAnterior = result.rows[0]?.max_anterior;
+    if (maxAnterior === null || maxAnterior === undefined || nuevoNVale <= maxAnterior + 1) {
+      return [];
+    }
+    const revelados: number[] = [];
+    for (let n = maxAnterior + 1; n < nuevoNVale; n++) revelados.push(n);
+    return revelados;
+  }
+
+  /** El vale tardío que llena un hueco ya alertado (típicamente porque
+   *  sincronizó desde la cola offline) lo resuelve solo -- `resuelta_por`
+   *  queda NULL porque lo resolvió el sistema, no una persona. Corre
+   *  siempre, sin condicionar: si no había alerta abierta para ese número,
+   *  el UPDATE simplemente no toca ninguna fila. */
+  async resolverAlertaHuecoSiExiste(
+    client: PoolClient,
+    tenantId: string,
+    serieTalonario: string,
+    nVale: number
+  ): Promise<void> {
+    await client.query(
+      `UPDATE combustible_alertas
+       SET resuelta_en = now()
+       WHERE tenant_id = $1 AND tipo = 'hueco_detectado' AND serie_talonario = $2
+         AND n_vale = $3 AND resuelta_en IS NULL`,
+      [tenantId, serieTalonario, nVale]
+    );
+  }
+
+  async crearAlertas(
+    client: PoolClient,
+    tenantId: string,
+    filas: Array<{
+      tipo: "hueco_detectado" | "vale_anulado";
+      serieTalonario: string;
+      nVale: number;
+      despachoId: number | null;
+      detalle: Record<string, unknown>;
+    }>
+  ) {
+    if (filas.length === 0) return [];
+    const valores: unknown[] = [];
+    const placeholders = filas.map((f, i) => {
+      const base = i * 6;
+      valores.push(
+        tenantId,
+        f.tipo,
+        f.serieTalonario,
+        f.nVale,
+        f.despachoId,
+        JSON.stringify(f.detalle)
+      );
+      return `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6})`;
+    });
+    const result = await client.query(
+      `
+      INSERT INTO combustible_alertas (tenant_id, tipo, serie_talonario, n_vale, despacho_id, detalle)
+      VALUES ${placeholders.join(",")}
+      RETURNING id, tipo, serie_talonario, n_vale, despacho_id, detalle, creado_en
+      `,
+      valores
+    );
+    return result.rows;
+  }
+
+  async findAlertas(
+    client: PoolClient,
+    tenantId: string,
+    filtros: { soloNoLeidas?: boolean },
+    { pageSize, offset }: Paginacion
+  ) {
+    const condiciones: string[] = ["tenant_id = $1"];
+    const valores: unknown[] = [tenantId];
+
+    if (filtros.soloNoLeidas) {
+      condiciones.push("leida_en IS NULL");
+    }
+
+    valores.push(pageSize, offset);
+    const result = await client.query(
+      `
+      SELECT id, tipo, serie_talonario, n_vale, despacho_id, detalle,
+        creado_en, leida_en, resuelta_en, resuelta_por, COUNT(*) OVER() AS total_count
+      FROM combustible_alertas
+      WHERE ${condiciones.join(" AND ")}
+      ORDER BY creado_en DESC, id DESC
+      LIMIT $${valores.length - 1} OFFSET $${valores.length}
+      `,
+      valores
+    );
+    return result.rows;
+  }
+
+  async marcarAlertasLeidas(client: PoolClient, tenantId: string, ids?: number[]) {
+    if (ids && ids.length > 0) {
+      await client.query(
+        `UPDATE combustible_alertas SET leida_en = now()
+         WHERE tenant_id = $1 AND id = ANY($2::bigint[]) AND leida_en IS NULL`,
+        [tenantId, ids]
+      );
+      return;
+    }
+    await client.query(
+      `UPDATE combustible_alertas SET leida_en = now()
+       WHERE tenant_id = $1 AND leida_en IS NULL`,
+      [tenantId]
+    );
+  }
+
+  /** Solo vale_anulado se resuelve a mano -- hueco_detectado se resuelve
+   *  solo (ver resolverAlertaHuecoSiExiste). El WHERE tipo = 'vale_anulado'
+   *  no es redundante con el controller: es lo que impide que alguien
+   *  marque a mano un hueco que en realidad sigue abierto. */
+  async resolverAlertaManual(
+    client: PoolClient,
+    tenantId: string,
+    alertaId: number,
+    usuarioId: string
+  ) {
+    const result = await client.query(
+      `
+      UPDATE combustible_alertas
+      SET resuelta_en = now(), resuelta_por = $1
+      WHERE id = $2 AND tenant_id = $3 AND tipo = 'vale_anulado' AND resuelta_en IS NULL
+      RETURNING id, tipo, serie_talonario, n_vale, despacho_id, detalle, creado_en, leida_en, resuelta_en, resuelta_por
+      `,
+      [usuarioId, alertaId, tenantId]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  /** Destinatarios de correo/campanita: "gerencia" es el rol admin, sin
+   *  concepto propio en el modelo de datos -- y solo los que además tienen
+   *  el módulo combustible habilitado, mismo criterio que
+   *  obtenerModulosPermitidos() en auth.service.ts pero a la inversa (de
+   *  módulo a lista de usuarios, no de usuario a lista de módulos). */
+  async findAdminsConCombustibleHabilitado(client: PoolClient, tenantId: string) {
+    const result = await client.query<{ id: string; email: string; nombre: string }>(
+      `
+      SELECT u.id, u.email, u.nombre
+      FROM usuarios u
+      JOIN usuario_modulos um ON um.usuario_id = u.id AND um.modulo = 'combustible'
+      JOIN tenant_modulos tm ON tm.tenant_id = u.tenant_id AND tm.modulo = 'combustible'
+      WHERE u.tenant_id = $1 AND u.rol = 'admin' AND u.activo = true AND tm.estado = 'habilitado'
+      `,
+      [tenantId]
+    );
+    return result.rows;
+  }
+
   // ── Grifos externos (migrations/0063) ────────────────────────────────
 
   async findGrifos(client: PoolClient, tenantId: string) {

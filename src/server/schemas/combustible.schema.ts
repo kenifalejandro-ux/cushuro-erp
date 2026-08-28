@@ -306,6 +306,17 @@ export const anularDespachoCombustibleSchema = z.object({
 
 export type AnularDespachoCombustibleInput = z.infer<typeof anularDespachoCombustibleSchema>;
 
+// ── Alertas (migrations/0068) ───────────────────────────────────────────
+// Sin ids, marca TODAS las no leídas del tenant como leídas -- lo que
+// dispara el botón "marcar todas como leídas" de la campanita.
+export const marcarAlertasLeidasCombustibleSchema = z.object({
+  ids: z.array(z.coerce.number().int().positive()).optional(),
+});
+
+export type MarcarAlertasLeidasCombustibleInput = z.infer<
+  typeof marcarAlertasLeidasCombustibleSchema
+>;
+
 // ── Grifos externos (migrations/0063) ───────────────────────────────────
 // Catálogo chico (3-4 típicos: PRIMAX, VELASQUEZ) -- reemplaza el texto
 // libre `grifo_externo` de 0062 para poder engancharle un precio de forma

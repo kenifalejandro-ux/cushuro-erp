@@ -19,6 +19,7 @@ import {
   crearRecepcionCombustibleSchema,
   anularRecepcionCombustibleSchema,
   anularDespachoCombustibleSchema,
+  marcarAlertasLeidasCombustibleSchema,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleController } from "./combustible.controller";
 
@@ -103,6 +104,28 @@ router.patch(
   requireRole("admin"),
   validate(anularRecepcionCombustibleSchema),
   asyncHandler(controller.anularRecepcion.bind(controller))
+);
+
+// Alertas (migrations/0068) -- segmentos literales, mismo motivo que
+// /despachos: tienen que ir ANTES de /:id.
+//
+// Solo admin: es visibilidad de gerencia (hueco de talonario, vale
+// anulado), el operador no la necesita para hacer su trabajo de cancha.
+router.get(
+  "/alertas",
+  requireRole("admin"),
+  asyncHandler(controller.listarAlertas.bind(controller))
+);
+router.patch(
+  "/alertas/leidas",
+  requireRole("admin"),
+  validate(marcarAlertasLeidasCombustibleSchema),
+  asyncHandler(controller.marcarAlertasLeidas.bind(controller))
+);
+router.patch(
+  "/alertas/:alertaId/resolver",
+  requireRole("admin"),
+  asyncHandler(controller.resolverAlertaManual.bind(controller))
 );
 
 router.get("/:id", asyncHandler(controller.getById.bind(controller)));

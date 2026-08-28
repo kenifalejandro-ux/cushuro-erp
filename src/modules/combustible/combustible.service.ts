@@ -269,6 +269,62 @@ export class CombustibleService {
     return this.repository.findHuecosTalonario(client, tenantId, serieTalonario);
   }
 
+  // ── Alertas (migrations/0068) ─────────────────────────────────────────
+
+  detectarHuecosRevelados(
+    client: PoolClient,
+    tenantId: string,
+    serieTalonario: string,
+    despachoId: number,
+    nuevoNVale: number
+  ) {
+    return this.repository.detectarHuecosRevelados(
+      client,
+      tenantId,
+      serieTalonario,
+      despachoId,
+      nuevoNVale
+    );
+  }
+
+  resolverAlertaHuecoSiExiste(
+    client: PoolClient,
+    tenantId: string,
+    serieTalonario: string,
+    nVale: number
+  ) {
+    return this.repository.resolverAlertaHuecoSiExiste(client, tenantId, serieTalonario, nVale);
+  }
+
+  crearAlertas(
+    client: PoolClient,
+    tenantId: string,
+    filas: Parameters<CombustibleRepository["crearAlertas"]>[2]
+  ) {
+    return this.repository.crearAlertas(client, tenantId, filas);
+  }
+
+  listarAlertas(
+    client: PoolClient,
+    tenantId: string,
+    filtros: { soloNoLeidas?: boolean },
+    paginacion: Paginacion
+  ) {
+    return this.repository.findAlertas(client, tenantId, filtros, paginacion);
+  }
+
+  marcarAlertasLeidas(client: PoolClient, tenantId: string, ids?: number[]) {
+    return this.repository.marcarAlertasLeidas(client, tenantId, ids);
+  }
+
+  resolverAlertaManual(client: PoolClient, tenantId: string, alertaId: number, usuarioId: string) {
+    return this.repository.resolverAlertaManual(client, tenantId, alertaId, usuarioId);
+  }
+
+  findAdminsConCombustibleHabilitado(client: PoolClient, tenantId: string) {
+    return this.repository.findAdminsConCombustibleHabilitado(client, tenantId);
+  }
+
   // ── Grifos externos (migrations/0063) ───────────────────────────────
 
   /** Devuelve TODOS los grifos, de los dos roles -- el ABM los necesita así.
