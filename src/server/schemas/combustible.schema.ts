@@ -292,6 +292,20 @@ export const crearDespachoCombustibleSchema = z
 
 export type CrearDespachoCombustibleInput = z.infer<typeof crearDespachoCombustibleSchema>;
 
+/** Anular un vale (punto 3 del documento: se mojó con diésel, se tipeó mal).
+ *  `motivo` obligatorio, mismo criterio que lecturas, precios y recepciones:
+ *  es lo único que distingue "el papel quedó ilegible" de "estoy borrando un
+ *  vale que no me conviene".
+ *
+ *  Anular libera el número dentro de su serie (migración 0067): el mismo vale
+ *  físico se puede volver a cargar con el dato corregido. Sin eso, anular un
+ *  vale mal tipeado borraría del sistema un despacho que sí ocurrió. */
+export const anularDespachoCombustibleSchema = z.object({
+  motivo: z.string().trim().min(1, "El motivo de la anulación es obligatorio").max(500),
+});
+
+export type AnularDespachoCombustibleInput = z.infer<typeof anularDespachoCombustibleSchema>;
+
 // ── Grifos externos (migrations/0063) ───────────────────────────────────
 // Catálogo chico (3-4 típicos: PRIMAX, VELASQUEZ) -- reemplaza el texto
 // libre `grifo_externo` de 0062 para poder engancharle un precio de forma

@@ -21,6 +21,7 @@ import type {
   AnularPrecioCombustibleInput,
   CrearRecepcionCombustibleInput,
   AnularRecepcionCombustibleInput,
+  AnularDespachoCombustibleInput,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleService } from "./combustible.service";
 
@@ -410,6 +411,59 @@ export class CombustibleController {
         return;
       }
       res.status(500).json({ error: "Error al registrar el despacho" });
+    }
+  }
+
+  /** PATCH /despachos/:despachoId/anular -- la válvula de escape del punto 3
+   *  del documento de diseño. Mismo mecanismo exacto que anularLectura y
+   *  anularPrecio: 404 si no existe en este tenant, 409 si ya estaba anulada
+   *  (para no pisar el motivo y el autor de la anulación original, que son la
+   *  evidencia de quién corrigió qué). */
+  async anularDespacho(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const despachoId = Number(req.params.despachoId);
+      const { motivo } = req.validatedBody as AnularDespachoCombustibleInput;
+
+      const resultado = await withTenant(tenantId, async (client) => {
+        const anulado = await service.anularDespacho(
+          client,
+          tenantId,
+          despachoId,
+          req.usuario!.id,
+          motivo
+        );
+        if (anulado) return { estado: "anulada" as const, despacho: anulado };
+
+        const existente = await service.getDespachoPorId(client, tenantId, despachoId);
+        return existente ? { estado: "ya_anulada" as const } : { estado: "inexistente" as const };
+      });
+
+      if (resultado.estado === "inexistente") {
+        res.status(404).json({ error: "Despacho no encontrado" });
+        return;
+      }
+      if (resultado.estado === "ya_anulada") {
+        res.status(409).json({ error: "Este despacho ya estaba anulado" });
+        return;
+      }
+
+      await registrarAuditoria({
+        accion: "combustible.despacho_anular",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: {
+          despachoId,
+          serieTalonario: resultado.despacho.serie_talonario,
+          nVale: resultado.despacho.n_vale,
+          motivo,
+        },
+        contexto: contextoAuditoriaModulo(req),
+      });
+      await publicarEventoTenant(tenantId, "combustible.despacho_anulado", { despachoId });
+      res.json(resultado.despacho);
+    } catch {
+      res.status(500).json({ error: "Error al anular el despacho" });
     }
   }
 

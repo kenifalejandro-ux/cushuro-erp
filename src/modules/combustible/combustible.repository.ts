@@ -470,7 +470,8 @@ export class CombustibleRepository {
     tipo_destino, equipo_id, serie_talonario, n_vale, cantidad,
     lectura_contometro, lectura_horometro, lectura_odometro, horas_abastecidas,
     costo_unitario, (cantidad * costo_unitario) AS costo_total, observaciones,
-    usuario_id, despachado_en, creado_en
+    usuario_id, despachado_en, creado_en,
+    anulada_en, anulada_por, motivo_anulacion
   `;
 
   /** Inserta un despacho. La unicidad de (tenant_id, serie_talonario,
@@ -572,7 +573,11 @@ export class CombustibleRepository {
    *  existe, eso tiene que ganarle a cualquier otro 400 (contómetro,
    *  medidor): "ya está registrado" es una señal más fuerte que un dato
    *  raro en el reintento, y es la misma que el grifero necesita ver para
-   *  entender que esto fue un doble tipeo, no un error de forma. */
+   *  entender que esto fue un doble tipeo, no un error de forma.
+   *
+   *  Solo cuentan los VIGENTES (migración 0067): un vale anulado dejó libre
+   *  su número para que el mismo papel se pueda volver a cargar con el dato
+   *  corregido. Espejo exacto del índice único parcial. */
   async existeVale(
     client: PoolClient,
     tenantId: string,
@@ -581,7 +586,8 @@ export class CombustibleRepository {
   ): Promise<boolean> {
     const result = await client.query(
       `SELECT 1 FROM combustible_despachos
-       WHERE tenant_id = $1 AND serie_talonario = $2 AND n_vale = $3`,
+       WHERE tenant_id = $1 AND serie_talonario = $2 AND n_vale = $3
+         AND anulada_en IS NULL`,
       [tenantId, serieTalonario, nVale]
     );
     return (result.rowCount ?? 0) > 0;
@@ -628,11 +634,47 @@ export class CombustibleRepository {
     return result.rows;
   }
 
+  /** Anula un despacho -- el punto 3 del documento, la "válvula de escape"
+   *  para un vale roto o mal tipeado. Mismo mecanismo que anularLectura y
+   *  anularPrecio: `anulada_en IS NULL` en el WHERE para que dos anulaciones
+   *  simultáneas no terminen las dos en 200 pisando el motivo original (ver
+   *  fix_race_condition_iperc_estado).
+   *
+   *  A diferencia de anularRecepcion, acá NO hay nada que recalcular: un
+   *  despacho no alimenta ningún valor derivado del tanque (el nivel sale de
+   *  las lecturas, el costo promedio de las recepciones). Lo único que cambia
+   *  es que este vale deja de contar para la conciliación -- y eso pasa solo,
+   *  porque esas consultas filtran por `anulada_en IS NULL`. */
+  async anularDespacho(
+    client: PoolClient,
+    tenantId: string,
+    despachoId: number,
+    usuarioId: string,
+    motivo: string
+  ) {
+    const result = await client.query(
+      `
+      UPDATE combustible_despachos
+      SET anulada_en = now(), anulada_por = $1, motivo_anulacion = $2
+      WHERE id = $3 AND tenant_id = $4 AND anulada_en IS NULL
+      RETURNING ${CombustibleRepository.COLUMNAS_DESPACHO}
+      `,
+      [usuarioId, motivo, despachoId, tenantId]
+    );
+    return result.rows[0] ?? null;
+  }
+
   /** Punto 1 reescrito: consulta bajo demanda, no persiste nada -- no hay
    *  período abierto/cerrado ni `combustible_anomalias` acá (eso es la
    *  "maquinaria de conciliación" del punto 4, Fase D). Si no hay ningún
    *  vale en esa serie, MIN/MAX dan NULL -- se corta antes de llamar
-   *  generate_series(), que revienta con límites NULL. */
+   *  generate_series(), que revienta con límites NULL.
+   *
+   *  **Un vale ANULADO cuenta como rendido, no como hueco** (migración
+   *  0067): el NOT EXISTS de abajo pregunta si existe la fila, sin mirar su
+   *  estado. Es la válvula de escape del punto 3 -- si el vale roto siguiera
+   *  contando como hueco, la anulación no serviría de nada y volveríamos al
+   *  caso de Juan inventando un despacho para que la secuencia cierre. */
   async findHuecosTalonario(client: PoolClient, tenantId: string, serieTalonario: string) {
     const limites = await client.query<{ minimo: number | null; maximo: number | null }>(
       `SELECT MIN(n_vale) AS minimo, MAX(n_vale) AS maximo
@@ -1198,6 +1240,9 @@ export class CombustibleRepository {
           SELECT SUM(d.cantidad) AS total
           FROM combustible_despachos d
           WHERE d.combustible_id = r.combustible_id
+            -- Un vale anulado no sacó combustible del tanque: sumarlo
+            -- inventaría un faltante que no existe (migración 0067).
+            AND d.anulada_en IS NULL
             AND d.despachado_en > antes.leido_en
             AND d.despachado_en <= despues.leido_en
         ) salidas ON true
