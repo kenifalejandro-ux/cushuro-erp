@@ -325,6 +325,66 @@ export class CombustibleService {
     return this.repository.findAdminsConCombustibleHabilitado(client, tenantId);
   }
 
+  /** Entrega 3 de Fase D: asistente de calibración de `umbral_diferencia_pct`.
+   *
+   *  Nunca se aplica solo -- devuelve el número sugerido JUNTO con la
+   *  muestra completa que lo justifica, para que un admin la revise antes
+   *  de guardar (mismo criterio que sugerirRateLimitTenant() en
+   *  platformRateLimitCuota.ts: una sugerencia explicable, no una fórmula
+   *  que se aplica en silencio).
+   *
+   *  Por qué PROMEDIO + 2 DESVÍOS y no percentil: la migración 0066 avisa
+   *  que la muestra puede estar contaminada con robos reales -- un
+   *  percentil alto (p90) terminaría fijando el umbral A LA ALTURA del
+   *  robo, dejándolo invisible la próxima vez. Ningún estadístico solo
+   *  puede blindarse solo contra eso: por eso la respuesta siempre incluye
+   *  la muestra fila por fila, para que un humano la mire antes de aceptar
+   *  el número.
+   *
+   *  MINIMO_MUESTRA = 10 -- con menos, cualquier sugerencia sería
+   *  inventada (ver el recordatorio operativo de la Fase D). */
+  async sugerirUmbralDiferencia(client: PoolClient, tenantId: string, combustibleId: number) {
+    const MINIMO_MUESTRA = 10;
+    const PISO_PCT = 1; // Ruido físico conocido: dilatación térmica + error de varilla (migración 0066).
+
+    const muestra = await this.repository.findMuestraDiferenciasParaCalibracion(
+      client,
+      tenantId,
+      combustibleId
+    );
+
+    if (muestra.length < MINIMO_MUESTRA) {
+      return {
+        muestraSuficiente: false as const,
+        tamanioMuestra: muestra.length,
+        minimoRequerido: MINIMO_MUESTRA,
+      };
+    }
+
+    const puntos = muestra.map((m) => ({
+      cantidad: m.cantidad,
+      diferenciaLitros: m.diferencia_litros,
+      diferenciaPct: (m.diferencia_litros / m.cantidad) * 100,
+    }));
+
+    const pctAbs = puntos.map((p) => Math.abs(p.diferenciaPct));
+    const promedio = pctAbs.reduce((a, b) => a + b, 0) / pctAbs.length;
+    const varianza = pctAbs.reduce((acc, v) => acc + (v - promedio) ** 2, 0) / (pctAbs.length - 1);
+    const desviacion = Math.sqrt(varianza);
+
+    const sugerido = Math.min(100, Math.max(PISO_PCT, promedio + 2 * desviacion));
+
+    return {
+      muestraSuficiente: true as const,
+      tamanioMuestra: muestra.length,
+      minimoRequerido: MINIMO_MUESTRA,
+      sugerido: Number(sugerido.toFixed(1)),
+      promedio: Number(promedio.toFixed(2)),
+      desviacion: Number(desviacion.toFixed(2)),
+      muestra: puntos,
+    };
+  }
+
   // ── Grifos externos (migrations/0063) ───────────────────────────────
 
   /** Devuelve TODOS los grifos, de los dos roles -- el ABM los necesita así.
