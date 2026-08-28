@@ -13,6 +13,7 @@ import { useAlertasCombustibleStream } from "./useAlertasCombustibleStream";
 const ETIQUETA_TIPO: Record<string, string> = {
   hueco_detectado: "Hueco de talonario",
   vale_anulado: "Vale anulado",
+  sobredespacho: "Sobredespacho",
 };
 
 function formatearAlerta(alerta: { tipo: string; serie_talonario: string; n_vale: number }) {

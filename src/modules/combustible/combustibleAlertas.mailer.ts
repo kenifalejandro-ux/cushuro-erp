@@ -67,6 +67,37 @@ export async function enviarCorreoAlertaHueco(
   });
 }
 
+/** Se despachó más de lo que el tanque de esa unidad puede contener
+ *  (migraciones 0069/0070). El vale NO se bloqueó: la explicación más
+ *  probable no es fraude (un bidón extra en el mismo vale, o la capacidad
+ *  mal cargada), pero necesita que alguien lo confirme. */
+export async function enviarCorreoAlertaSobredespacho(
+  destinatarios: Destinatario[],
+  params: {
+    serieTalonario: string;
+    nVale: number;
+    cantidad: number;
+    unidadDespacho: string;
+    capacidad: number;
+    unidadCapacidad: string;
+    excesoPct: number;
+  }
+) {
+  await enviarCorreoAlerta({
+    destinatarios,
+    asunto: `Combustible: sobredespacho en vale ${params.serieTalonario}-${String(params.nVale).padStart(5, "0")}`,
+    titulo: `Sobredespacho detectado en la serie ${params.serieTalonario}`,
+    lineas: [
+      `El vale ${String(params.nVale).padStart(5, "0")} despachó ${params.cantidad} ` +
+        `${params.unidadDespacho} a una unidad cuyo tanque es de ${params.capacidad} ` +
+        `${params.unidadCapacidad} -- un ${params.excesoPct}% por encima de su capacidad.`,
+      "El vale se registró igual (no se bloquea el abastecimiento). Puede ser un bidón " +
+        "cargado en el mismo vale, la capacidad mal cargada en el sistema, o un error de " +
+        "tipeo -- revisar en el ERP.",
+    ],
+  });
+}
+
 /** Un vale que sí se había registrado se anuló -- a diferencia del hueco,
  *  esto siempre tiene un motivo escrito por quien lo anuló, pero necesita
  *  revisión: "todo tiene que tener sustento". */

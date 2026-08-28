@@ -760,11 +760,39 @@ export class CombustibleRepository {
     );
   }
 
+  /** Los dos datos que hacen falta para evaluar sobredespacho, en una sola
+   *  consulta: la capacidad del equipo (migración 0069) y la unidad del
+   *  tanque del que salió el combustible (0057), que es la que da sentido a
+   *  `cantidad`. `combustibleId` es NULL en compra_externa -- ahí no hay
+   *  tanque y por lo tanto no hay unidad, ver evaluarSobredespacho(). */
+  async findDatosSobredespacho(
+    client: PoolClient,
+    tenantId: string,
+    equipoId: number,
+    combustibleId: number | null
+  ) {
+    const result = await client.query<{
+      capacidad_tanque: string | null;
+      capacidad_tanque_unidad: string | null;
+      unidad_tanque: string | null;
+    }>(
+      `
+      SELECT e.capacidad_tanque, e.capacidad_tanque_unidad,
+             (SELECT c.unidad FROM combustible c
+               WHERE c.id = $3 AND c.tenant_id = $1) AS unidad_tanque
+      FROM equipos e
+      WHERE e.id = $2 AND e.tenant_id = $1
+      `,
+      [tenantId, equipoId, combustibleId]
+    );
+    return result.rows[0] ?? null;
+  }
+
   async crearAlertas(
     client: PoolClient,
     tenantId: string,
     filas: Array<{
-      tipo: "hueco_detectado" | "vale_anulado";
+      tipo: "hueco_detectado" | "vale_anulado" | "sobredespacho";
       serieTalonario: string;
       nVale: number;
       despachoId: number | null;
@@ -840,10 +868,13 @@ export class CombustibleRepository {
     );
   }
 
-  /** Solo vale_anulado se resuelve a mano -- hueco_detectado se resuelve
-   *  solo (ver resolverAlertaHuecoSiExiste). El WHERE tipo = 'vale_anulado'
-   *  no es redundante con el controller: es lo que impide que alguien
-   *  marque a mano un hueco que en realidad sigue abierto. */
+  /** `vale_anulado` y `sobredespacho` se resuelven A MANO: los dos son
+   *  hechos consumados que alguien tiene que revisar y dar por buenos (el
+   *  motivo de la anulación, el bidón que explica el exceso). El
+   *  `hueco_detectado` NO entra acá porque se resuelve solo cuando llega el
+   *  vale que faltaba (ver resolverAlertaHuecoSiExiste) -- y el filtro por
+   *  tipo del WHERE no es redundante con el controller: es lo que impide
+   *  que alguien silencie a mano un hueco que en realidad sigue abierto. */
   async resolverAlertaManual(
     client: PoolClient,
     tenantId: string,
@@ -854,7 +885,8 @@ export class CombustibleRepository {
       `
       UPDATE combustible_alertas
       SET resuelta_en = now(), resuelta_por = $1
-      WHERE id = $2 AND tenant_id = $3 AND tipo = 'vale_anulado' AND resuelta_en IS NULL
+      WHERE id = $2 AND tenant_id = $3
+        AND tipo IN ('vale_anulado', 'sobredespacho') AND resuelta_en IS NULL
       RETURNING id, tipo, serie_talonario, n_vale, despacho_id, detalle, creado_en, leida_en, resuelta_en, resuelta_por
       `,
       [usuarioId, alertaId, tenantId]
