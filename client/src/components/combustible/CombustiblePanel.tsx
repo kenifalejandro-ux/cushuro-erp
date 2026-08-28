@@ -182,6 +182,19 @@ interface DespachoHistorial {
 // useAlertasCombustibleStream.ts, duplicado a propósito: este archivo no
 // importa tipos de un hermano en ningún otro lado, siempre define su
 // propia interfaz local (ver DespachoHistorial arriba).
+// Fase D, entrega 3 -- mismo shape que devuelve GET /:id/sugerencia-umbral.
+// Discriminado por `muestraSuficiente`: con muestra chica el backend ni
+// siquiera calcula un número, así que las demás propiedades son opcionales.
+interface SugerenciaUmbral {
+  muestraSuficiente: boolean;
+  tamanioMuestra: number;
+  minimoRequerido: number;
+  sugerido?: number;
+  promedio?: number;
+  desviacion?: number;
+  muestra?: Array<{ cantidad: number; diferenciaLitros: number; diferenciaPct: number }>;
+}
+
 interface AlertaCombustible {
   id: number;
   tipo: "hueco_detectado" | "vale_anulado";
@@ -361,6 +374,13 @@ export default function CombustiblePanel() {
   // que no hace falta cliente_uuid, solo esta guarda contra el doble clic.
   const [guardando, setGuardando] = useState(false);
 
+  // --- Asistente de calibración de umbral (Fase D, entrega 3) ---
+  // No se pide al crear un tanque (no tiene historial todavía), solo al
+  // editar uno existente.
+  const [sugerenciaUmbral, setSugerenciaUmbral] = useState<SugerenciaUmbral | null>(null);
+  const [cargandoSugerenciaUmbral, setCargandoSugerenciaUmbral] = useState(false);
+  const [mostrarMuestraUmbral, setMostrarMuestraUmbral] = useState(false);
+
   // --- Importación masiva ---
   const [importando, setImportando] = useState(false);
   const [errorImportacion, setErrorImportacion] = useState<string | null>(null);
@@ -534,11 +554,31 @@ export default function CombustiblePanel() {
   const abrirModalNuevo = () => {
     setEditandoId(null);
     setFormData(FORM_INICIAL);
+    // Un tanque nuevo no tiene historial -- nada que sugerir todavía.
+    setSugerenciaUmbral(null);
+    setMostrarMuestraUmbral(false);
     setModalTanqueAbierto(true);
+  };
+
+  /** Fase D, entrega 3. Se pide al abrir el modal de edición, no al tipear
+   *  en el input -- es una consulta contra todo el historial de
+   *  recepciones del tanque, no algo para recalcular en cada tecla. */
+  const cargarSugerenciaUmbral = async (tanqueId: number) => {
+    setCargandoSugerenciaUmbral(true);
+    try {
+      const res = await apiFetch(`/api/erp/combustible/${tanqueId}/sugerencia-umbral`);
+      const body = await res.json().catch(() => null);
+      setSugerenciaUmbral(body);
+    } finally {
+      setCargandoSugerenciaUmbral(false);
+    }
   };
 
   const abrirModalEditar = (t: Tanque) => {
     setEditandoId(t.id);
+    setSugerenciaUmbral(null);
+    setMostrarMuestraUmbral(false);
+    cargarSugerenciaUmbral(t.id);
     setFormData({
       codigo: t.codigo,
       tanque_nombre: t.tanque_nombre,
@@ -1932,6 +1972,76 @@ export default function CombustiblePanel() {
                       &quot;tolerancia cero&quot;): conviene dejarlo así hasta juntar historial
                       propio del tanque.
                     </p>
+
+                    {/* Fase D, entrega 3: el asistente nunca guarda solo --
+                        sugiere y muestra la muestra completa, el admin
+                        decide. Solo aplica editando un tanque existente. */}
+                    {editandoId !== null && (
+                      <div className="mt-2 border border-slate-200 rounded-xl p-3 bg-slate-50/60 text-sm">
+                        {cargandoSugerenciaUmbral ? (
+                          <p className="text-slate-400">Calculando sugerencia...</p>
+                        ) : !sugerenciaUmbral ? null : !sugerenciaUmbral.muestraSuficiente ? (
+                          <p className="text-slate-500">
+                            Todavía no hay muestra suficiente para sugerir un umbral (
+                            {sugerenciaUmbral.tamanioMuestra}/{sugerenciaUmbral.minimoRequerido}{" "}
+                            recepciones con lectura antes y después).
+                          </p>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-slate-700">
+                                Sugerencia: <strong>{sugerenciaUmbral.sugerido}%</strong> (
+                                {sugerenciaUmbral.tamanioMuestra} recepciones, promedio{" "}
+                                {sugerenciaUmbral.promedio}% ± {sugerenciaUmbral.desviacion}%)
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setFormData({
+                                    ...formData,
+                                    umbral_diferencia_pct: String(sugerenciaUmbral.sugerido),
+                                  })
+                                }
+                                className="shrink-0 px-3 py-1.5 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800"
+                              >
+                                Usar este valor
+                              </button>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setMostrarMuestraUmbral((v) => !v)}
+                              className="text-xs text-slate-500 hover:text-slate-900 hover:underline"
+                            >
+                              {mostrarMuestraUmbral ? "Ocultar" : "Ver"} la muestra antes de
+                              aceptarlo
+                            </button>
+                            {mostrarMuestraUmbral && (
+                              <ul className="text-xs text-slate-500 max-h-32 overflow-y-auto divide-y divide-slate-100">
+                                {sugerenciaUmbral.muestra?.map((m, i) => (
+                                  <li key={i} className="py-1 flex justify-between gap-2">
+                                    <span>{m.cantidad.toLocaleString("es-PE")} recibido</span>
+                                    <span
+                                      className={
+                                        Math.abs(m.diferenciaPct) > (sugerenciaUmbral.sugerido ?? 0)
+                                          ? "text-red-500 font-medium"
+                                          : ""
+                                      }
+                                    >
+                                      {m.diferenciaLitros > 0 ? "+" : ""}
+                                      {m.diferenciaLitros.toLocaleString("es-PE", {
+                                        maximumFractionDigits: 1,
+                                      })}{" "}
+                                      ({m.diferenciaPct > 0 ? "+" : ""}
+                                      {m.diferenciaPct.toFixed(1)}%)
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <label className="flex items-start gap-2 text-sm text-slate-600">

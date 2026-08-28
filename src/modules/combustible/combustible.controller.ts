@@ -185,6 +185,30 @@ export class CombustibleController {
     }
   }
 
+  /** GET /:id/sugerencia-umbral -- entrega 3 de Fase D, el asistente de
+   *  calibración de `umbral_diferencia_pct`. Nunca guarda nada: devuelve
+   *  el número sugerido y la muestra que lo justifica, y es el admin quien
+   *  decide (guardando desde PUT /:id, que ya existe) si lo usa tal cual,
+   *  lo ajusta, o lo descarta. */
+  async getSugerenciaUmbral(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const id = Number(req.params.id);
+
+      const tanque = await withTenant(tenantId, (client) => service.getById(client, tenantId, id));
+      if (!tanque) {
+        return res.status(404).json({ error: "No encontrado" });
+      }
+
+      const sugerencia = await withTenant(tenantId, (client) =>
+        service.sugerirUmbralDiferencia(client, tenantId, id)
+      );
+      res.json(sugerencia);
+    } catch {
+      res.status(500).json({ error: "Error al calcular la sugerencia de umbral" });
+    }
+  }
+
   /** PATCH /lecturas/:lecturaId/anular -- marca una lectura mal cargada
    *  como anulada (con motivo obligatorio) y recalcula el nivel del tanque.
    *  La fila NUNCA se borra ni se edita: queda como evidencia de que hubo

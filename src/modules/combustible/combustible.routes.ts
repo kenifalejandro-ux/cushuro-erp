@@ -131,6 +131,14 @@ router.patch(
 router.get("/:id", asyncHandler(controller.getById.bind(controller)));
 router.get("/:id/lecturas", asyncHandler(controller.getLecturas.bind(controller)));
 
+// Asistente de calibración del umbral (Fase D, entrega 3) -- solo admin,
+// es una decisión de configuración, no trabajo de cancha.
+router.get(
+  "/:id/sugerencia-umbral",
+  requireRole("admin"),
+  asyncHandler(controller.getSugerenciaUmbral.bind(controller))
+);
+
 // ➕ crear tanque -- admin únicamente: dar de alta un punto de
 // abastecimiento es configuración de planta, no trabajo de campo (mismo
 // criterio que las plantillas de Checklists, no las OT/movimientos).

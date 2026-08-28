@@ -1439,6 +1439,70 @@ export class CombustibleRepository {
     return result.rows;
   }
 
+  /** Entrega 3 de Fase D: la muestra cruda para el asistente de
+   *  calibración del umbral -- mismo cálculo de `diferencia_litros` que
+   *  findRecepciones (ver el comentario largo de ahí), sin paginar y sin
+   *  las columnas que ese endpoint necesita para mostrar la tabla. Solo
+   *  recepciones VIGENTES: una anulada no es una entrega real, incluirla
+   *  contaminaría la muestra con algo que nunca pasó. */
+  async findMuestraDiferenciasParaCalibracion(
+    client: PoolClient,
+    tenantId: string,
+    combustibleId: number
+  ): Promise<Array<{ cantidad: number; diferencia_litros: number }>> {
+    const result = await client.query<{ cantidad: string; diferencia_litros: string }>(
+      `
+      SELECT r.cantidad, dif.diferencia_litros
+      FROM combustible_recepciones r
+      LEFT JOIN LATERAL (
+        SELECT
+          CASE
+            WHEN antes.nivel IS NULL OR despues.nivel IS NULL THEN NULL
+            WHEN otras.cuantas > 0 THEN NULL
+            ELSE (despues.nivel - antes.nivel) + COALESCE(salidas.total, 0) - r.cantidad
+          END AS diferencia_litros
+        FROM (
+          SELECT l.nivel, l.leido_en
+          FROM combustible_lecturas l
+          WHERE l.combustible_id = r.combustible_id AND l.anulada_en IS NULL
+            AND l.leido_en <= r.recibido_en
+          ORDER BY l.leido_en DESC, l.id DESC LIMIT 1
+        ) antes
+        FULL JOIN (
+          SELECT l.nivel, l.leido_en
+          FROM combustible_lecturas l
+          WHERE l.combustible_id = r.combustible_id AND l.anulada_en IS NULL
+            AND l.leido_en > r.recibido_en
+          ORDER BY l.leido_en ASC, l.id ASC LIMIT 1
+        ) despues ON true
+        LEFT JOIN LATERAL (
+          SELECT SUM(d.cantidad) AS total
+          FROM combustible_despachos d
+          WHERE d.combustible_id = r.combustible_id
+            AND d.anulada_en IS NULL
+            AND d.despachado_en > antes.leido_en
+            AND d.despachado_en <= despues.leido_en
+        ) salidas ON true
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*) AS cuantas
+          FROM combustible_recepciones r2
+          WHERE r2.combustible_id = r.combustible_id AND r2.anulada_en IS NULL
+            AND r2.id <> r.id
+            AND r2.recibido_en > antes.leido_en
+            AND r2.recibido_en <= despues.leido_en
+        ) otras ON true
+      ) dif ON true
+      WHERE r.tenant_id = $1 AND r.combustible_id = $2 AND r.anulada_en IS NULL
+        AND dif.diferencia_litros IS NOT NULL
+      `,
+      [tenantId, combustibleId]
+    );
+    return result.rows.map((f) => ({
+      cantidad: Number(f.cantidad),
+      diferencia_litros: Number(f.diferencia_litros),
+    }));
+  }
+
   /** Distingue "no existe / es de otro tenant" (404) de "ya estaba anulada"
    *  (409) -- mismo motivo que findLecturaPorId/findPrecioPorId. */
   async findRecepcionPorId(client: PoolClient, tenantId: string, id: number) {
