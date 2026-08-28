@@ -325,6 +325,59 @@ export class CombustibleService {
     return this.repository.findAdminsConCombustibleHabilitado(client, tenantId);
   }
 
+  /** Sobredespacho (migraciones 0069/0070): se despachó más de lo que el
+   *  tanque de esa unidad puede contener. NO bloquea el vale -- devuelve
+   *  los datos para que el controller cree una alerta, o `null` si no hay
+   *  nada que reportar. Ver el encabezado de 0070 para el porqué.
+   *
+   *  Devuelve null (= no se evalúa, y eso es correcto) en tres casos:
+   *
+   *  - **El equipo no tiene capacidad configurada.** El caso normal hoy:
+   *    todos arrancan en NULL a propósito (0069). Sin el dato real no se
+   *    inventa uno.
+   *  - **No se sabe en qué unidad está `cantidad`.** Pasa en
+   *    compra_externa: no hay tanque propio del cual heredar la unidad, y
+   *    el despacho no la guarda por su cuenta. Comparar 48 (¿litros?
+   *    ¿galones?) contra 40 gal sin saberlo daría alertas falsas -- 48 L
+   *    son 12,7 gal, ni cerca de llenar ese tanque. Queda pendiente
+   *    resolverlo con un dato de unidad propio del despacho.
+   *  - **No hay exceso.** Lo esperable en la enorme mayoría de los vales. */
+  async evaluarSobredespacho(
+    client: PoolClient,
+    tenantId: string,
+    equipoId: number,
+    combustibleId: number | null,
+    cantidad: number
+  ) {
+    const datos = await this.repository.findDatosSobredespacho(
+      client,
+      tenantId,
+      equipoId,
+      combustibleId
+    );
+    if (!datos?.capacidad_tanque || !datos.capacidad_tanque_unidad) return null;
+    if (!datos.unidad_tanque) return null;
+
+    // Litros como unidad canónica interna, solo para comparar -- lo que se
+    // guarda y se muestra sigue siendo el número en su unidad original.
+    const aLitros = (valor: number, unidad: string) =>
+      unidad === "gal" ? valor * 3.785411784 : valor;
+
+    const capacidad = Number(datos.capacidad_tanque);
+    const capacidadL = aLitros(capacidad, datos.capacidad_tanque_unidad);
+    const despachadoL = aLitros(cantidad, datos.unidad_tanque);
+
+    if (despachadoL <= capacidadL) return null;
+
+    return {
+      cantidad,
+      unidadDespacho: datos.unidad_tanque,
+      capacidad,
+      unidadCapacidad: datos.capacidad_tanque_unidad,
+      excesoPct: Number((((despachadoL - capacidadL) / capacidadL) * 100).toFixed(1)),
+    };
+  }
+
   /** Entrega 3 de Fase D: asistente de calibración de `umbral_diferencia_pct`.
    *
    *  Nunca se aplica solo -- devuelve el número sugerido JUNTO con la

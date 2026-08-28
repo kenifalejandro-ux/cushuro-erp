@@ -15,6 +15,12 @@ interface Equipo {
   // u odómetro (kilometraje), nunca los dos. null = no configurado, y un
   // despacho compra_externa a este equipo se rechaza hasta que se cargue.
   tipo_medidor: "horometro" | "odometro" | null;
+  // Fase D de combustible (migrations/0069): capacidad del tanque de ESTA
+  // unidad, para detectar sobredespacho. null = sin configurar, y entonces
+  // no se valida nada para este equipo -- que es el estado inicial de todos
+  // a propósito: un dato inventado sería peor que ninguno.
+  capacidad_tanque: string | null;
+  capacidad_tanque_unidad: "gal" | "L" | null;
   activo: boolean;
   creado_en: string;
 }
@@ -24,9 +30,27 @@ const TIPOS_COMUNES = [
   "Cargador frontal",
   "Excavadora",
   "Volquete",
+  "Tráiler",
   "Perforadora",
   "Otro",
 ];
+
+/** Punto de partida por tipo, en litros -- NO es el dato real de ninguna
+ *  unidad. Son capacidades de catálogo de la industria, para que el campo
+ *  no arranque vacío al dar de alta; hay que confirmarlas contra la ficha
+ *  técnica de cada máquina antes de guardar.
+ *
+ *  Rango real que existe, para dimensionar cuánto varían: camioneta 70-80,
+ *  volquete 200-400, tráiler 300-800 (a veces dos tanques), excavadora
+ *  300-640, cargador 250-440, perforadora 150-800 (el más variable). */
+const CAPACIDAD_SUGERIDA_L: Record<string, number> = {
+  Camioneta: 80,
+  "Cargador frontal": 300,
+  Excavadora: 400,
+  Volquete: 300,
+  Tráiler: 400,
+  Perforadora: 300,
+};
 
 const ETIQUETA_TIPO_MEDIDOR: Record<"" | "horometro" | "odometro", string> = {
   "": "No configurado",
@@ -59,6 +83,8 @@ export default function EquiposTable() {
     marca: "",
     modelo: "",
     tipo_medidor: "" as "" | "horometro" | "odometro",
+    capacidad_tanque: "",
+    capacidad_tanque_unidad: "L" as "gal" | "L",
   });
 
   const fetchEquipos = useCallback(async (paginaAConsultar: number) => {
@@ -99,6 +125,8 @@ export default function EquiposTable() {
       marca: e.marca ?? "",
       modelo: e.modelo ?? "",
       tipo_medidor: e.tipo_medidor ?? "",
+      capacidad_tanque: e.capacidad_tanque ?? "",
+      capacidad_tanque_unidad: e.capacidad_tanque_unidad ?? "L",
     });
     setIsModalOpen(true);
   };
@@ -125,9 +153,15 @@ export default function EquiposTable() {
     // "" no es un valor válido del enum -- Zod lo rechazaría (esperaba
     // "horometro"/"odometro"/undefined, ver equipos.schema.ts). undefined
     // sí es "no configurado" para el servidor.
+    // Capacidad vacía = "sin configurar": los DOS campos tienen que irse
+    // como undefined, no solo el número -- el schema los exige de a pares
+    // (espejo del CHECK de migrations/0069).
+    const capacidadCargada = formData.capacidad_tanque.trim() !== "";
     const datosFormulario = {
       ...formData,
       tipo_medidor: formData.tipo_medidor === "" ? undefined : formData.tipo_medidor,
+      capacidad_tanque: capacidadCargada ? Number(formData.capacidad_tanque) : undefined,
+      capacidad_tanque_unidad: capacidadCargada ? formData.capacidad_tanque_unidad : undefined,
     };
     // cliente_uuid solo viaja al crear -- editar no pasa por
     // idempotentInsert() del lado del servidor.
@@ -152,6 +186,8 @@ export default function EquiposTable() {
         marca: "",
         modelo: "",
         tipo_medidor: "",
+        capacidad_tanque: "",
+        capacidad_tanque_unidad: "L",
       });
 
       // 202 = no había red y quedó en la cola del dispositivo (ver
@@ -200,6 +236,8 @@ export default function EquiposTable() {
               marca: "",
               modelo: "",
               tipo_medidor: "",
+              capacidad_tanque: "",
+              capacidad_tanque_unidad: "L",
             });
             // Se regenera en cada apertura: si no, el segundo equipo
             // legítimo que se registre reusaría la clave del primero y el
@@ -351,7 +389,24 @@ export default function EquiposTable() {
                   id="equipo-tipo"
                   className="w-full border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
                   value={formData.tipo}
-                  onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
+                  onChange={(e) => {
+                    const tipo = e.target.value;
+                    const sugerida = CAPACIDAD_SUGERIDA_L[tipo];
+                    // La sugerencia solo precarga un campo VACÍO: si el
+                    // usuario ya escribió una capacidad (o está editando un
+                    // equipo que la tenía), cambiar el tipo no se la pisa.
+                    const debeSugerir = formData.capacidad_tanque.trim() === "" && sugerida;
+                    setFormData({
+                      ...formData,
+                      tipo,
+                      ...(debeSugerir
+                        ? {
+                            capacidad_tanque: String(sugerida),
+                            capacidad_tanque_unidad: "L" as const,
+                          }
+                        : {}),
+                    });
+                  }}
                 >
                   {TIPOS_COMUNES.map((t) => (
                     <option key={t} value={t}>
@@ -359,6 +414,49 @@ export default function EquiposTable() {
                     </option>
                   ))}
                 </select>
+              </div>
+              {/* Fase D de combustible (migrations/0069). Vacío = sin
+                  configurar, y entonces no se valida sobredespacho para esta
+                  unidad -- que es mejor que un número inventado. */}
+              <div className="space-y-1">
+                <label
+                  htmlFor="equipo-capacidad-tanque"
+                  className="text-xs font-bold text-slate-500 uppercase"
+                >
+                  Capacidad de tanque
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id="equipo-capacidad-tanque"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="Dejar vacío si no se conoce"
+                    className="flex-1 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                    value={formData.capacidad_tanque}
+                    onChange={(e) => setFormData({ ...formData, capacidad_tanque: e.target.value })}
+                  />
+                  <select
+                    aria-label="Unidad de la capacidad de tanque"
+                    className="border border-slate-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-slate-900"
+                    value={formData.capacidad_tanque_unidad}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        capacidad_tanque_unidad: e.target.value as "gal" | "L",
+                      })
+                    }
+                  >
+                    <option value="L">L</option>
+                    <option value="gal">gal</option>
+                  </select>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Sirve para avisar cuando un vale despacha más de lo que entra en el tanque. El
+                  número sugerido es de catálogo:{" "}
+                  <strong>confirmalo contra la ficha técnica de la unidad</strong>. Si no se conoce,
+                  mejor dejarlo vacío que poner uno aproximado.
+                </p>
               </div>
               <div className="space-y-1">
                 <label

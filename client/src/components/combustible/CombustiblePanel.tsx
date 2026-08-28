@@ -197,7 +197,7 @@ interface SugerenciaUmbral {
 
 interface AlertaCombustible {
   id: number;
-  tipo: "hueco_detectado" | "vale_anulado";
+  tipo: "hueco_detectado" | "vale_anulado" | "sobredespacho";
   serie_talonario: string;
   n_vale: number;
   despacho_id: number | null;
@@ -216,7 +216,32 @@ const ETIQUETA_ORIGEN_DESPACHO: Record<OrigenDespacho, string> = {
 const ETIQUETA_TIPO_ALERTA: Record<AlertaCombustible["tipo"], string> = {
   hueco_detectado: "Hueco de talonario",
   vale_anulado: "Vale anulado",
+  sobredespacho: "Sobredespacho",
 };
+
+/** El `detalle` es JSONB libre y cada tipo de alerta guarda cosas
+ *  distintas, así que la columna se arma por tipo. Devuelve "—" cuando no
+ *  hay nada que agregar (un hueco se explica solo con el número de vale). */
+function describirDetalleAlerta(a: AlertaCombustible): string {
+  if (a.tipo === "vale_anulado" && typeof a.detalle.motivo === "string") {
+    return `Motivo: ${a.detalle.motivo}`;
+  }
+  if (a.tipo === "sobredespacho") {
+    const { cantidad, unidadDespacho, capacidad, unidadCapacidad, excesoPct } = a.detalle as {
+      cantidad?: number;
+      unidadDespacho?: string;
+      capacidad?: number;
+      unidadCapacidad?: string;
+      excesoPct?: number;
+    };
+    if (cantidad === undefined || capacidad === undefined) return "—";
+    return (
+      `Despachó ${cantidad} ${unidadDespacho ?? ""} a un tanque de ` +
+      `${capacidad} ${unidadCapacidad ?? ""} (+${excesoPct ?? "?"}%)`
+    );
+  }
+  return "—";
+}
 
 const DESPACHO_FORM_INICIAL = {
   origen: "tanque_propio" as OrigenDespacho,
@@ -1277,8 +1302,9 @@ export default function CombustiblePanel() {
     }
   };
 
-  /** Solo aplica a vale_anulado -- un hueco se resuelve solo cuando llega
-   *  el vale que faltaba, no hay nada que un admin tenga que confirmar ahí. */
+  /** Aplica a vale_anulado y sobredespacho -- los dos son hechos consumados
+   *  que alguien tiene que revisar y dar por buenos. Un hueco NO: se
+   *  resuelve solo cuando llega el vale que faltaba. */
   const handleResolverAlerta = async (alertaId: number) => {
     if (resolviendoAlertaId !== null) return;
     setResolviendoAlertaId(alertaId);
@@ -3458,11 +3484,7 @@ export default function CombustiblePanel() {
                         <td className="p-3 text-sm text-slate-800 font-mono">
                           {a.serie_talonario}-{String(a.n_vale).padStart(5, "0")}
                         </td>
-                        <td className="p-3 text-sm text-slate-600">
-                          {a.tipo === "vale_anulado" && typeof a.detalle.motivo === "string"
-                            ? `Motivo: ${a.detalle.motivo}`
-                            : "—"}
-                        </td>
+                        <td className="p-3 text-sm text-slate-600">{describirDetalleAlerta(a)}</td>
                         <td className="p-3 text-sm text-slate-600 whitespace-nowrap">
                           {new Date(a.creado_en).toLocaleString("es-PE")}
                         </td>
@@ -3476,7 +3498,7 @@ export default function CombustiblePanel() {
                           )}
                         </td>
                         <td className="p-3 text-sm text-right whitespace-nowrap">
-                          {a.tipo === "vale_anulado" && !a.resuelta_en && (
+                          {a.tipo !== "hueco_detectado" && !a.resuelta_en && (
                             <button
                               onClick={() => handleResolverAlerta(a.id)}
                               disabled={resolviendoAlertaId === a.id}

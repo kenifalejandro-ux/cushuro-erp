@@ -16,7 +16,7 @@ import { apiFetch } from "../../services/apiClient";
 
 export interface AlertaCombustible {
   id: number;
-  tipo: "hueco_detectado" | "vale_anulado";
+  tipo: "hueco_detectado" | "vale_anulado" | "sobredespacho";
   serie_talonario: string;
   n_vale: number;
   despacho_id: number | null;

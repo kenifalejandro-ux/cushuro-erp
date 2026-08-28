@@ -8,7 +8,11 @@ import { contextoAuditoriaModulo } from "../../server/shared/utils/moduleAudit";
 import { registrarAuditoria } from "../../server/services/platformAudit.service";
 import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
 import { logger } from "../../server/config/logger";
-import { enviarCorreoAlertaHueco, enviarCorreoAlertaAnulacion } from "./combustibleAlertas.mailer";
+import {
+  enviarCorreoAlertaHueco,
+  enviarCorreoAlertaAnulacion,
+  enviarCorreoAlertaSobredespacho,
+} from "./combustibleAlertas.mailer";
 import type {
   RegistrarLecturaCombustibleInput,
   ActualizarNivelCombustibleInput,
@@ -414,12 +418,7 @@ export class CombustibleController {
       await publicarEventoTenant(tenantId, "combustible.despacho_creado", {
         despachoId: fila!.id,
       });
-      await this.procesarAlertasDespachoCreado(
-        tenantId,
-        fila!.id,
-        data.serie_talonario,
-        data.n_vale
-      );
+      await this.procesarAlertasDespachoCreado(tenantId, fila!.id, data);
       res.status(201).json(fila);
     } catch (err) {
       if (err instanceof Error && err.message.includes("ya está registrado")) {
@@ -513,11 +512,12 @@ export class CombustibleController {
   private async procesarAlertasDespachoCreado(
     tenantId: string,
     despachoId: number,
-    serieTalonario: string,
-    nVale: number
+    data: CrearDespachoCombustibleInput
   ) {
+    const serieTalonario = data.serie_talonario;
+    const nVale = data.n_vale;
     try {
-      const { huecos, admins } = await withTenant(tenantId, async (client) => {
+      const { huecos, exceso, admins } = await withTenant(tenantId, async (client) => {
         // El vale que acaba de llegar puede estar llenando un hueco ya
         // alertado (offline que sincronizó) -- esto corre siempre, sin
         // condicionar, y no hace nada si no había ninguna alerta abierta.
@@ -530,40 +530,79 @@ export class CombustibleController {
           despachoId,
           nVale
         );
-        if (huecos.length === 0)
-          return { huecos, admins: [] as { email: string; nombre: string }[] };
 
-        await service.crearAlertas(
-          client,
-          tenantId,
-          huecos.map((n) => ({
+        // Sobredespacho (0069/0070): solo aplica si el vale fue a un equipo.
+        // Devuelve null en el caso normal -- sin capacidad configurada, sin
+        // unidad conocida, o sin exceso (ver evaluarSobredespacho).
+        const exceso = data.equipo_id
+          ? await service.evaluarSobredespacho(
+              client,
+              tenantId,
+              data.equipo_id,
+              data.combustible_id ?? null,
+              data.cantidad
+            )
+          : null;
+
+        const nuevas = [
+          ...huecos.map((n) => ({
             tipo: "hueco_detectado" as const,
             serieTalonario,
             nVale: n,
             despachoId,
-            detalle: { revelado_por_vale: nVale },
-          }))
-        );
+            detalle: { revelado_por_vale: nVale } as Record<string, unknown>,
+          })),
+          ...(exceso
+            ? [
+                {
+                  tipo: "sobredespacho" as const,
+                  serieTalonario,
+                  nVale,
+                  despachoId,
+                  detalle: { ...exceso, equipoId: data.equipo_id } as Record<string, unknown>,
+                },
+              ]
+            : []),
+        ];
+
+        if (nuevas.length === 0) {
+          return { huecos, exceso, admins: [] as { email: string; nombre: string }[] };
+        }
+
+        await service.crearAlertas(client, tenantId, nuevas);
         const admins = await service.findAdminsConCombustibleHabilitado(client, tenantId);
-        return { huecos, admins };
+        return { huecos, exceso, admins };
       });
 
-      if (huecos.length === 0) return;
+      if (huecos.length > 0) {
+        await publicarEventoTenant(tenantId, "combustible.alerta_creada", {
+          tipo: "hueco_detectado",
+          serieTalonario,
+          valesFaltantes: huecos,
+        });
+        await enviarCorreoAlertaHueco(admins, {
+          serieTalonario,
+          valesFaltantes: huecos,
+          nValeQueLoRevelo: nVale,
+        });
+      }
 
-      await publicarEventoTenant(tenantId, "combustible.alerta_creada", {
-        tipo: "hueco_detectado",
-        serieTalonario,
-        valesFaltantes: huecos,
-      });
-      await enviarCorreoAlertaHueco(admins, {
-        serieTalonario,
-        valesFaltantes: huecos,
-        nValeQueLoRevelo: nVale,
-      });
+      if (exceso) {
+        await publicarEventoTenant(tenantId, "combustible.alerta_creada", {
+          tipo: "sobredespacho",
+          serieTalonario,
+          nVale,
+        });
+        await enviarCorreoAlertaSobredespacho(admins, {
+          serieTalonario,
+          nVale,
+          ...exceso,
+        });
+      }
     } catch (err) {
       logger.warn(
         { err, tenantId, despachoId },
-        "No se pudo procesar la alerta de hueco de talonario"
+        "No se pudieron procesar las alertas del despacho creado"
       );
     }
   }
@@ -681,8 +720,8 @@ export class CombustibleController {
     }
   }
 
-  /** PATCH /alertas/:alertaId/resolver -- revisión manual, solo aplica a
-   *  vale_anulado (un hueco se resuelve solo, ver
+  /** PATCH /alertas/:alertaId/resolver -- revisión manual, aplica a
+   *  vale_anulado y sobredespacho (un hueco se resuelve solo, ver
    *  resolverAlertaHuecoSiExiste). 404 si no existe o es de otro tipo/ya
    *  estaba resuelta -- el repository no distingue esos casos porque acá
    *  no hace falta: no hay nada más que corregir aparte de reintentar. */
