@@ -7,6 +7,8 @@ import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/uti
 import { contextoAuditoriaModulo } from "../../server/shared/utils/moduleAudit";
 import { registrarAuditoria } from "../../server/services/platformAudit.service";
 import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
+import { logger } from "../../server/config/logger";
+import { enviarCorreoAlertaHueco, enviarCorreoAlertaAnulacion } from "./combustibleAlertas.mailer";
 import type {
   RegistrarLecturaCombustibleInput,
   ActualizarNivelCombustibleInput,
@@ -22,6 +24,7 @@ import type {
   CrearRecepcionCombustibleInput,
   AnularRecepcionCombustibleInput,
   AnularDespachoCombustibleInput,
+  MarcarAlertasLeidasCombustibleInput,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleService } from "./combustible.service";
 
@@ -387,6 +390,12 @@ export class CombustibleController {
       await publicarEventoTenant(tenantId, "combustible.despacho_creado", {
         despachoId: fila!.id,
       });
+      await this.procesarAlertasDespachoCreado(
+        tenantId,
+        fila!.id,
+        data.serie_talonario,
+        data.n_vale
+      );
       res.status(201).json(fila);
     } catch (err) {
       if (err instanceof Error && err.message.includes("ya está registrado")) {
@@ -461,9 +470,110 @@ export class CombustibleController {
         contexto: contextoAuditoriaModulo(req),
       });
       await publicarEventoTenant(tenantId, "combustible.despacho_anulado", { despachoId });
+      await this.procesarAlertaAnulacion(
+        tenantId,
+        despachoId,
+        resultado.despacho.serie_talonario,
+        resultado.despacho.n_vale,
+        motivo
+      );
       res.json(resultado.despacho);
     } catch {
       res.status(500).json({ error: "Error al anular el despacho" });
+    }
+  }
+
+  /** Best-effort, mismo contrato "nunca lanza" que publicarEventoTenant():
+   *  corre después de que la transacción de crearDespacho ya confirmó, así
+   *  que un fallo acá no puede convertir un 201 real en un 500. */
+  private async procesarAlertasDespachoCreado(
+    tenantId: string,
+    despachoId: number,
+    serieTalonario: string,
+    nVale: number
+  ) {
+    try {
+      const { huecos, admins } = await withTenant(tenantId, async (client) => {
+        // El vale que acaba de llegar puede estar llenando un hueco ya
+        // alertado (offline que sincronizó) -- esto corre siempre, sin
+        // condicionar, y no hace nada si no había ninguna alerta abierta.
+        await service.resolverAlertaHuecoSiExiste(client, tenantId, serieTalonario, nVale);
+
+        const huecos = await service.detectarHuecosRevelados(
+          client,
+          tenantId,
+          serieTalonario,
+          despachoId,
+          nVale
+        );
+        if (huecos.length === 0)
+          return { huecos, admins: [] as { email: string; nombre: string }[] };
+
+        await service.crearAlertas(
+          client,
+          tenantId,
+          huecos.map((n) => ({
+            tipo: "hueco_detectado" as const,
+            serieTalonario,
+            nVale: n,
+            despachoId,
+            detalle: { revelado_por_vale: nVale },
+          }))
+        );
+        const admins = await service.findAdminsConCombustibleHabilitado(client, tenantId);
+        return { huecos, admins };
+      });
+
+      if (huecos.length === 0) return;
+
+      await publicarEventoTenant(tenantId, "combustible.alerta_creada", {
+        tipo: "hueco_detectado",
+        serieTalonario,
+        valesFaltantes: huecos,
+      });
+      await enviarCorreoAlertaHueco(admins, {
+        serieTalonario,
+        valesFaltantes: huecos,
+        nValeQueLoRevelo: nVale,
+      });
+    } catch (err) {
+      logger.warn(
+        { err, tenantId, despachoId },
+        "No se pudo procesar la alerta de hueco de talonario"
+      );
+    }
+  }
+
+  /** Mismo contrato "nunca lanza" que procesarAlertasDespachoCreado(). */
+  private async procesarAlertaAnulacion(
+    tenantId: string,
+    despachoId: number,
+    serieTalonario: string,
+    nVale: number,
+    motivo: string
+  ) {
+    try {
+      const admins = await withTenant(tenantId, async (client) => {
+        await service.crearAlertas(client, tenantId, [
+          {
+            tipo: "vale_anulado",
+            serieTalonario,
+            nVale,
+            despachoId,
+            detalle: { motivo },
+          },
+        ]);
+        return service.findAdminsConCombustibleHabilitado(client, tenantId);
+      });
+
+      await publicarEventoTenant(tenantId, "combustible.alerta_creada", {
+        tipo: "vale_anulado",
+        serieTalonario,
+        nVale,
+      });
+      await enviarCorreoAlertaAnulacion(admins, { serieTalonario, nVale, motivo });
+    } catch (err) {
+      logger.warn({ err, tenantId, despachoId }, "No se pudo procesar la alerta de vale anulado");
     }
   }
 
@@ -510,6 +620,65 @@ export class CombustibleController {
       res.json(resultado);
     } catch {
       res.status(500).json({ error: "Error al calcular huecos de talonario" });
+    }
+  }
+
+  // ── Alertas (migrations/0068) ─────────────────────────────────────────
+
+  /** GET /alertas -- pantalla y campanita comparten este mismo listado
+   *  (la campanita solo pide ?solo_no_leidas=true). Visibilidad de
+   *  gerencia, no del operador (ver combustible.routes.ts). */
+  async listarAlertas(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const paginacion = parsePaginacion(req.query);
+      const soloNoLeidas = req.query.solo_no_leidas === "true";
+
+      const filas = await withTenant(tenantId, (client) =>
+        service.listarAlertas(client, tenantId, { soloNoLeidas }, paginacion)
+      );
+      res.json(armarRespuestaPaginada(filas, paginacion));
+    } catch {
+      res.status(500).json({ error: "Error al listar alertas" });
+    }
+  }
+
+  /** PATCH /alertas/leidas -- sin `ids` marca TODAS las no leídas del
+   *  tenant (el botón "marcar todas como leídas" de la campanita). Estado
+   *  compartido entre admins, no por usuario (ver migrations/0068). */
+  async marcarAlertasLeidas(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const { ids } = req.validatedBody as MarcarAlertasLeidasCombustibleInput;
+      await withTenant(tenantId, (client) => service.marcarAlertasLeidas(client, tenantId, ids));
+      res.status(204).send();
+    } catch {
+      res.status(500).json({ error: "Error al marcar alertas como leídas" });
+    }
+  }
+
+  /** PATCH /alertas/:alertaId/resolver -- revisión manual, solo aplica a
+   *  vale_anulado (un hueco se resuelve solo, ver
+   *  resolverAlertaHuecoSiExiste). 404 si no existe o es de otro tipo/ya
+   *  estaba resuelta -- el repository no distingue esos casos porque acá
+   *  no hace falta: no hay nada más que corregir aparte de reintentar. */
+  async resolverAlertaManual(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const alertaId = Number(req.params.alertaId);
+
+      const resuelta = await withTenant(tenantId, (client) =>
+        service.resolverAlertaManual(client, tenantId, alertaId, req.usuario!.id)
+      );
+      if (!resuelta) {
+        res
+          .status(404)
+          .json({ error: "Alerta no encontrada, ya revisada, o no es de tipo revisable" });
+        return;
+      }
+      res.json(resuelta);
+    } catch {
+      res.status(500).json({ error: "Error al resolver la alerta" });
     }
   }
 

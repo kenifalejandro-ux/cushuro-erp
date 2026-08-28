@@ -178,9 +178,31 @@ interface DespachoHistorial {
   motivo_anulacion: string | null;
 }
 
+// migrations/0068 -- mismo shape que AlertaCombustible en
+// useAlertasCombustibleStream.ts, duplicado a propósito: este archivo no
+// importa tipos de un hermano en ningún otro lado, siempre define su
+// propia interfaz local (ver DespachoHistorial arriba).
+interface AlertaCombustible {
+  id: number;
+  tipo: "hueco_detectado" | "vale_anulado";
+  serie_talonario: string;
+  n_vale: number;
+  despacho_id: number | null;
+  detalle: Record<string, unknown>;
+  creado_en: string;
+  leida_en: string | null;
+  resuelta_en: string | null;
+  resuelta_por: string | null;
+}
+
 const ETIQUETA_ORIGEN_DESPACHO: Record<OrigenDespacho, string> = {
   tanque_propio: "Tanque propio",
   compra_externa: "Compra externa",
+};
+
+const ETIQUETA_TIPO_ALERTA: Record<AlertaCombustible["tipo"], string> = {
+  hueco_detectado: "Hueco de talonario",
+  vale_anulado: "Vale anulado",
 };
 
 const DESPACHO_FORM_INICIAL = {
@@ -425,6 +447,12 @@ export default function CombustiblePanel() {
   const [despachoAAnular, setDespachoAAnular] = useState<DespachoHistorial | null>(null);
   const [motivoAnulacionDespacho, setMotivoAnulacionDespacho] = useState("");
   const [anulandoDespacho, setAnulandoDespacho] = useState(false);
+
+  // --- Alertas (migrations/0068) ---
+  const [modalAlertasAbierto, setModalAlertasAbierto] = useState(false);
+  const [alertasCombustible, setAlertasCombustible] = useState<AlertaCombustible[]>([]);
+  const [cargandoAlertas, setCargandoAlertas] = useState(false);
+  const [resolviendoAlertaId, setResolviendoAlertaId] = useState<number | null>(null);
 
   // --- Recepciones (Fase C, migrations/0064) ---
   const [modalRecepcionAbierto, setModalRecepcionAbierto] = useState(false);
@@ -1194,6 +1222,41 @@ export default function CombustiblePanel() {
     }
   };
 
+  /** Hueco de talonario y vale anulado (migrations/0068) -- mismo criterio
+   *  de "gerencia lo ve en el momento" que la campanita del Header, esta es
+   *  la pantalla completa a la que esa campanita lleva. */
+  const abrirModalAlertas = async () => {
+    setModalAlertasAbierto(true);
+    setCargandoAlertas(true);
+    try {
+      const res = await apiFetch("/api/erp/combustible/alertas?pageSize=100");
+      const body = await res.json().catch(() => null);
+      setAlertasCombustible(Array.isArray(body?.data) ? body.data : []);
+    } finally {
+      setCargandoAlertas(false);
+    }
+  };
+
+  /** Solo aplica a vale_anulado -- un hueco se resuelve solo cuando llega
+   *  el vale que faltaba, no hay nada que un admin tenga que confirmar ahí. */
+  const handleResolverAlerta = async (alertaId: number) => {
+    if (resolviendoAlertaId !== null) return;
+    setResolviendoAlertaId(alertaId);
+    try {
+      const res = await apiFetch(`/api/erp/combustible/alertas/${alertaId}/resolver`, {
+        method: "PATCH",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert(body.error || "No se pudo resolver la alerta.");
+        return;
+      }
+      await abrirModalAlertas();
+    } finally {
+      setResolviendoAlertaId(null);
+    }
+  };
+
   // --- Recepciones (Fase C, migrations/0064) ---
 
   const abrirModalRecepcion = () => {
@@ -1365,6 +1428,12 @@ export default function CombustiblePanel() {
             className="px-4 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium rounded-xl transition-all"
           >
             🧾 Historial de recepciones
+          </button>
+          <button
+            onClick={abrirModalAlertas}
+            className="px-4 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium rounded-xl transition-all"
+          >
+            🔔 Alertas
           </button>
           <button
             onClick={abrirModalGrifos}
@@ -3216,6 +3285,102 @@ export default function CombustiblePanel() {
               >
                 {anulandoPrecio ? "Anulando..." : "Anular precio"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal: alertas (migrations/0068) -- pantalla completa a la que
+          lleva la campanita del Header. Hueco de talonario se resuelve
+          solo; vale anulado necesita revisión manual de gerencia. */}
+      {modalAlertasAbierto && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+          <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="p-6 border-b flex justify-between items-center shrink-0">
+              <div>
+                <h3 className="text-xl font-bold">Alertas de combustible</h3>
+                <p className="text-sm text-slate-500">
+                  Huecos de talonario y vales anulados, del más reciente al más antiguo
+                </p>
+              </div>
+              <button
+                onClick={() => setModalAlertasAbierto(false)}
+                className="text-slate-400 hover:text-slate-900 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto overflow-x-auto">
+              {cargandoAlertas ? (
+                <p className="text-center text-slate-500 py-8">Cargando alertas...</p>
+              ) : alertasCombustible.length === 0 ? (
+                <p className="text-center text-slate-500 py-8">No hay alertas registradas.</p>
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        Tipo
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        Vale
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        Detalle
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        Detectada
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        Estado
+                      </th>
+                      <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">
+                        Acciones
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {alertasCombustible.map((a) => (
+                      <tr key={a.id} className="align-top hover:bg-slate-50/50 transition-colors">
+                        <td className="p-3 text-sm text-slate-800">
+                          {ETIQUETA_TIPO_ALERTA[a.tipo]}
+                        </td>
+                        <td className="p-3 text-sm text-slate-800 font-mono">
+                          {a.serie_talonario}-{String(a.n_vale).padStart(5, "0")}
+                        </td>
+                        <td className="p-3 text-sm text-slate-600">
+                          {a.tipo === "vale_anulado" && typeof a.detalle.motivo === "string"
+                            ? `Motivo: ${a.detalle.motivo}`
+                            : "—"}
+                        </td>
+                        <td className="p-3 text-sm text-slate-600 whitespace-nowrap">
+                          {new Date(a.creado_en).toLocaleString("es-PE")}
+                        </td>
+                        <td className="p-3 text-sm">
+                          {a.resuelta_en ? (
+                            <span className="text-emerald-600 font-medium">
+                              {a.resuelta_por ? "Revisada" : "Resuelta sola"}
+                            </span>
+                          ) : (
+                            <span className="text-amber-600 font-medium">Pendiente</span>
+                          )}
+                        </td>
+                        <td className="p-3 text-sm text-right whitespace-nowrap">
+                          {a.tipo === "vale_anulado" && !a.resuelta_en && (
+                            <button
+                              onClick={() => handleResolverAlerta(a.id)}
+                              disabled={resolviendoAlertaId === a.id}
+                              className="text-xs text-slate-500 hover:text-slate-900 hover:underline disabled:opacity-50"
+                            >
+                              {resolviendoAlertaId === a.id ? "Marcando..." : "Marcar revisado"}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>
