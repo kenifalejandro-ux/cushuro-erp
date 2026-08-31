@@ -744,20 +744,189 @@ export class CombustibleRepository {
    *  sincronizó desde la cola offline) lo resuelve solo -- `resuelta_por`
    *  queda NULL porque lo resolvió el sistema, no una persona. Corre
    *  siempre, sin condicionar: si no había alerta abierta para ese número,
-   *  el UPDATE simplemente no toca ninguna fila. */
+   *  el UPDATE simplemente no toca ninguna fila.
+   *
+   *  **`congelada_en IS NULL` en el WHERE** (migración 0072): si el hueco
+   *  ya se congeló como anomalía, este vale NO lo resuelve. La anomalía es
+   *  inmutable a propósito -- el hallazgo de que estuvo 72h sin explicarse
+   *  ya ocurrió y no se borra porque el papel aparezca después. Devuelve
+   *  si había una alerta congelada para ese número, que es lo que dispara
+   *  la alerta `despacho_tardio` del punto 4 ("que alguien se acuerde de un
+   *  vale dos días después es justo lo que se quiere ver"). */
   async resolverAlertaHuecoSiExiste(
     client: PoolClient,
     tenantId: string,
     serieTalonario: string,
     nVale: number
-  ): Promise<void> {
+  ): Promise<{ llegoTarde: boolean }> {
     await client.query(
       `UPDATE combustible_alertas
        SET resuelta_en = now()
        WHERE tenant_id = $1 AND tipo = 'hueco_detectado' AND serie_talonario = $2
-         AND n_vale = $3 AND resuelta_en IS NULL`,
+         AND n_vale = $3 AND resuelta_en IS NULL AND congelada_en IS NULL`,
       [tenantId, serieTalonario, nVale]
     );
+
+    const congelada = await client.query(
+      `SELECT 1 FROM combustible_alertas
+       WHERE tenant_id = $1 AND tipo = 'hueco_detectado' AND serie_talonario = $2
+         AND n_vale = $3 AND congelada_en IS NOT NULL
+       LIMIT 1`,
+      [tenantId, serieTalonario, nVale]
+    );
+    return { llegoTarde: (congelada.rowCount ?? 0) > 0 };
+  }
+
+  // ── Conciliación (migraciones 0071/0072) ──────────────────────────────
+
+  /** Un tenant sin fila en combustible_config usa el default de 72h -- por
+   *  eso COALESCE y no un INSERT al dar de alta el tenant: así uno nuevo
+   *  funciona sin que nadie se acuerde de sembrarle la config. */
+  async getVentanaGraciaHoras(client: PoolClient, tenantId: string): Promise<number> {
+    const result = await client.query<{ ventana_gracia_horas: number }>(
+      `SELECT COALESCE(
+         (SELECT ventana_gracia_horas FROM combustible_config WHERE tenant_id = $1),
+         72
+       ) AS ventana_gracia_horas`,
+      [tenantId]
+    );
+    return Number(result.rows[0].ventana_gracia_horas);
+  }
+
+  async getConfig(client: PoolClient, tenantId: string) {
+    const ventana = await this.getVentanaGraciaHoras(client, tenantId);
+    const result = await client.query(
+      `SELECT actualizado_en, actualizado_por FROM combustible_config WHERE tenant_id = $1`,
+      [tenantId]
+    );
+    return {
+      ventana_gracia_horas: ventana,
+      actualizado_en: result.rows[0]?.actualizado_en ?? null,
+      actualizado_por: result.rows[0]?.actualizado_por ?? null,
+    };
+  }
+
+  /** UPSERT: la primera vez que un admin toca la ventana se crea la fila.
+   *  Antes de eso el tenant venía usando el default sin fila propia. */
+  async guardarConfig(
+    client: PoolClient,
+    tenantId: string,
+    ventanaGraciaHoras: number,
+    usuarioId: string
+  ) {
+    const result = await client.query(
+      `
+      INSERT INTO combustible_config (tenant_id, ventana_gracia_horas, actualizado_por)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (tenant_id) DO UPDATE
+        SET ventana_gracia_horas = EXCLUDED.ventana_gracia_horas,
+            actualizado_por = EXCLUDED.actualizado_por,
+            actualizado_en = now()
+      RETURNING ventana_gracia_horas, actualizado_en, actualizado_por
+      `,
+      [tenantId, ventanaGraciaHoras, usuarioId]
+    );
+    return result.rows[0];
+  }
+
+  /** Las alertas que ya pasaron su ventana sin explicarse. Solo
+   *  `hueco_detectado` y `sobredespacho`: `vale_anulado` y `despacho_tardio`
+   *  son avisos que alguien revisa y cierra, no faltantes que se congelen
+   *  (un vale anulado TIENE explicación -- el motivo que se escribió). */
+  async findAlertasPorCongelar(client: PoolClient, tenantId: string, ventanaHoras: number) {
+    const result = await client.query<{
+      id: string;
+      tipo: string;
+      serie_talonario: string;
+      n_vale: number;
+      despacho_id: number | null;
+      detalle: Record<string, unknown>;
+      creado_en: Date;
+    }>(
+      `SELECT id, tipo, serie_talonario, n_vale, despacho_id, detalle, creado_en
+       FROM combustible_alertas
+       WHERE tenant_id = $1
+         AND tipo IN ('hueco_detectado', 'sobredespacho')
+         AND resuelta_en IS NULL
+         AND congelada_en IS NULL
+         AND creado_en < now() - make_interval(hours => $2)
+       ORDER BY creado_en`,
+      [tenantId, ventanaHoras]
+    );
+    return result.rows;
+  }
+
+  /** Congela UNA alerta: inserta la anomalía y marca la alerta. Las dos
+   *  cosas en la misma transacción del `client` que recibe -- si el UPDATE
+   *  fallara después del INSERT, la próxima corrida volvería a congelar la
+   *  misma alerta y quedarían dos anomalías del mismo hecho.
+   *
+   *  El índice único parcial sobre `alerta_id` (0072) es la red de
+   *  seguridad final contra eso; el ON CONFLICT lo vuelve idempotente en
+   *  vez de un error. */
+  async congelarAlerta(
+    client: PoolClient,
+    tenantId: string,
+    alerta: {
+      id: string;
+      tipo: string;
+      serie_talonario: string;
+      n_vale: number;
+      despacho_id: number | null;
+      detalle: Record<string, unknown>;
+      creado_en: Date;
+    },
+    ventanaHoras: number
+  ) {
+    const result = await client.query<{ id: string }>(
+      `
+      INSERT INTO combustible_anomalias
+        (tenant_id, tipo, serie_talonario, n_vale, despacho_id, alerta_id,
+         detalle, detectada_en, ventana_horas)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      ON CONFLICT (alerta_id) WHERE alerta_id IS NOT NULL DO NOTHING
+      RETURNING id
+      `,
+      [
+        tenantId,
+        alerta.tipo,
+        alerta.serie_talonario,
+        alerta.n_vale,
+        alerta.despacho_id,
+        alerta.id,
+        JSON.stringify(alerta.detalle),
+        alerta.creado_en,
+        ventanaHoras,
+      ]
+    );
+
+    const anomaliaId = result.rows[0]?.id;
+    // Sin fila devuelta = ya estaba congelada (ON CONFLICT DO NOTHING).
+    // Igual hay que marcar la alerta, por si quedó a medias en una corrida
+    // anterior que murió entre el INSERT y el UPDATE.
+    await client.query(
+      `UPDATE combustible_alertas
+       SET congelada_en = now()
+       WHERE id = $1 AND tenant_id = $2 AND congelada_en IS NULL`,
+      [alerta.id, tenantId]
+    );
+
+    return anomaliaId ?? null;
+  }
+
+  async findAnomalias(client: PoolClient, tenantId: string, { pageSize, offset }: Paginacion) {
+    const result = await client.query(
+      `
+      SELECT id, tipo, serie_talonario, n_vale, despacho_id, alerta_id, detalle,
+             detectada_en, congelada_en, ventana_horas, COUNT(*) OVER() AS total_count
+      FROM combustible_anomalias
+      WHERE tenant_id = $1
+      ORDER BY congelada_en DESC, id DESC
+      LIMIT $2 OFFSET $3
+      `,
+      [tenantId, pageSize, offset]
+    );
+    return result.rows;
   }
 
   /** Los dos datos que hacen falta para evaluar sobredespacho, en una sola
@@ -792,7 +961,7 @@ export class CombustibleRepository {
     client: PoolClient,
     tenantId: string,
     filas: Array<{
-      tipo: "hueco_detectado" | "vale_anulado" | "sobredespacho";
+      tipo: "hueco_detectado" | "vale_anulado" | "sobredespacho" | "despacho_tardio";
       serieTalonario: string;
       nVale: number;
       despachoId: number | null;

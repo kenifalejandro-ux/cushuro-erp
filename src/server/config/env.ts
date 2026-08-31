@@ -210,6 +210,17 @@ export const env = {
     process.env.IDEMPOTENCY_KEYS_RETENTION_CHECK_INTERVAL_MS,
     60 * 60_000
   ),
+  // Conciliación de combustible (migraciones 0071/0072): cada cuánto el
+  // worker busca huecos de talonario que ya pasaron su ventana de gracia
+  // para congelarlos como anomalía. CUÁNTO dura esa ventana NO se
+  // configura acá -- es un dato de negocio por tenant, editable por su
+  // admin (combustible_config.ventana_gracia_horas). Esto es solo cada
+  // cuánto se revisa: con ventanas de 72h, una pasada por hora llega de
+  // sobra y no se nota en la base.
+  combustibleConciliacionCheckIntervalMs: readNumber(
+    process.env.COMBUSTIBLE_CONCILIACION_CHECK_INTERVAL_MS,
+    60 * 60_000
+  ),
   // Backups de tenant (platformBackup.service.ts) — filesystem local por
   // default. El storage queda detrás de platformBackupStorage.ts a
   // propósito, para que pasar a S3-compatible el día que haga falta sea

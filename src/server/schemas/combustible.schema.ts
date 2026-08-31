@@ -317,6 +317,17 @@ export type MarcarAlertasLeidasCombustibleInput = z.infer<
   typeof marcarAlertasLeidasCombustibleSchema
 >;
 
+// ── Conciliación (migrations/0071) ──────────────────────────────────────
+/** Cuánto tiempo tiene un hueco de talonario para explicarse solo antes de
+ *  congelarse como anomalía permanente. Los límites son espejo del CHECK de
+ *  la migración: menos de 1h congelaría vales que todavía están
+ *  sincronizando; más de un año es no conciliar nunca. */
+export const configCombustibleSchema = z.object({
+  ventana_gracia_horas: z.number().int().min(1).max(8760),
+});
+
+export type ConfigCombustibleInput = z.infer<typeof configCombustibleSchema>;
+
 // ── Grifos externos (migrations/0063) ───────────────────────────────────
 // Catálogo chico (3-4 típicos: PRIMAX, VELASQUEZ) -- reemplaza el texto
 // libre `grifo_externo` de 0062 para poder engancharle un precio de forma

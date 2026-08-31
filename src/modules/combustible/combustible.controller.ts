@@ -29,6 +29,7 @@ import type {
   AnularRecepcionCombustibleInput,
   AnularDespachoCombustibleInput,
   MarcarAlertasLeidasCombustibleInput,
+  ConfigCombustibleInput,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleService } from "./combustible.service";
 
@@ -521,7 +522,18 @@ export class CombustibleController {
         // El vale que acaba de llegar puede estar llenando un hueco ya
         // alertado (offline que sincronizó) -- esto corre siempre, sin
         // condicionar, y no hace nada si no había ninguna alerta abierta.
-        await service.resolverAlertaHuecoSiExiste(client, tenantId, serieTalonario, nVale);
+        //
+        // Si el hueco YA se había congelado como anomalía, no lo resuelve
+        // (la anomalía es inmutable): devuelve `llegoTarde` y se registra
+        // el despacho_tardio del punto 4 -- que alguien se acuerde de un
+        // vale dos días después es una señal, no algo a corregir en
+        // silencio.
+        const { llegoTarde } = await service.resolverAlertaHuecoSiExiste(
+          client,
+          tenantId,
+          serieTalonario,
+          nVale
+        );
 
         const huecos = await service.detectarHuecosRevelados(
           client,
@@ -560,6 +572,19 @@ export class CombustibleController {
                   nVale,
                   despachoId,
                   detalle: { ...exceso, equipoId: data.equipo_id } as Record<string, unknown>,
+                },
+              ]
+            : []),
+          ...(llegoTarde
+            ? [
+                {
+                  tipo: "despacho_tardio" as const,
+                  serieTalonario,
+                  nVale,
+                  despachoId,
+                  detalle: {
+                    nota: "El vale llegó después de que el hueco se congelara como anomalía",
+                  } as Record<string, unknown>,
                 },
               ]
             : []),
@@ -742,6 +767,65 @@ export class CombustibleController {
       res.json(resuelta);
     } catch {
       res.status(500).json({ error: "Error al resolver la alerta" });
+    }
+  }
+
+  // ── Conciliación (migraciones 0071/0072) ──────────────────────────────
+
+  /** GET /config -- hoy solo la ventana de gracia. Un tenant que nunca la
+   *  tocó igual recibe el default (72h), no un 404: para quien consulta no
+   *  hay diferencia entre "no configurada" y "configurada en el default". */
+  async getConfig(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const config = await withTenant(tenantId, (client) => service.getConfig(client, tenantId));
+      res.json(config);
+    } catch {
+      res.status(500).json({ error: "Error al obtener la configuración de combustible" });
+    }
+  }
+
+  /** PUT /config -- subir la ventana AFLOJA el control (los hallazgos
+   *  tardan más en congelarse), así que se audita con el "quién" como
+   *  cualquier acción correctiva. */
+  async guardarConfig(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const { ventana_gracia_horas } = req.validatedBody as ConfigCombustibleInput;
+
+      const guardada = await withTenant(tenantId, (client) =>
+        service.guardarConfig(client, tenantId, ventana_gracia_horas, req.usuario!.id)
+      );
+
+      await registrarAuditoria({
+        accion: "combustible.config_actualizar",
+        tenantId,
+        usuarioId: req.usuario!.id,
+        detalle: { ventanaGraciaHoras: ventana_gracia_horas },
+        contexto: contextoAuditoriaModulo(req),
+      });
+      await publicarEventoTenant(tenantId, "combustible.config_actualizada", {
+        ventanaGraciaHoras: ventana_gracia_horas,
+      });
+      res.json(guardada);
+    } catch {
+      res.status(500).json({ error: "Error al guardar la configuración de combustible" });
+    }
+  }
+
+  /** GET /anomalias -- los hallazgos ya congelados. Solo lectura: la tabla
+   *  es append-only a propósito (ver migrations/0072), no hay endpoint para
+   *  editarlas ni borrarlas. */
+  async listarAnomalias(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const paginacion = parsePaginacion(req.query);
+      const filas = await withTenant(tenantId, (client) =>
+        service.listarAnomalias(client, tenantId, paginacion)
+      );
+      res.json(armarRespuestaPaginada(filas, paginacion));
+    } catch {
+      res.status(500).json({ error: "Error al listar anomalías" });
     }
   }
 

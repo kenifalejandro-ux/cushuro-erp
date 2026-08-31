@@ -1109,9 +1109,20 @@ describe("iniciar facturación (el paso que le faltaba a iniciar-cortesia)", () 
     const finNuevo = new Date(res.body.suscripcion.suscripcion.periodoActualFin);
     const enUnMes = new Date();
     enUnMes.setMonth(enUnMes.getMonth() + 1);
-    // Margen de un día por el redondeo de meses -- lo que importa es que
-    // NO es la fecha vieja de la cortesía (años en el futuro).
-    expect(Math.abs(finNuevo.getTime() - enUnMes.getTime())).toBeLessThan(24 * 60 * 60 * 1000);
+    // Margen de DOS días, no de uno: Postgres y JavaScript no resuelven
+    // igual "un mes después" cuando el día de origen no existe en el mes
+    // destino. El 31 de agosto, `now() + interval '1 month'` da 30 de
+    // septiembre (Postgres clampea al último día del mes) mientras que
+    // `setMonth(+1)` de JS rueda a 1 de octubre -- exactamente un día de
+    // diferencia, que con un margen de "menos de un día" hacía fallar este
+    // test por los milisegundos de latencia del request.
+    //
+    // Pasaba solo los días 31 de un mes seguido por uno de 30 (y a fin de
+    // enero), o sea un puñado de días al año: se encontró corriendo la
+    // suite un 31 de agosto. Lo que este test verifica no es la precisión
+    // del redondeo sino que la fecha se haya RESETEADO -- que no sea la de
+    // la cortesía, años en el futuro -- y para eso dos días sobran.
+    expect(Math.abs(finNuevo.getTime() - enUnMes.getTime())).toBeLessThan(2 * 24 * 60 * 60 * 1000);
   });
 
   it("desde activa: también resetea (corrige una fecha mal anclada)", async () => {

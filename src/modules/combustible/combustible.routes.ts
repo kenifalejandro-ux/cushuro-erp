@@ -20,8 +20,12 @@ import {
   anularRecepcionCombustibleSchema,
   anularDespachoCombustibleSchema,
   marcarAlertasLeidasCombustibleSchema,
+  configCombustibleSchema,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleController } from "./combustible.controller";
+// Se activa solo con importarse (setInterval + .unref()) -- mismo mecanismo
+// que events.ts con el worker de retención de eventos.
+import "../../server/services/combustibleConciliacion.worker";
 
 const router = Router();
 const controller = new CombustibleController();
@@ -126,6 +130,22 @@ router.patch(
   "/alertas/:alertaId/resolver",
   requireRole("admin"),
   asyncHandler(controller.resolverAlertaManual.bind(controller))
+);
+
+// Conciliación (migraciones 0071/0072) -- segmentos literales, ANTES de
+// /:id. Solo admin: la ventana de gracia gobierna cuándo un hallazgo se
+// vuelve permanente, y las anomalías son visibilidad de gerencia.
+router.get("/config", requireRole("admin"), asyncHandler(controller.getConfig.bind(controller)));
+router.put(
+  "/config",
+  requireRole("admin"),
+  validate(configCombustibleSchema),
+  asyncHandler(controller.guardarConfig.bind(controller))
+);
+router.get(
+  "/anomalias",
+  requireRole("admin"),
+  asyncHandler(controller.listarAnomalias.bind(controller))
 );
 
 router.get("/:id", asyncHandler(controller.getById.bind(controller)));

@@ -325,6 +325,55 @@ export class CombustibleService {
     return this.repository.findAdminsConCombustibleHabilitado(client, tenantId);
   }
 
+  // ── Conciliación (migraciones 0071/0072) ──────────────────────────────
+
+  getConfig(client: PoolClient, tenantId: string) {
+    return this.repository.getConfig(client, tenantId);
+  }
+
+  guardarConfig(
+    client: PoolClient,
+    tenantId: string,
+    ventanaGraciaHoras: number,
+    usuarioId: string
+  ) {
+    return this.repository.guardarConfig(client, tenantId, ventanaGraciaHoras, usuarioId);
+  }
+
+  listarAnomalias(client: PoolClient, tenantId: string, paginacion: Paginacion) {
+    return this.repository.findAnomalias(client, tenantId, paginacion);
+  }
+
+  /** Congela todas las alertas de ESTE tenant que ya pasaron su ventana de
+   *  gracia. Devuelve cuántas congeló -- el worker lo usa para loguear solo
+   *  cuando hubo trabajo real (una corrida vacía es lo normal y no debe
+   *  ensuciar el log cada hora).
+   *
+   *  El `client` tiene que venir con `app.tenant_id` seteado para este
+   *  tenant: todo lo que toca acá (combustible_alertas,
+   *  combustible_anomalias, combustible_config) tiene RLS forzado. */
+  async congelarAlertasVencidas(
+    client: PoolClient,
+    tenantId: string
+  ): Promise<{ congeladas: number; ventanaHoras: number }> {
+    const ventanaHoras = await this.repository.getVentanaGraciaHoras(client, tenantId);
+    const vencidas = await this.repository.findAlertasPorCongelar(client, tenantId, ventanaHoras);
+
+    let congeladas = 0;
+    for (const alerta of vencidas) {
+      const anomaliaId = await this.repository.congelarAlerta(
+        client,
+        tenantId,
+        alerta,
+        ventanaHoras
+      );
+      // null = ya estaba congelada (ON CONFLICT DO NOTHING); no la cuento
+      // como trabajo nuevo para que el log no mienta.
+      if (anomaliaId) congeladas++;
+    }
+    return { congeladas, ventanaHoras };
+  }
+
   /** Sobredespacho (migraciones 0069/0070): se despachó más de lo que el
    *  tanque de esa unidad puede contener. NO bloquea el vale -- devuelve
    *  los datos para que el controller cree una alerta, o `null` si no hay
