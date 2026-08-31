@@ -12,6 +12,8 @@ import {
   enviarCorreoAlertaHueco,
   enviarCorreoAlertaAnulacion,
   enviarCorreoAlertaSobredespacho,
+  enviarCorreoAlertaMedidor,
+  enviarCorreoAlertaNivelBajo,
 } from "./combustibleAlertas.mailer";
 import type {
   RegistrarLecturaCombustibleInput,
@@ -361,6 +363,7 @@ export class CombustibleController {
         combustibleId: data.combustible_id,
         nivel: data.nivel,
       });
+      await this.procesarAlertaNivelBajo(tenantId, data.combustible_id, data.nivel);
       res.status(201).json(fila);
     } catch (err) {
       // Los dos casos van con 400: son datos que se contradicen a sí mismos
@@ -518,7 +521,7 @@ export class CombustibleController {
     const serieTalonario = data.serie_talonario;
     const nVale = data.n_vale;
     try {
-      const { huecos, exceso, admins } = await withTenant(tenantId, async (client) => {
+      const { huecos, exceso, medidor, admins } = await withTenant(tenantId, async (client) => {
         // El vale que acaba de llegar puede estar llenando un hueco ya
         // alertado (offline que sincronizó) -- esto corre siempre, sin
         // condicionar, y no hace nada si no había ninguna alerta abierta.
@@ -556,6 +559,19 @@ export class CombustibleController {
             )
           : null;
 
+        // Medidor que no cierra con el anterior (punto 5 del documento,
+        // migración 0073). Igual que el sobredespacho: no bloquea el vale,
+        // solo lo marca. Se evalúa contra el ÚLTIMO despacho vigente de ese
+        // equipo, así que el primero de cada equipo nunca alerta.
+        const medidor = data.equipo_id
+          ? await service.evaluarMedidorInconsistente(client, tenantId, data.equipo_id, {
+              lecturaHorometro: data.lectura_horometro ?? null,
+              lecturaOdometro: data.lectura_odometro ?? null,
+              despachadoEn: data.despachado_en ?? new Date().toISOString(),
+              despachoId,
+            })
+          : null;
+
         const nuevas = [
           ...huecos.map((n) => ({
             tipo: "hueco_detectado" as const,
@@ -575,6 +591,17 @@ export class CombustibleController {
                 },
               ]
             : []),
+          ...(medidor
+            ? [
+                {
+                  tipo: "medidor_inconsistente" as const,
+                  serieTalonario,
+                  nVale,
+                  despachoId,
+                  detalle: { ...medidor, equipoId: data.equipo_id } as Record<string, unknown>,
+                },
+              ]
+            : []),
           ...(llegoTarde
             ? [
                 {
@@ -591,12 +618,12 @@ export class CombustibleController {
         ];
 
         if (nuevas.length === 0) {
-          return { huecos, exceso, admins: [] as { email: string; nombre: string }[] };
+          return { huecos, exceso, medidor, admins: [] as { email: string; nombre: string }[] };
         }
 
         await service.crearAlertas(client, tenantId, nuevas);
         const admins = await service.findAdminsConCombustibleHabilitado(client, tenantId);
-        return { huecos, exceso, admins };
+        return { huecos, exceso, medidor, admins };
       });
 
       if (huecos.length > 0) {
@@ -624,11 +651,57 @@ export class CombustibleController {
           ...exceso,
         });
       }
+
+      if (medidor) {
+        await publicarEventoTenant(tenantId, "combustible.alerta_creada", {
+          tipo: "medidor_inconsistente",
+          serieTalonario,
+          nVale,
+        });
+        await enviarCorreoAlertaMedidor(admins, { serieTalonario, nVale, ...medidor });
+      }
     } catch (err) {
       logger.warn(
         { err, tenantId, despachoId },
         "No se pudieron procesar las alertas del despacho creado"
       );
+    }
+  }
+
+  /** Nivel bajo de tanque (migración 0073). Mismo contrato best-effort que
+   *  los demás: corre después de que la lectura ya se guardó, así que un
+   *  fallo acá no puede convertir un 201 real en un 500.
+   *
+   *  `evaluarNivelBajo` devuelve null en el caso normal -- tanque sin
+   *  mínimo configurado, nivel por encima, o ya con una alerta abierta (la
+   *  deduplicación). Y si el nivel volvió a subir, resuelve la alerta
+   *  anterior por dentro, sin que nadie la cierre a mano. */
+  private async procesarAlertaNivelBajo(tenantId: string, combustibleId: number, nivel: number) {
+    try {
+      const { bajo, admins } = await withTenant(tenantId, async (client) => {
+        const bajo = await service.evaluarNivelBajo(client, tenantId, combustibleId, nivel);
+        if (!bajo) return { bajo, admins: [] as { email: string; nombre: string }[] };
+
+        await service.crearAlertas(client, tenantId, [
+          {
+            tipo: "nivel_bajo",
+            combustibleId,
+            detalle: { ...bajo },
+          },
+        ]);
+        const admins = await service.findAdminsConCombustibleHabilitado(client, tenantId);
+        return { bajo, admins };
+      });
+
+      if (!bajo) return;
+
+      await publicarEventoTenant(tenantId, "combustible.alerta_creada", {
+        tipo: "nivel_bajo",
+        combustibleId,
+      });
+      await enviarCorreoAlertaNivelBajo(admins, bajo);
+    } catch (err) {
+      logger.warn({ err, tenantId, combustibleId }, "No se pudo procesar la alerta de nivel bajo");
     }
   }
 

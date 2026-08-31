@@ -200,9 +200,13 @@ interface SugerenciaUmbral {
 // resolución porque no se puede resolver, es evidencia.
 interface AnomaliaCombustible {
   id: number;
-  tipo: "hueco_detectado" | "sobredespacho";
-  serie_talonario: string;
-  n_vale: number;
+  // Los cuatro tipos que se congelan: los FALTANTES. `nivel_bajo` y
+  // `despacho_tardio` nunca llegan acá -- ver el CHECK de tipos en 0073.
+  tipo: "hueco_detectado" | "sobredespacho" | "diferencia_recepcion" | "medidor_inconsistente";
+  serie_talonario: string | null;
+  n_vale: number | null;
+  recepcion_id: number | null;
+  combustible_id: number | null;
   detalle: Record<string, unknown>;
   detectada_en: string;
   congelada_en: string;
@@ -211,10 +215,21 @@ interface AnomaliaCombustible {
 
 interface AlertaCombustible {
   id: number;
-  tipo: "hueco_detectado" | "vale_anulado" | "sobredespacho" | "despacho_tardio";
-  serie_talonario: string;
-  n_vale: number;
+  tipo:
+    | "hueco_detectado"
+    | "vale_anulado"
+    | "sobredespacho"
+    | "despacho_tardio"
+    | "diferencia_recepcion"
+    | "nivel_bajo"
+    | "medidor_inconsistente";
+  // Nullable desde 0073: las alertas de recepción y de nivel no son sobre
+  // un vale, se anclan al tanque o a la recepción.
+  serie_talonario: string | null;
+  n_vale: number | null;
   despacho_id: number | null;
+  combustible_id: number | null;
+  recepcion_id: number | null;
   detalle: Record<string, unknown>;
   creado_en: string;
   leida_en: string | null;
@@ -232,11 +247,31 @@ const ETIQUETA_TIPO_ALERTA: Record<AlertaCombustible["tipo"], string> = {
   vale_anulado: "Vale anulado",
   sobredespacho: "Sobredespacho",
   despacho_tardio: "Despacho tardío",
+  diferencia_recepcion: "Diferencia en recepción",
+  nivel_bajo: "Nivel bajo de tanque",
+  medidor_inconsistente: "Medidor inconsistente",
 };
 
 /** El `detalle` es JSONB libre y cada tipo de alerta guarda cosas
  *  distintas, así que la columna se arma por tipo. Devuelve "—" cuando no
  *  hay nada que agregar (un hueco se explica solo con el número de vale). */
+/** La columna "Vale" de las tablas de alertas y anomalías. Desde la
+ *  migración 0073 no toda alerta tiene vale: las de nivel van contra un
+ *  tanque y las de diferencia contra una recepción. */
+function referenciaAlerta(a: {
+  serie_talonario: string | null;
+  n_vale: number | null;
+  recepcion_id?: number | null;
+  detalle: Record<string, unknown>;
+}): string {
+  if (a.serie_talonario !== null && a.n_vale !== null) {
+    return `${a.serie_talonario}-${String(a.n_vale).padStart(5, "0")}`;
+  }
+  if (typeof a.detalle.tanqueNombre === "string") return a.detalle.tanqueNombre;
+  if (a.recepcion_id != null) return `Recepción #${a.recepcion_id}`;
+  return "—";
+}
+
 function describirDetalleAlerta(a: AlertaCombustible): string {
   if (a.tipo === "vale_anulado" && typeof a.detalle.motivo === "string") {
     return `Motivo: ${a.detalle.motivo}`;
@@ -254,6 +289,48 @@ function describirDetalleAlerta(a: AlertaCombustible): string {
       `Despachó ${cantidad} ${unidadDespacho ?? ""} a un tanque de ` +
       `${capacidad} ${unidadCapacidad ?? ""} (+${excesoPct ?? "?"}%)`
     );
+  }
+  if (a.tipo === "diferencia_recepcion") {
+    const { diferenciaLitros, diferenciaPct, umbralPct, unidad } = a.detalle as {
+      diferenciaLitros?: number;
+      diferenciaPct?: number;
+      umbralPct?: number;
+      unidad?: string;
+    };
+    if (diferenciaLitros === undefined) return "—";
+    const signo = diferenciaLitros > 0 ? "+" : "";
+    return (
+      `Facturado vs. medido: ${signo}${diferenciaLitros} ${unidad ?? ""} ` +
+      `(${signo}${diferenciaPct ?? "?"}%, umbral ${umbralPct ?? "?"}%)`
+    );
+  }
+  if (a.tipo === "nivel_bajo") {
+    const { nivel, nivelMinimo, unidad } = a.detalle as {
+      nivel?: number;
+      nivelMinimo?: number;
+      unidad?: string;
+    };
+    if (nivel === undefined) return "—";
+    return `Nivel ${nivel} ${unidad ?? ""}, por debajo del mínimo de ${nivelMinimo} ${unidad ?? ""}`;
+  }
+  if (a.tipo === "medidor_inconsistente") {
+    const { medidor, motivo, valorAnterior, valorNuevo, horasDeclaradas, horasCalendario } =
+      a.detalle as {
+        medidor?: string;
+        motivo?: string;
+        valorAnterior?: number;
+        valorNuevo?: number;
+        horasDeclaradas?: number;
+        horasCalendario?: number;
+      };
+    const nombre = medidor === "horometro" ? "Horómetro" : "Odómetro";
+    if (motivo === "retroceso") {
+      return `${nombre} retrocedió: ${valorAnterior} → ${valorNuevo}`;
+    }
+    if (motivo === "excede_calendario") {
+      return `${nombre}: ${horasDeclaradas} h de motor en ${horasCalendario} h de reloj`;
+    }
+    return nombre;
   }
   return "—";
 }
@@ -521,6 +598,10 @@ export default function CombustiblePanel() {
   const [anomalias, setAnomalias] = useState<AnomaliaCombustible[]>([]);
   const [ventanaGraciaHoras, setVentanaGraciaHoras] = useState("72");
   const [guardandoVentana, setGuardandoVentana] = useState(false);
+  // La confirmación va DENTRO del modal, no en el banner verde de la
+  // pantalla principal: ese banner queda tapado por el propio modal, así
+  // que guardar parecía no hacer nada (reportado en pantalla por Kenif).
+  const [mensajeVentana, setMensajeVentana] = useState<string | null>(null);
 
   // --- Recepciones (Fase C, migrations/0064) ---
   const [modalRecepcionAbierto, setModalRecepcionAbierto] = useState(false);
@@ -1315,6 +1396,7 @@ export default function CombustiblePanel() {
    *  la pantalla completa a la que esa campanita lleva. */
   const abrirModalAlertas = async () => {
     setModalAlertasAbierto(true);
+    setMensajeVentana(null);
     setCargandoAlertas(true);
     try {
       // Las tres cosas del mismo modal, en paralelo: los avisos vivos, los
@@ -1352,13 +1434,10 @@ export default function CombustiblePanel() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        alert(body.error || "No se pudo guardar la ventana.");
+        setMensajeVentana(body.error || "No se pudo guardar la ventana.");
         return;
       }
-      setMensajeExito(
-        `Ventana de gracia actualizada a ${horas} horas. Un hueco sin explicación se ` +
-          `congela como anomalía después de ese plazo.`
-      );
+      setMensajeVentana(`Guardado: ${horas} horas`);
     } finally {
       setGuardandoVentana(false);
     }
@@ -3497,7 +3576,8 @@ export default function CombustiblePanel() {
               <div>
                 <h3 className="text-xl font-bold">Alertas de combustible</h3>
                 <p className="text-sm text-slate-500">
-                  Huecos de talonario y vales anulados, del más reciente al más antiguo
+                  Huecos de talonario, vales anulados, sobredespachos y despachos tardíos, del más
+                  reciente al más antiguo
                 </p>
               </div>
               <button
@@ -3526,7 +3606,13 @@ export default function CombustiblePanel() {
                 max={8760}
                 className="w-24 border border-slate-200 rounded-lg p-2 outline-none focus:ring-2 focus:ring-slate-900"
                 value={ventanaGraciaHoras}
-                onChange={(e) => setVentanaGraciaHoras(e.target.value)}
+                onChange={(e) => {
+                  setVentanaGraciaHoras(e.target.value);
+                  // Editar invalida la confirmación anterior: si no, un
+                  // "Guardado: 72 horas" viejo seguiría al lado de un valor
+                  // nuevo todavía sin guardar.
+                  setMensajeVentana(null);
+                }}
               />
               <span className="text-sm text-slate-500">horas</span>
               <button
@@ -3536,6 +3622,15 @@ export default function CombustiblePanel() {
               >
                 {guardandoVentana ? "Guardando..." : "Guardar"}
               </button>
+              {mensajeVentana && (
+                <span
+                  className={`text-xs font-semibold ${
+                    mensajeVentana.startsWith("Guardado") ? "text-emerald-600" : "text-red-600"
+                  }`}
+                >
+                  {mensajeVentana}
+                </span>
+              )}
               <p className="text-[11px] text-slate-400 flex-1 min-w-[240px]">
                 Tiempo que un hueco tiene para explicarse solo (un vale que sincroniza sin señal,
                 uno que se anula) antes de congelarse como anomalía permanente. Pasado ese plazo se
@@ -3583,7 +3678,7 @@ export default function CombustiblePanel() {
                             {ETIQUETA_TIPO_ALERTA[a.tipo]}
                           </td>
                           <td className="p-3 text-sm text-slate-800 font-mono">
-                            {a.serie_talonario}-{String(a.n_vale).padStart(5, "0")}
+                            {referenciaAlerta(a)}
                           </td>
                           <td className="p-3 text-sm text-slate-600 whitespace-nowrap">
                             {new Date(a.detectada_en).toLocaleString("es-PE")}
@@ -3642,7 +3737,7 @@ export default function CombustiblePanel() {
                           {ETIQUETA_TIPO_ALERTA[a.tipo]}
                         </td>
                         <td className="p-3 text-sm text-slate-800 font-mono">
-                          {a.serie_talonario}-{String(a.n_vale).padStart(5, "0")}
+                          {referenciaAlerta(a)}
                         </td>
                         <td className="p-3 text-sm text-slate-600">{describirDetalleAlerta(a)}</td>
                         <td className="p-3 text-sm text-slate-600 whitespace-nowrap">

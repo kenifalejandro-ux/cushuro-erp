@@ -16,10 +16,21 @@ import { apiFetch } from "../../services/apiClient";
 
 export interface AlertaCombustible {
   id: number;
-  tipo: "hueco_detectado" | "vale_anulado" | "sobredespacho" | "despacho_tardio";
-  serie_talonario: string;
-  n_vale: number;
+  tipo:
+    | "hueco_detectado"
+    | "vale_anulado"
+    | "sobredespacho"
+    | "despacho_tardio"
+    | "diferencia_recepcion"
+    | "nivel_bajo"
+    | "medidor_inconsistente";
+  // Nullable desde la migración 0073: las alertas de recepción y de nivel
+  // no son sobre un vale, así que se anclan al tanque o a la recepción.
+  serie_talonario: string | null;
+  n_vale: number | null;
   despacho_id: number | null;
+  combustible_id: number | null;
+  recepcion_id: number | null;
   detalle: Record<string, unknown>;
   creado_en: string;
   leida_en: string | null;

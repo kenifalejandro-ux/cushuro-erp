@@ -374,6 +374,174 @@ export class CombustibleService {
     return { congeladas, ventanaHoras };
   }
 
+  /** Diferencia de recepción (migración 0073): el proveedor facturó más de
+   *  lo que descargó, por encima del umbral del tanque.
+   *
+   *  Corre en el worker y no al crear la recepción porque en ese momento
+   *  todavía no se puede calcular: hace falta la lectura de varilla
+   *  POSTERIOR a la descarga. Y tampoco se engancha al registrar esa
+   *  lectura, porque la diferencia también cambia si se anula un despacho
+   *  del medio, o la propia lectura, o entra otra recepción -- habría que
+   *  acordarse en cada una de esas mutaciones. El worker la recalcula sola
+   *  sin importar qué la movió.
+   *
+   *  Devuelve cuántas alertas creó. El `NOT EXISTS` de la consulta hace que
+   *  no se repita: una recepción alerta una sola vez. */
+  async alertarDiferenciasDeRecepcion(
+    client: PoolClient,
+    tenantId: string
+  ): Promise<{ creadas: number }> {
+    const excedidas = await this.repository.findRecepcionesConDiferenciaExcedida(client, tenantId);
+    if (excedidas.length === 0) return { creadas: 0 };
+
+    await this.repository.crearAlertas(
+      client,
+      tenantId,
+      excedidas.map((r) => {
+        const litros = Number(r.diferencia_litros);
+        const cantidad = Number(r.cantidad);
+        return {
+          tipo: "diferencia_recepcion" as const,
+          recepcionId: r.id,
+          combustibleId: r.combustible_id,
+          detalle: {
+            diferenciaLitros: litros,
+            cantidadFacturada: cantidad,
+            diferenciaPct: Number(((litros / cantidad) * 100).toFixed(2)),
+            umbralPct: Number(r.umbral_diferencia_pct),
+            unidad: r.unidad,
+            tanqueNombre: r.tanque_nombre,
+          },
+        };
+      })
+    );
+    return { creadas: excedidas.length };
+  }
+
+  /** Medidor que no cierra con el anterior (punto 5 del documento). NO
+   *  bloquea el vale: devuelve los datos para que el controller cree la
+   *  alerta, o `null` si no hay nada que reportar.
+   *
+   *  Las dos condiciones son FÍSICAMENTE IMPOSIBLES, no umbrales elegidos:
+   *
+   *  - **Retroceso**: un medidor no vuelve atrás. Vale para horómetro y
+   *    odómetro por igual.
+   *  - **Horómetro que excede el calendario**: una máquina no puede sumar
+   *    más horas de motor que las horas que pasaron en el reloj.
+   *
+   *  Para el ODÓMETRO solo se mira el retroceso: no existe un límite de
+   *  km/día defendible sin inventarlo (un tráiler hace 1.000 km sin
+   *  problema), y alertar por un número inventado es peor que no alertar --
+   *  mismo criterio que `capacidad_tanque` en NULL (0069).
+   *
+   *  Devuelve null también cuando el equipo no tiene ningún despacho previo
+   *  con medidor: ahí no hay contra qué comparar. */
+  async evaluarMedidorInconsistente(
+    client: PoolClient,
+    tenantId: string,
+    equipoId: number,
+    data: {
+      lecturaHorometro?: number | null;
+      lecturaOdometro?: number | null;
+      despachadoEn: string;
+      /** El despacho recién creado, para NO compararlo contra sí mismo. */
+      despachoId: number;
+    }
+  ) {
+    const esHorometro = data.lecturaHorometro !== undefined && data.lecturaHorometro !== null;
+    const valorNuevo = esHorometro ? data.lecturaHorometro! : data.lecturaOdometro;
+    if (valorNuevo === undefined || valorNuevo === null) return null;
+
+    const anterior = await this.repository.findUltimoMedidorEquipo(
+      client,
+      tenantId,
+      equipoId,
+      data.despachoId
+    );
+    if (!anterior) return null;
+
+    const crudo = esHorometro ? anterior.lectura_horometro : anterior.lectura_odometro;
+    // El equipo tenía despachos, pero medidos con el OTRO instrumento (por
+    // ejemplo si se le cambió el tipo_medidor): no son comparables.
+    if (crudo === null) return null;
+
+    const valorAnterior = Number(crudo);
+    const medidor = esHorometro ? ("horometro" as const) : ("odometro" as const);
+
+    if (valorNuevo < valorAnterior) {
+      return {
+        medidor,
+        motivo: "retroceso" as const,
+        valorAnterior,
+        valorNuevo,
+        leidoAnteriorEn: anterior.despachado_en,
+      };
+    }
+
+    if (esHorometro) {
+      const horasCalendario =
+        (new Date(data.despachadoEn).getTime() - new Date(anterior.despachado_en).getTime()) /
+        3_600_000;
+      const horasDeclaradas = valorNuevo - valorAnterior;
+      // Solo si el calendario avanzó: dos vales con la misma marca de tiempo
+      // (una carga masiva, por ejemplo) darían 0 horas disponibles y
+      // cualquier avance parecería imposible sin serlo.
+      if (horasCalendario > 0 && horasDeclaradas > horasCalendario) {
+        return {
+          medidor,
+          motivo: "excede_calendario" as const,
+          valorAnterior,
+          valorNuevo,
+          horasDeclaradas: Number(horasDeclaradas.toFixed(2)),
+          horasCalendario: Number(horasCalendario.toFixed(2)),
+          leidoAnteriorEn: anterior.despachado_en,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  /** Nivel bajo de tanque (migración 0073). Se evalúa al registrar cada
+   *  lectura, que es el único momento en que el nivel cambia (desde 0059 el
+   *  nivel se deriva de las lecturas, no es una columna).
+   *
+   *  Devuelve `{ alertar: true }` solo si el nivel cruzó el mínimo Y no hay
+   *  ya una alerta abierta para ese tanque -- sin esa deduplicación, cada
+   *  lectura con el tanque bajo generaría una alerta nueva y la pantalla se
+   *  llenaría de repetidos (el control que muere por ruidoso, punto 4).
+   *
+   *  Si el nivel volvió a estar por encima, resuelve la alerta abierta:
+   *  el problema se arregló reponiendo, nadie tiene que cerrarla a mano. */
+  async evaluarNivelBajo(
+    client: PoolClient,
+    tenantId: string,
+    combustibleId: number,
+    nivel: number
+  ) {
+    const tanque = await this.repository.findEstadoNivelTanque(client, tenantId, combustibleId);
+    if (!tanque) return null;
+
+    const minimo = Number(tanque.nivel_minimo);
+    // 0 = sin configurar, mismo criterio que umbral_diferencia_pct (0066) y
+    // capacidad_tanque (0069): sin el dato no se alerta.
+    if (minimo <= 0) return null;
+
+    if (nivel >= minimo) {
+      await this.repository.resolverAlertaNivelSiExiste(client, tenantId, combustibleId);
+      return null;
+    }
+
+    if (tanque.alerta_abierta) return null;
+
+    return {
+      nivel,
+      nivelMinimo: minimo,
+      unidad: tanque.unidad,
+      tanqueNombre: tanque.tanque_nombre,
+    };
+  }
+
   /** Sobredespacho (migraciones 0069/0070): se despachó más de lo que el
    *  tanque de esa unidad puede contener. NO bloquea el vale -- devuelve
    *  los datos para que el controller cree una alerta, o `null` si no hay

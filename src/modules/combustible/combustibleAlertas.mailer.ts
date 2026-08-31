@@ -98,6 +98,64 @@ export async function enviarCorreoAlertaSobredespacho(
   });
 }
 
+/** El horómetro/odómetro no cierra con el del despacho anterior de esa
+ *  misma unidad (punto 5 del documento). El vale NO se bloqueó: puede ser
+ *  un tipeo, pero también adulteración -- por eso lo mira una persona. */
+export async function enviarCorreoAlertaMedidor(
+  destinatarios: Destinatario[],
+  params: {
+    serieTalonario: string;
+    nVale: number;
+    medidor: "horometro" | "odometro";
+    motivo: "retroceso" | "excede_calendario";
+    valorAnterior: number;
+    valorNuevo: number;
+    horasDeclaradas?: number;
+    horasCalendario?: number;
+  }
+) {
+  const nombreMedidor = params.medidor === "horometro" ? "horómetro" : "odómetro";
+  const vale = String(params.nVale).padStart(5, "0");
+
+  const explicacion =
+    params.motivo === "retroceso"
+      ? `El ${nombreMedidor} marcó ${params.valorNuevo}, MENOS que los ${params.valorAnterior} ` +
+        `del despacho anterior de esa unidad. Un medidor no vuelve atrás.`
+      : `El horómetro sumó ${params.horasDeclaradas} horas de motor, pero desde el despacho ` +
+        `anterior solo pasaron ${params.horasCalendario} horas de reloj. Una máquina no puede ` +
+        `acumular más horas de motor que las que pasaron.`;
+
+  await enviarCorreoAlerta({
+    destinatarios,
+    asunto: `Combustible: ${nombreMedidor} inconsistente en vale ${params.serieTalonario}-${vale}`,
+    titulo: `Medidor inconsistente en la serie ${params.serieTalonario}`,
+    lineas: [
+      `Vale ${vale}. ${explicacion}`,
+      "El vale se registró igual (no se bloquea el abastecimiento). Puede ser un error de " +
+        "tipeo o un medidor adulterado -- revisar en el ERP.",
+    ],
+  });
+}
+
+/** El tanque cruzó su nivel mínimo. A diferencia del resto, esta alerta NO
+ *  es anti-fraude sino operativa: avisa antes de quedarse sin combustible
+ *  en cancha. Por eso tampoco se congela como anomalía. */
+export async function enviarCorreoAlertaNivelBajo(
+  destinatarios: Destinatario[],
+  params: { tanqueNombre: string; nivel: number; nivelMinimo: number; unidad: string }
+) {
+  await enviarCorreoAlerta({
+    destinatarios,
+    asunto: `Combustible: nivel bajo en ${params.tanqueNombre}`,
+    titulo: `Nivel bajo en ${params.tanqueNombre}`,
+    lineas: [
+      `La última lectura de varilla marcó ${params.nivel} ${params.unidad}, por debajo del ` +
+        `mínimo configurado de ${params.nivelMinimo} ${params.unidad}.`,
+      "Conviene programar la reposición antes de que la operación se quede sin combustible.",
+    ],
+  });
+}
+
 /** Un vale que sí se había registrado se anuló -- a diferencia del hueco,
  *  esto siempre tiene un motivo escrito por quien lo anuló, pero necesita
  *  revisión: "todo tiene que tener sustento". */
