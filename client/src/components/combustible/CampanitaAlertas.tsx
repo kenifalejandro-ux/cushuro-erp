@@ -15,11 +15,29 @@ const ETIQUETA_TIPO: Record<string, string> = {
   vale_anulado: "Vale anulado",
   sobredespacho: "Sobredespacho",
   despacho_tardio: "Despacho tardío",
+  diferencia_recepcion: "Diferencia en recepción",
+  nivel_bajo: "Nivel bajo de tanque",
+  medidor_inconsistente: "Medidor inconsistente",
 };
 
-function formatearAlerta(alerta: { tipo: string; serie_talonario: string; n_vale: number }) {
-  const vale = `${alerta.serie_talonario}-${String(alerta.n_vale).padStart(5, "0")}`;
-  return `${ETIQUETA_TIPO[alerta.tipo] ?? alerta.tipo}: ${vale}`;
+/** No toda alerta es sobre un vale (migración 0073): las de nivel bajo van
+ *  contra un tanque y las de diferencia contra una recepción. Cuando no hay
+ *  vale se muestra solo el tipo, en vez de un "null-NaN". */
+function formatearAlerta(alerta: {
+  tipo: string;
+  serie_talonario: string | null;
+  n_vale: number | null;
+  detalle: Record<string, unknown>;
+}) {
+  const etiqueta = ETIQUETA_TIPO[alerta.tipo] ?? alerta.tipo;
+
+  if (alerta.serie_talonario !== null && alerta.n_vale !== null) {
+    return `${etiqueta}: ${alerta.serie_talonario}-${String(alerta.n_vale).padStart(5, "0")}`;
+  }
+  if (typeof alerta.detalle.tanqueNombre === "string") {
+    return `${etiqueta}: ${alerta.detalle.tanqueNombre}`;
+  }
+  return etiqueta;
 }
 
 interface CampanitaAlertasProps {

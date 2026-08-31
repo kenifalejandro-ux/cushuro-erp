@@ -61,6 +61,10 @@ export async function correrConciliacion(): Promise<{ congeladas: number }> {
     try {
       await client.query("BEGIN");
       await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
+      // El orden importa: primero se crean las alertas de diferencia, después
+      // se congela lo vencido. Al revés, una diferencia recién detectada
+      // tendría que esperar a la corrida siguiente para poder congelarse.
+      await service.alertarDiferenciasDeRecepcion(client, tenantId);
       const { congeladas } = await service.congelarAlertasVencidas(client, tenantId);
       await client.query("COMMIT");
       total += congeladas;
@@ -83,6 +87,7 @@ async function correrConciliacionCoordinada(): Promise<void> {
   for (const tenantId of await idsDeTenants()) {
     const resultado = await runSiPrimero(LOCK_IDS.combustibleConciliacion, async (client) => {
       await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
+      await service.alertarDiferenciasDeRecepcion(client, tenantId);
       return service.congelarAlertasVencidas(client, tenantId);
     });
     // undefined = otra instancia tiene el lock; se salta este tenant, la
