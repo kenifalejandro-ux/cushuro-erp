@@ -140,6 +140,43 @@ export const MODULOS: ModuloDefinicion[] = [
           anulada_por: "usuarios",
         },
       },
+      // Fase D (migrations/0068) -- el aviso vivo: hueco de talonario, vale
+      // anulado, sobredespacho, despacho tardío. Va ANTES de
+      // combustible_anomalias, que la referencia por FK.
+      //
+      // NO estaba registrada acá cuando se creó la tabla: un backup de
+      // tenant no la incluía y un restore la habría perdido en silencio.
+      // Lo agarró la exploración de esta entrega, no un test -- ver
+      // tests/backup-tablas-registradas.test.ts, agregado para que la
+      // próxima tabla no se escape igual.
+      {
+        nombre: "combustible_alertas",
+        pk: "serial",
+        fks: {
+          despacho_id: "combustible_despachos",
+          resuelta_por: "usuarios",
+        },
+      },
+      // Fase D (migrations/0072) -- el hallazgo congelado. Append-only.
+      // Va DESPUÉS de combustible_alertas: la referencia por alerta_id, y
+      // el restore necesita padres antes que hijos. La relación va en un
+      // solo sentido a propósito (no hay anomalia_id en alertas): un
+      // puntero de vuelta sería un ciclo de FK y no habría orden de INSERT
+      // posible -- ver el comentario en la migración.
+      {
+        nombre: "combustible_anomalias",
+        pk: "serial",
+        fks: {
+          despacho_id: "combustible_despachos",
+          alerta_id: "combustible_alertas",
+        },
+      },
+      // Fase D (migrations/0071) -- la ventana de gracia por tenant.
+      {
+        nombre: "combustible_config",
+        pk: "serial",
+        fks: { actualizado_por: "usuarios" },
+      },
     ],
     // combustible_lecturas cascadea desde su padre (ON DELETE CASCADE, ver
     // migrations/0045) -- no necesita DELETE propio. combustible_grifos,
@@ -151,6 +188,13 @@ export const MODULOS: ModuloDefinicion[] = [
       "combustible_despachos",
       "combustible_precios",
       "combustible_recepciones",
+      // Fase D: las tres cascadean desde `tenants`, no desde ninguna tabla
+      // de este módulo, así que el wipe de un tenant (que NO borra la fila
+      // del tenant) no las alcanzaría solo. Mismo orden padre→hijo que en
+      // `tablas` -- RAICES_WIPE lo invierte para borrar hijos primero.
+      "combustible_alertas",
+      "combustible_anomalias",
+      "combustible_config",
     ],
     // Fase A (migrations/0057) le dio a Combustible su propio POST / y
     // POST /bulk que crean el recurso base -- un solo `cuota.tabla`

@@ -195,9 +195,23 @@ interface SugerenciaUmbral {
   muestra?: Array<{ cantidad: number; diferenciaLitros: number; diferenciaPct: number }>;
 }
 
+// Fase D (migrations/0072) -- el hallazgo YA congelado, a diferencia de
+// AlertaCombustible que es el aviso vivo. Append-only: no tiene estado de
+// resolución porque no se puede resolver, es evidencia.
+interface AnomaliaCombustible {
+  id: number;
+  tipo: "hueco_detectado" | "sobredespacho";
+  serie_talonario: string;
+  n_vale: number;
+  detalle: Record<string, unknown>;
+  detectada_en: string;
+  congelada_en: string;
+  ventana_horas: number;
+}
+
 interface AlertaCombustible {
   id: number;
-  tipo: "hueco_detectado" | "vale_anulado" | "sobredespacho";
+  tipo: "hueco_detectado" | "vale_anulado" | "sobredespacho" | "despacho_tardio";
   serie_talonario: string;
   n_vale: number;
   despacho_id: number | null;
@@ -217,6 +231,7 @@ const ETIQUETA_TIPO_ALERTA: Record<AlertaCombustible["tipo"], string> = {
   hueco_detectado: "Hueco de talonario",
   vale_anulado: "Vale anulado",
   sobredespacho: "Sobredespacho",
+  despacho_tardio: "Despacho tardío",
 };
 
 /** El `detalle` es JSONB libre y cada tipo de alerta guarda cosas
@@ -498,6 +513,14 @@ export default function CombustiblePanel() {
   const [alertasCombustible, setAlertasCombustible] = useState<AlertaCombustible[]>([]);
   const [cargandoAlertas, setCargandoAlertas] = useState(false);
   const [resolviendoAlertaId, setResolviendoAlertaId] = useState<number | null>(null);
+
+  // --- Conciliación (Fase D, migraciones 0071/0072) ---
+  // La ventana y las anomalías viven en el MISMO modal que las alertas: la
+  // ventana gobierna cuándo una alerta se vuelve anomalía, así que verlas
+  // juntas es lo que hace entendible el mecanismo.
+  const [anomalias, setAnomalias] = useState<AnomaliaCombustible[]>([]);
+  const [ventanaGraciaHoras, setVentanaGraciaHoras] = useState("72");
+  const [guardandoVentana, setGuardandoVentana] = useState(false);
 
   // --- Recepciones (Fase C, migrations/0064) ---
   const [modalRecepcionAbierto, setModalRecepcionAbierto] = useState(false);
@@ -1294,11 +1317,50 @@ export default function CombustiblePanel() {
     setModalAlertasAbierto(true);
     setCargandoAlertas(true);
     try {
-      const res = await apiFetch("/api/erp/combustible/alertas?pageSize=100");
-      const body = await res.json().catch(() => null);
-      setAlertasCombustible(Array.isArray(body?.data) ? body.data : []);
+      // Las tres cosas del mismo modal, en paralelo: los avisos vivos, los
+      // hallazgos ya congelados, y la ventana que separa unos de otros.
+      const [resAlertas, resAnomalias, resConfig] = await Promise.all([
+        apiFetch("/api/erp/combustible/alertas?pageSize=100"),
+        apiFetch("/api/erp/combustible/anomalias?pageSize=100"),
+        apiFetch("/api/erp/combustible/config"),
+      ]);
+      const bodyAlertas = await resAlertas.json().catch(() => null);
+      const bodyAnomalias = await resAnomalias.json().catch(() => null);
+      const bodyConfig = await resConfig.json().catch(() => null);
+
+      setAlertasCombustible(Array.isArray(bodyAlertas?.data) ? bodyAlertas.data : []);
+      setAnomalias(Array.isArray(bodyAnomalias?.data) ? bodyAnomalias.data : []);
+      if (bodyConfig?.ventana_gracia_horas !== undefined) {
+        setVentanaGraciaHoras(String(bodyConfig.ventana_gracia_horas));
+      }
     } finally {
       setCargandoAlertas(false);
+    }
+  };
+
+  /** Subir la ventana AFLOJA el control (los hallazgos tardan más en
+   *  congelarse), por eso el backend lo audita con el "quién". */
+  const handleGuardarVentana = async () => {
+    const horas = Number(ventanaGraciaHoras);
+    if (guardandoVentana || !Number.isInteger(horas) || horas < 1 || horas > 8760) return;
+    setGuardandoVentana(true);
+    try {
+      const res = await apiFetch("/api/erp/combustible/config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ventana_gracia_horas: horas }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert(body.error || "No se pudo guardar la ventana.");
+        return;
+      }
+      setMensajeExito(
+        `Ventana de gracia actualizada a ${horas} horas. Un hueco sin explicación se ` +
+          `congela como anomalía después de ese plazo.`
+      );
+    } finally {
+      setGuardandoVentana(false);
     }
   };
 
@@ -3446,7 +3508,105 @@ export default function CombustiblePanel() {
               </button>
             </div>
 
+            {/* La ventana de gracia (migrations/0071). Va acá arriba y no en
+                una pantalla de configuración aparte: es el número que
+                decide cuándo una alerta de abajo se vuelve una anomalía, y
+                verlos juntos es lo que hace entendible el mecanismo. */}
+            <div className="px-6 py-4 bg-slate-50 border-b flex flex-wrap items-center gap-3 shrink-0">
+              <label
+                htmlFor="ventana-gracia"
+                className="text-xs font-bold text-slate-500 uppercase"
+              >
+                Ventana de gracia
+              </label>
+              <input
+                id="ventana-gracia"
+                type="number"
+                min={1}
+                max={8760}
+                className="w-24 border border-slate-200 rounded-lg p-2 outline-none focus:ring-2 focus:ring-slate-900"
+                value={ventanaGraciaHoras}
+                onChange={(e) => setVentanaGraciaHoras(e.target.value)}
+              />
+              <span className="text-sm text-slate-500">horas</span>
+              <button
+                onClick={handleGuardarVentana}
+                disabled={guardandoVentana}
+                className="px-3 py-2 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50"
+              >
+                {guardandoVentana ? "Guardando..." : "Guardar"}
+              </button>
+              <p className="text-[11px] text-slate-400 flex-1 min-w-[240px]">
+                Tiempo que un hueco tiene para explicarse solo (un vale que sincroniza sin señal,
+                uno que se anula) antes de congelarse como anomalía permanente. Pasado ese plazo se
+                congela <strong>solo</strong>, sin que nadie tenga que revisarlo.
+              </p>
+            </div>
+
             <div className="p-6 overflow-y-auto overflow-x-auto">
+              {/* Anomalías: los hallazgos ya congelados. Van ARRIBA de las
+                  alertas porque son las que de verdad importan -- una fila
+                  acá es un faltante que nadie explicó en su plazo. */}
+              {anomalias.length > 0 && (
+                <div className="mb-8">
+                  <h4 className="text-sm font-bold text-red-700 uppercase tracking-wide mb-1">
+                    Anomalías congeladas ({anomalias.length})
+                  </h4>
+                  <p className="text-xs text-slate-500 mb-3">
+                    Pasaron su ventana de gracia sin explicación. No se pueden editar ni borrar: son
+                    evidencia.
+                  </p>
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-red-50">
+                      <tr>
+                        <th className="p-3 text-xs font-bold text-red-400 uppercase tracking-widest">
+                          Tipo
+                        </th>
+                        <th className="p-3 text-xs font-bold text-red-400 uppercase tracking-widest">
+                          Vale
+                        </th>
+                        <th className="p-3 text-xs font-bold text-red-400 uppercase tracking-widest">
+                          Detectada
+                        </th>
+                        <th className="p-3 text-xs font-bold text-red-400 uppercase tracking-widest">
+                          Congelada
+                        </th>
+                        <th className="p-3 text-xs font-bold text-red-400 uppercase tracking-widest text-right">
+                          Sin explicar
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-red-100">
+                      {anomalias.map((a) => (
+                        <tr key={a.id} className="align-top">
+                          <td className="p-3 text-sm text-slate-800">
+                            {ETIQUETA_TIPO_ALERTA[a.tipo]}
+                          </td>
+                          <td className="p-3 text-sm text-slate-800 font-mono">
+                            {a.serie_talonario}-{String(a.n_vale).padStart(5, "0")}
+                          </td>
+                          <td className="p-3 text-sm text-slate-600 whitespace-nowrap">
+                            {new Date(a.detectada_en).toLocaleString("es-PE")}
+                          </td>
+                          <td className="p-3 text-sm text-slate-600 whitespace-nowrap">
+                            {new Date(a.congelada_en).toLocaleString("es-PE")}
+                          </td>
+                          <td className="p-3 text-sm text-right text-red-600 font-semibold whitespace-nowrap">
+                            {a.ventana_horas} h
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {anomalias.length > 0 && (
+                <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wide mb-3">
+                  Alertas activas
+                </h4>
+              )}
+
               {cargandoAlertas ? (
                 <p className="text-center text-slate-500 py-8">Cargando alertas...</p>
               ) : alertasCombustible.length === 0 ? (
