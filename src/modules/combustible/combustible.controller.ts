@@ -80,7 +80,11 @@ export class CombustibleController {
         combustibleId: nuevo.id,
       });
       res.status(201).json(nuevo);
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("supera la capacidad del tanque")) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
       res.status(500).json({ error: "Error al crear el tanque" });
     }
   }
@@ -109,7 +113,14 @@ export class CombustibleController {
         combustibleId: id,
       });
       res.json(actualizado);
-    } catch {
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        err.message.includes("supera la capacidad que estás por guardar")
+      ) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
       res.status(500).json({ error: "Error al actualizar el tanque" });
     }
   }

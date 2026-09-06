@@ -314,6 +314,54 @@ describe("combustible: ABM de tanques (Fase A)", () => {
     expect(segundo.status).toBe(500);
   });
 
+  it("rechaza crear un tanque con nivel_actual mayor que capacidad_total + tolerancia", async () => {
+    // 21.000 sobre una capacidad de 20.000 y tolerancia 0%: la misma
+    // contradicción física que bloquea una recepción, pero en el alta.
+    const res = await agent
+      .post("/api/erp/combustible")
+      .send(
+        payloadTanque({ capacidad_total: 20000, nivel_actual: 21000, tolerancia_capacidad_pct: 0 })
+      );
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("supera la capacidad del tanque");
+  });
+
+  it("acepta crear un tanque con nivel_actual dentro de la tolerancia declarada", async () => {
+    const res = await agent
+      .post("/api/erp/combustible")
+      .send(
+        payloadTanque({ capacidad_total: 20000, nivel_actual: 21000, tolerancia_capacidad_pct: 10 })
+      );
+    expect(res.status).toBe(201);
+    expect(Number(res.body.nivel_actual)).toBe(21000);
+  });
+
+  it("rechaza bajar capacidad_total por PUT si el nivel actual del tanque ya la supera", async () => {
+    const creado = await agent
+      .post("/api/erp/combustible")
+      .send(payloadTanque({ capacidad_total: 20000, nivel_actual: 15000 }));
+    expect(creado.status).toBe(201);
+
+    // Bajar la capacidad a 10.000 deja el nivel real (15.000) por encima --
+    // mismo hueco que el nivel inicial, pero abierto por PUT en vez de POST.
+    const res = await agent.put(`/api/erp/combustible/${creado.body.id}`).send({
+      codigo: creado.body.codigo,
+      tanque_nombre: creado.body.tanque_nombre,
+      tipo_combustible: creado.body.tipo_combustible,
+      unidad: creado.body.unidad,
+      tipo_punto: creado.body.tipo_punto,
+      capacidad_total: 10000,
+      nivel_minimo: 0,
+      moneda: "PEN",
+      activo: true,
+      tolerancia_capacidad_pct: 0,
+      requiere_documento: true,
+      umbral_diferencia_pct: 0,
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("supera la capacidad que estás por guardar");
+  });
+
   it("actualiza un tanque -- PUT no acepta nivel_actual, ese camino es /lecturas", async () => {
     const creado = await agent.post("/api/erp/combustible").send(payloadTanque());
     const res = await agent.put(`/api/erp/combustible/${creado.body.id}`).send({
