@@ -51,6 +51,7 @@
     "vite-plugin-svgr": "^5.2.0"
   },
   "overrides": {
-    "d3-color": "^3.1.0"
+    "d3-color": "^3.1.0",
+    "fast-uri": "^3.1.7"
   }
 }
