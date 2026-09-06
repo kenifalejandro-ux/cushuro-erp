@@ -156,6 +156,54 @@ export async function enviarCorreoAlertaNivelBajo(
   });
 }
 
+/** El balance del tanque no cierra (migración 0074): entre dos lecturas de
+ *  varilla, el nivel medido no coincide con lo que los movimientos
+ *  registrados explican.
+ *
+ *  El correo muestra la cuenta completa y no solo el resultado: quien lo
+ *  recibe tiene que poder ver de dónde sale el número sin entrar al sistema,
+ *  porque la primera reacción útil es acordarse de un movimiento que no se
+ *  cargó -- y para eso hay que ver qué SÍ se contó. */
+export async function enviarCorreoAlertaDescuadre(
+  destinatarios: Destinatario[],
+  params: {
+    tanqueNombre: string;
+    unidad: string;
+    nivelAnterior: number;
+    nivelMedido: number;
+    despachos: number;
+    recepciones: number;
+    esperado: number;
+    descuadreLitros: number;
+    sentido: "falta" | "sobra";
+    umbralPct: number;
+  }
+) {
+  const u = params.unidad;
+  const faltante = params.sentido === "falta";
+  const magnitud = Math.abs(params.descuadreLitros);
+
+  await enviarCorreoAlerta({
+    destinatarios,
+    asunto: `Combustible: ${faltante ? "faltan" : "sobran"} ${magnitud} ${u} en ${params.tanqueNombre}`,
+    titulo: `El balance de ${params.tanqueNombre} no cierra`,
+    lineas: [
+      `Nivel de la lectura anterior: ${params.nivelAnterior} ${u}.`,
+      `Recepciones registradas en el período: +${params.recepciones} ${u}.`,
+      `Despachos registrados en el período: −${params.despachos} ${u}.`,
+      `Debería haber quedado en ${params.esperado} ${u}, pero la varilla marcó ` +
+        `${params.nivelMedido} ${u}.`,
+      faltante
+        ? `Faltan ${magnitud} ${u} que ningún vale ni anulación explica. Puede ser un ` +
+          `despacho que no se registró, una fuga, o una sustracción.`
+        : `Sobran ${magnitud} ${u}: los vales declaran más salida de la que realmente ` +
+          `hubo. Puede ser un error de tipeo en un vale, o combustible cargado en el ` +
+          `papel a una unidad que nunca lo recibió.`,
+      `El umbral configurado para este tanque es ${params.umbralPct}% de su capacidad.`,
+    ],
+  });
+}
+
 /** Un vale que sí se había registrado se anuló -- a diferencia del hueco,
  *  esto siempre tiene un motivo escrito por quien lo anuló, pero necesita
  *  revisión: "todo tiene que tener sustento". */

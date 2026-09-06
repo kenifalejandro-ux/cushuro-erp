@@ -151,8 +151,15 @@ export class CombustibleService {
         // dos requests simultáneos; esto es solo para dar la señal correcta
         // en el caso común (no concurrente).
         if (await this.repository.existeVale(client, tenantId, data.serie_talonario, data.n_vale)) {
+          // El mensaje dice qué hacer, no solo qué pasó: quien lo lee está
+          // parado frente al surtidor con la máquina esperando. Y nombra el
+          // caso que más lo confunde -- que otro dispositivo lo haya cargado
+          // sin red y recién ahora haya sincronizado, así que el número que
+          // el operario tiene en la mano ya está ocupado sin que él lo sepa.
           throw new Error(
-            `el vale ${data.n_vale} de la serie ${data.serie_talonario} ya está registrado`
+            `el vale ${data.n_vale} de la serie ${data.serie_talonario} ya está registrado. ` +
+              `Puede haberlo cargado otra persona, u otro dispositivo que estaba sin red y ` +
+              `recién sincronizó. Verificá el talonario y usá el siguiente número libre`
           );
         }
 
@@ -539,6 +546,81 @@ export class CombustibleService {
       nivelMinimo: minimo,
       unidad: tanque.unidad,
       tanqueNombre: tanque.tanque_nombre,
+    };
+  }
+
+  /** Descuadre de inventario (migración 0074): el balance del tanque entre
+   *  dos lecturas de varilla consecutivas.
+   *
+   *      esperado  = nivel_anterior + recepciones − despachos
+   *      descuadre = nivel_medido − esperado
+   *
+   *  Negativo = falta (salió más de lo que los papeles explican: robo, fuga,
+   *  o un despacho que nadie registró). Positivo = sobra (los vales dicen
+   *  más de lo que realmente salió: mal tipeo, o combustible cargado en el
+   *  papel a una máquina que nunca lo recibió). Las dos son anomalía.
+   *
+   *  Corre al registrar la lectura y NO bloquea: la duda depende de otras
+   *  filas -- todos los movimientos del intervalo -- así que se marca, no se
+   *  rechaza. Misma regla que el sobredespacho (ver 0070).
+   *
+   *  **El umbral se mide contra la capacidad del tanque**, no contra lo que
+   *  se movió. La fuente de ruido dominante es la varilla, y su error escala
+   *  con el tamaño del tanque, no con cuánto entró o salió ese día. Además
+   *  nunca divide por cero, cosa que sí pasaría con un intervalo sin
+   *  movimientos. El costo conocido de esa elección: un descuadre chico en
+   *  términos del tanque pero grande respecto de lo que se movió (50 L
+   *  perdidos de 100 L despachados en un tanque de 20.000) pasa por debajo.
+   *  Se revisa cuando haya datos reales con qué calibrar. */
+  async evaluarDescuadre(
+    client: PoolClient,
+    tenantId: string,
+    combustibleId: number,
+    lecturaId: number,
+    nivel: number,
+    leidoEn: string
+  ) {
+    const datos = await this.repository.findDatosDescuadre(
+      client,
+      tenantId,
+      combustibleId,
+      lecturaId,
+      leidoEn
+    );
+    if (!datos) return null;
+
+    // 0 = sin configurar, no alertar todavía -- mismo criterio que
+    // umbral_diferencia_pct (0066) y nivel_minimo en evaluarNivelBajo.
+    const umbralPct = Number(datos.umbral_descuadre_pct);
+    if (umbralPct <= 0) return null;
+
+    const nivelAnterior = Number(datos.nivel_anterior);
+    const despachos = Number(datos.despachos);
+    const recepciones = Number(datos.recepciones);
+    const capacidad = Number(datos.capacidad_total);
+
+    const esperado = nivelAnterior + recepciones - despachos;
+    const descuadre = nivel - esperado;
+    const toleradoLitros = (capacidad * umbralPct) / 100;
+
+    if (Math.abs(descuadre) <= toleradoLitros) return null;
+
+    return {
+      tanqueNombre: datos.tanque_nombre,
+      unidad: datos.unidad,
+      nivelAnterior,
+      nivelMedido: nivel,
+      despachos,
+      recepciones,
+      esperado,
+      descuadreLitros: descuadre,
+      // Lo que el correo y la pantalla necesitan para explicarse sin
+      // recalcular nada del lado del que lee.
+      sentido: descuadre < 0 ? ("falta" as const) : ("sobra" as const),
+      umbralPct,
+      toleradoLitros,
+      lecturaAnteriorId: Number(datos.lectura_anterior_id),
+      lecturaId,
     };
   }
 

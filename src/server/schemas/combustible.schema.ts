@@ -33,6 +33,9 @@ export const crearTanqueCombustibleSchema = z.object({
   // 0 = "no alertar todavía", no "tolerancia cero" (migrations/0066): hasta
   // tener historial propio del tanque, cualquier número sería inventado.
   umbral_diferencia_pct: z.number().min(0).max(100).default(0),
+  // Mismo criterio de "0 = no alertar todavía" para el balance del tanque
+  // (migrations/0074).
+  umbral_descuadre_pct: z.number().min(0).max(100).default(0),
 });
 
 export type CrearTanqueCombustibleInput = z.infer<typeof crearTanqueCombustibleSchema>;
@@ -58,6 +61,7 @@ export const actualizarTanqueCombustibleSchema = z.object({
   tolerancia_capacidad_pct: z.number().min(0).max(100),
   requiere_documento: z.boolean(),
   umbral_diferencia_pct: z.number().min(0).max(100),
+  umbral_descuadre_pct: z.number().min(0).max(100),
 });
 
 export type ActualizarTanqueCombustibleInput = z.infer<typeof actualizarTanqueCombustibleSchema>;
