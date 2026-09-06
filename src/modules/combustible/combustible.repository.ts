@@ -103,6 +103,21 @@ export class CombustibleRepository {
    *  tendría nivel que mostrar. Además deja el arranque visible en el
    *  historial, que antes no figuraba en ningún lado. */
   async create(client: PoolClient, tenantId: string, data: CrearTanqueCombustibleInput) {
+    // Mismo techo que validarRecepcion en el service (capacidad + tolerancia):
+    // un nivel inicial que ya nace por encima es la misma contradicción física
+    // que una recepción que lo empuja ahí, así que no puede colarse solo
+    // porque llega por un camino distinto (INSERT directo, no recepción).
+    const capacidad = Number(data.capacidad_total);
+    const toleranciaPct = Number(data.tolerancia_capacidad_pct);
+    const techo = capacidad * (1 + toleranciaPct / 100);
+    if (data.nivel_actual > techo) {
+      const detalleTolerancia =
+        toleranciaPct > 0 ? ` + ${toleranciaPct}% de tolerancia (${techo.toFixed(2)})` : "";
+      throw new Error(
+        `el nivel inicial ${data.nivel_actual} supera la capacidad del tanque (${capacidad}${detalleTolerancia})`
+      );
+    }
+
     const creado = await client.query<{ id: number }>(
       `
       INSERT INTO combustible (
@@ -151,6 +166,25 @@ export class CombustibleRepository {
     id: number,
     data: ActualizarTanqueCombustibleInput
   ) {
+    // Mismo techo que en create(): si bajan capacidad_total o tolerancia por
+    // debajo de lo que ya hay cargado (vía lecturas), la fila queda
+    // contradiciéndose a sí misma apenas se guarda, sin que ninguna recepción
+    // ni lectura nueva lo dispare. NULL (sin lectura vigente) no se puede
+    // comparar contra nada, así que no bloquea.
+    const actual = await this.findById(client, tenantId, id);
+    if (actual && actual.nivel_actual !== null) {
+      const capacidad = Number(data.capacidad_total);
+      const toleranciaPct = Number(data.tolerancia_capacidad_pct);
+      const techo = capacidad * (1 + toleranciaPct / 100);
+      if (Number(actual.nivel_actual) > techo) {
+        const detalleTolerancia =
+          toleranciaPct > 0 ? ` + ${toleranciaPct}% de tolerancia (${techo.toFixed(2)})` : "";
+        throw new Error(
+          `el nivel actual del tanque (${actual.nivel_actual}) supera la capacidad que estás por guardar (${capacidad}${detalleTolerancia})`
+        );
+      }
+    }
+
     const result = await client.query(
       `
       UPDATE combustible SET
