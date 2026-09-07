@@ -701,6 +701,14 @@ export default function CombustiblePanel() {
   /** Hallazgos críticos SIN RESOLVER -- distinto de "sin leer": una alerta
    *  leída sigue abierta hasta que alguien la revisa y la cierra. */
   const [criticasAbiertas, setCriticasAbiertas] = useState(0);
+  /** La alerta que se abrió desde la campanita, para llevarla a la vista y
+   *  resaltarla. La notificación es un PUNTERO: su trabajo es dejarte
+   *  parado sobre el hallazgo, no reemplazar a la bandeja donde se actúa. */
+  const [alertaResaltadaId, setAlertaResaltadaId] = useState<number | null>(null);
+  const cerrarModalAlertas = () => {
+    setModalAlertasAbierto(false);
+    setAlertaResaltadaId(null);
+  };
   // La confirmación va DENTRO del modal, no en el banner verde de la
   // pantalla principal: ese banner queda tapado por el propio modal, así
   // que guardar parecía no hacer nada (reportado en pantalla por Kenif).
@@ -771,6 +779,15 @@ export default function CombustiblePanel() {
       setLoading(false)
     );
   }, [cargarTanques, cargarEquipos, cargarGrifos]);
+
+  /** Lleva la fila resaltada a la vista una vez que la bandeja terminó de
+   *  cargar. Sin esto, en una lista larga el usuario aterriza arriba y la
+   *  alerta que vino a ver puede estar veinte filas más abajo. */
+  useEffect(() => {
+    if (alertaResaltadaId === null || cargandoAlertas) return;
+    const fila = document.getElementById(`alerta-${alertaResaltadaId}`);
+    fila?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [alertaResaltadaId, cargandoAlertas, alertasCombustible]);
 
   /** Cuenta los hallazgos críticos abiertos para la franja de arriba. Pide
    *  TODAS las alertas y no solo las no leídas: el punto de la franja es que
@@ -1592,6 +1609,24 @@ export default function CombustiblePanel() {
       setCargandoAlertas(false);
     }
   };
+
+  /** La campanita avisa por `window` y no por props: el Header y este panel
+   *  están separados por el `children` del Layout, y enhebrar el id a través
+   *  de esa frontera pediría reestructurar tres componentes para un salto.
+   *
+   *  (Además evita un import compartido entre estos dos archivos, que es lo
+   *  que hace crashear a eslint-plugin-import -- ver gravedadAlertas.ts.) */
+  useEffect(() => {
+    const alClickearNotificacion = (evento: Event) => {
+      const alertaId = (evento as CustomEvent<{ alertaId: number }>).detail?.alertaId;
+      if (typeof alertaId !== "number") return;
+      setAlertaResaltadaId(alertaId);
+      abrirModalAlertas();
+    };
+    window.addEventListener("combustible:abrir-alerta", alClickearNotificacion);
+    return () => window.removeEventListener("combustible:abrir-alerta", alClickearNotificacion);
+    // abrirModalAlertas se redefine en cada render y no hace falta re-suscribir.
+  }, []);
 
   /** Subir la ventana AFLOJA el control (los hallazgos tardan más en
    *  congelarse), por eso el backend lo audita con el "quién". */
@@ -3855,7 +3890,7 @@ export default function CombustiblePanel() {
                 </p>
               </div>
               <button
-                onClick={() => setModalAlertasAbierto(false)}
+                onClick={cerrarModalAlertas}
                 className="text-slate-400 hover:text-slate-900 text-2xl"
               >
                 ×
@@ -4025,7 +4060,15 @@ export default function CombustiblePanel() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {alertasCombustible.map((a) => (
-                      <tr key={a.id} className="align-top hover:bg-slate-50/50 transition-colors">
+                      <tr
+                        key={a.id}
+                        id={`alerta-${a.id}`}
+                        className={
+                          a.id === alertaResaltadaId
+                            ? "align-top bg-amber-50 ring-2 ring-inset ring-amber-400 transition-colors"
+                            : "align-top hover:bg-slate-50/50 transition-colors"
+                        }
+                      >
                         <td className="p-3 text-sm text-slate-800">
                           {ETIQUETA_TIPO_ALERTA[a.tipo]}
                         </td>

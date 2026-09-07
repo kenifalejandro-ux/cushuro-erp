@@ -137,5 +137,20 @@ export function useAlertasCombustibleStream(activo: boolean) {
     await cargar();
   }, [alertas, cargar]);
 
-  return { alertas, noLeidas, marcarTodasLeidas, recargar: cargar };
+  /** Marca leída UNA alerta: la que el usuario acaba de abrir. Abrir es
+   *  verla, y eso sí justifica marcarla -- a diferencia del botón masivo,
+   *  que marcaba cosas que nunca se mostraron. */
+  const marcarUnaLeida = useCallback(
+    async (id: number) => {
+      await apiFetch("/api/erp/combustible/alertas/leidas", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [id] }),
+      });
+      await cargar();
+    },
+    [cargar]
+  );
+
+  return { alertas, noLeidas, marcarTodasLeidas, marcarUnaLeida, recargar: cargar };
 }

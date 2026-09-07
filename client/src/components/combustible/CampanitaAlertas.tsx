@@ -52,7 +52,28 @@ interface CampanitaAlertasProps {
 
 export default function CampanitaAlertas({ activo, onIrACombustible }: CampanitaAlertasProps) {
   const [abierta, setAbierta] = useState(false);
-  const { alertas, noLeidas, marcarTodasLeidas } = useAlertasCombustibleStream(activo);
+  const { alertas, noLeidas, marcarTodasLeidas, marcarUnaLeida } =
+    useAlertasCombustibleStream(activo);
+
+  /** La notificación es un PUNTERO al hallazgo, no el lugar donde se
+   *  trabaja: lleva a la bandeja de alertas y deja al usuario parado sobre
+   *  la fila. Ahí es donde se revisa y se cierra con motivo.
+   *
+   *  Es el patrón de los ERP grandes (el "My Inbox" de SAP Fiori y
+   *  equivalentes): la campanita avisa, la bandeja dispone. Hacer la
+   *  campanita más rica sería el camino equivocado -- los centros de
+   *  notificaciones son célebres por terminar ignorados; lo que funciona es
+   *  que lo crítico se convierta en una tarea que alguien tiene que
+   *  despachar.
+   *
+   *  Marca leída SOLO esta: abrirla es verla. */
+  const abrirAlerta = (alertaId: number) => {
+    setAbierta(false);
+    void marcarUnaLeida(alertaId);
+    onIrACombustible?.();
+    // El panel escucha por `window` -- ver el comentario en CombustiblePanel.
+    window.dispatchEvent(new CustomEvent("combustible:abrir-alerta", { detail: { alertaId } }));
+  };
   // Un contador solo no distingue "tres avisos de reposición" de "tres
   // sospechas de robo". El color del badge sí.
   const criticasSinLeer = alertas.filter((a) => esCritica(a.tipo)).length;
@@ -102,12 +123,16 @@ export default function CampanitaAlertas({ activo, onIrACombustible }: Campanita
                 [...alertas]
                   .sort((x, y) => Number(esCritica(y.tipo)) - Number(esCritica(x.tipo)))
                   .map((a) => (
-                    <div
+                    <button
                       key={a.id}
+                      type="button"
+                      onClick={() => abrirAlerta(a.id)}
+                      title="Ver en la bandeja de alertas"
                       className={
-                        esCritica(a.tipo)
+                        "w-full text-left cursor-pointer hover:bg-slate-100/70 transition-colors " +
+                        (esCritica(a.tipo)
                           ? "p-3 border-b border-slate-50 last:border-0 border-l-4 border-l-red-500 bg-red-50/40"
-                          : "p-3 border-b border-slate-50 last:border-0 border-l-4 border-l-transparent"
+                          : "p-3 border-b border-slate-50 last:border-0 border-l-4 border-l-transparent")
                       }
                     >
                       {esCritica(a.tipo) && (
@@ -122,7 +147,7 @@ export default function CampanitaAlertas({ activo, onIrACombustible }: Campanita
                       <p className="text-[10px] text-slate-400 mt-1">
                         {new Date(a.creado_en).toLocaleString("es-PE")}
                       </p>
-                    </div>
+                    </button>
                   ))
               )}
             </div>
