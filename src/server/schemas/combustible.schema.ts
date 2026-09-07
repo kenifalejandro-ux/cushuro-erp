@@ -68,6 +68,15 @@ export const actualizarTanqueCombustibleSchema = z.object({
   umbral_diferencia_pct: z.number().min(0).max(100).nullable(),
   umbral_descuadre_pct: z.number().min(0).max(100).nullable(),
   umbral_descuadre_ciclo_pct: z.number().min(0).max(100).nullable(),
+  /** Obligatorio SOLO si el cambio AFLOJA una vigilancia (subir un umbral,
+   *  apagarlo poniéndolo en null, o dejar de exigir documento). No se puede
+   *  validar acá porque depende de los valores actuales del tanque, que Zod
+   *  no ve -- lo exige el service. Ver `evaluarAflojamiento`.
+   *
+   *  Motivo de que exista: hasta 0077, pasar el umbral de 1% a 90% -- que es
+   *  APAGAR la detección de fraude -- quedaba en la auditoría igual que
+   *  renombrar el tanque. */
+  motivo_ajuste: z.string().trim().min(1).max(500).optional(),
 });
 
 export type ActualizarTanqueCombustibleInput = z.infer<typeof actualizarTanqueCombustibleSchema>;
@@ -185,7 +194,23 @@ export const crearDespachoCombustibleSchema = z
 
     // Cuándo se hizo el despacho en cancha -- opcional, mismo criterio que
     // `leido_en` de una lectura: sin dato, el service usa now().
-    despachado_en: z.string().datetime().optional(),
+    //
+    // NO puede estar en el FUTURO (0077). Un vale fechado adelante queda
+    // fuera del intervalo que se está balanceando ahora y entra en uno que
+    // todavía no ocurrió: sirve para dejar preparada una explicación de un
+    // faltante que aún no pasó. La auditoría adversaria lo aceptó con un mes
+    // de adelanto sin ninguna queja.
+    //
+    // El margen de 1 hora no es capricho: los dispositivos de cancha vienen
+    // con el reloj corrido, y rechazar un vale legítimo por dos minutos de
+    // desfase dejaría a alguien sin poder registrar lo que sí hizo.
+    despachado_en: z
+      .string()
+      .datetime()
+      .refine((valor) => new Date(valor).getTime() <= Date.now() + 60 * 60 * 1000, {
+        message: "La fecha del despacho no puede estar en el futuro",
+      })
+      .optional(),
 
     // Costos (migrations/0063). Obligatorio siempre -- Kenif lo confirmó
     // contra su planilla real, donde C.U está lleno en cada fila, para los
@@ -332,6 +357,16 @@ export type MarcarAlertasLeidasCombustibleInput = z.infer<
  *  congelarse como anomalía permanente. Los límites son espejo del CHECK de
  *  la migración: menos de 1h congelaría vales que todavía están
  *  sincronizando; más de un año es no conciliar nunca. */
+/** Revisar una alerta a mano. El motivo es OBLIGATORIO por el mismo criterio
+ *  que en `anularLecturaCombustibleSchema`: cerrar una alerta anti-fraude sin
+ *  decir por qué es indistinguible de taparla, y "todo tiene que tener
+ *  sustento". Antes de 0077 esta acción no pedía nada. */
+export const resolverAlertaCombustibleSchema = z.object({
+  motivo: z.string().trim().min(1, "El motivo de la revisión es obligatorio").max(500),
+});
+
+export type ResolverAlertaCombustibleInput = z.infer<typeof resolverAlertaCombustibleSchema>;
+
 export const configCombustibleSchema = z.object({
   ventana_gracia_horas: z.number().int().min(1).max(8760),
   // Cada cuántos días se exige tomar varilla (migración 0076). Sin lecturas

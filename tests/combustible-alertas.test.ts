@@ -198,18 +198,18 @@ describe("combustible: alertas (Fase D, migración 0068)", () => {
         a.tipo === "hueco_detectado" && a.serie_talonario === serie
     );
 
-    const resueltaAnulacion = await agente.patch(
-      `/api/erp/combustible/alertas/${alertaAnulacion.id}/resolver`
-    );
+    const resueltaAnulacion = await agente
+      .patch(`/api/erp/combustible/alertas/${alertaAnulacion.id}/resolver`)
+      .send({ motivo: "Revisado y dado por bueno" });
     expect(resueltaAnulacion.status).toBe(200);
     expect(resueltaAnulacion.body.resuelta_en).not.toBeNull();
     expect(resueltaAnulacion.body.resuelta_por).not.toBeNull();
 
     // Un hueco se resuelve solo -- el endpoint de revisión manual no le
     // aplica, ni siquiera aunque siga sin explicarse.
-    const intentoHueco = await agente.patch(
-      `/api/erp/combustible/alertas/${alertaHueco.id}/resolver`
-    );
+    const intentoHueco = await agente
+      .patch(`/api/erp/combustible/alertas/${alertaHueco.id}/resolver`)
+      .send({ motivo: "Revisado y dado por bueno" });
     expect(intentoHueco.status).toBe(404);
   });
 
@@ -226,10 +226,14 @@ describe("combustible: alertas (Fase D, migración 0068)", () => {
         a.tipo === "vale_anulado" && a.serie_talonario === serie
     );
 
-    const primera = await agente.patch(`/api/erp/combustible/alertas/${alerta.id}/resolver`);
+    const primera = await agente
+      .patch(`/api/erp/combustible/alertas/${alerta.id}/resolver`)
+      .send({ motivo: "Revisado y dado por bueno" });
     expect(primera.status).toBe(200);
 
-    const segunda = await agente.patch(`/api/erp/combustible/alertas/${alerta.id}/resolver`);
+    const segunda = await agente
+      .patch(`/api/erp/combustible/alertas/${alerta.id}/resolver`)
+      .send({ motivo: "Revisado y dado por bueno" });
     expect(segunda.status).toBe(404);
   });
 
