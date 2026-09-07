@@ -37,6 +37,10 @@ export const crearTanqueCombustibleSchema = z.object({
   // expresar -- ver el encabezado de 0075.
   umbral_diferencia_pct: z.number().min(0).max(100).nullable().default(null),
   umbral_descuadre_pct: z.number().min(0).max(100).nullable().default(null),
+  // El acumulado del ciclo (migración 0076). Va aparte del de tramo porque
+  // el ruido de la varilla se suma a lo largo del ciclo: el mismo número
+  // para los dos haría que este alertara todos los días.
+  umbral_descuadre_ciclo_pct: z.number().min(0).max(100).nullable().default(null),
 });
 
 export type CrearTanqueCombustibleInput = z.infer<typeof crearTanqueCombustibleSchema>;
@@ -63,6 +67,7 @@ export const actualizarTanqueCombustibleSchema = z.object({
   requiere_documento: z.boolean(),
   umbral_diferencia_pct: z.number().min(0).max(100).nullable(),
   umbral_descuadre_pct: z.number().min(0).max(100).nullable(),
+  umbral_descuadre_ciclo_pct: z.number().min(0).max(100).nullable(),
 });
 
 export type ActualizarTanqueCombustibleInput = z.infer<typeof actualizarTanqueCombustibleSchema>;
@@ -329,6 +334,11 @@ export type MarcarAlertasLeidasCombustibleInput = z.infer<
  *  sincronizando; más de un año es no conciliar nunca. */
 export const configCombustibleSchema = z.object({
   ventana_gracia_horas: z.number().int().min(1).max(8760),
+  // Cada cuántos días se exige tomar varilla (migración 0076). Sin lecturas
+  // no hay descuadre que calcular ni diferencia de recepción que comparar:
+  // dejar de medir apaga las dos detecciones de una, y eso es exactamente
+  // lo que esta alerta vigila.
+  dias_sin_medir: z.number().int().min(1).max(365),
 });
 
 export type ConfigCombustibleInput = z.infer<typeof configCombustibleSchema>;

@@ -155,7 +155,7 @@ describe("combustible: conciliación de período (Fase D, migraciones 0071/0072)
 
     const guardada = await agente
       .put("/api/erp/combustible/config")
-      .send({ ventana_gracia_horas: 5 });
+      .send({ ventana_gracia_horas: 5, dias_sin_medir: 3 });
     expect(guardada.status).toBe(200);
     expect(guardada.body.ventana_gracia_horas).toBe(5);
 
@@ -170,7 +170,9 @@ describe("combustible: conciliación de período (Fase D, migraciones 0071/0072)
     expect(anomalias[0].ventana_horas).toBe(5);
 
     // Se restaura para no contaminar los tests que siguen.
-    await agente.put("/api/erp/combustible/config").send({ ventana_gracia_horas: 72 });
+    await agente
+      .put("/api/erp/combustible/config")
+      .send({ ventana_gracia_horas: 72, dias_sin_medir: 3 });
   });
 
   it("un vale que llega DESPUÉS de congelarse no resucita la anomalía: entra como despacho_tardio", async () => {
