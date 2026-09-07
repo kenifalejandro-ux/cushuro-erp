@@ -283,10 +283,22 @@ export class CombustibleController {
         return res.status(404).json({ error: "No encontrado" });
       }
 
-      const sugerencia = await withTenant(tenantId, (client) =>
-        service.sugerirUmbralDiferencia(client, tenantId, id)
+      // Las tres sugerencias juntas: el formulario las muestra al lado de sus
+      // respectivos campos y el usuario decide cuál acepta. Van en un solo
+      // request porque las tres salen del mismo historial del tanque, y
+      // partirlas en tres endpoints haría tres pasadas sobre lo mismo.
+      //
+      // La forma de la respuesta cambió: antes era el objeto de la sugerencia
+      // de diferencia en la raíz, ahora es `{ diferencia, descuadre, ciclo }`.
+      // El único consumidor es el panel, que va en el mismo commit.
+      const [diferencia, descuadre, ciclo] = await withTenant(tenantId, (client) =>
+        Promise.all([
+          service.sugerirUmbralDiferencia(client, tenantId, id),
+          service.sugerirUmbralDescuadre(client, tenantId, id),
+          service.sugerirUmbralCiclo(client, tenantId, id),
+        ])
       );
-      res.json(sugerencia);
+      res.json({ diferencia, descuadre, ciclo });
     } catch {
       res.status(500).json({ error: "Error al calcular la sugerencia de umbral" });
     }

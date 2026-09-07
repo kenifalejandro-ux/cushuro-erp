@@ -2270,6 +2270,77 @@ export class CombustibleRepository {
     }));
   }
 
+  /** La muestra para calibrar los DOS umbrales de descuadre: un punto por
+   *  cada intervalo entre lecturas vigentes consecutivas.
+   *
+   *      descuadre = nivel − (nivel_anterior + recepciones − despachos)
+   *
+   *  Es la misma cuenta que hace `findDatosDescuadre` en vivo, pero sobre
+   *  todo el historial de una sola pasada, con `LAG()` en vez de un LIMIT 1
+   *  por fila: para un tanque con cientos de lecturas, la versión correlada
+   *  haría cientos de subconsultas.
+   *
+   *  Devuelve también `recepciones` y el instante de cada intervalo, porque
+   *  con eso el service arma la muestra del CICLO sin volver a la base: los
+   *  descuadres de los intervalos de un ciclo se suman (telescopan) y dan el
+   *  acumulado del ciclo. Un intervalo con recepción adentro es el que abre
+   *  un ciclo nuevo.
+   *
+   *  El desempate `(leido_en, id)` es el mismo del resto del módulo: dos
+   *  lecturas del mismo minuto tienen que ordenarse siempre igual, o la
+   *  muestra cambiaría entre corridas. */
+  async findMuestraDescuadresParaCalibracion(
+    client: PoolClient,
+    tenantId: string,
+    combustibleId: number
+  ): Promise<Array<{ descuadre: number; recepciones: number; capacidad: number; leido_en: Date }>> {
+    const result = await client.query<{
+      descuadre: string;
+      recepciones: string;
+      capacidad_total: string;
+      leido_en: Date;
+    }>(
+      `
+      WITH lecturas AS (
+        SELECT l.nivel, l.leido_en,
+               LAG(l.nivel) OVER (ORDER BY l.leido_en, l.id) AS nivel_anterior,
+               LAG(l.leido_en) OVER (ORDER BY l.leido_en, l.id) AS leido_en_anterior
+        FROM combustible_lecturas l
+        WHERE l.tenant_id = $1 AND l.combustible_id = $2 AND l.anulada_en IS NULL
+      )
+      SELECT
+        (le.nivel - (le.nivel_anterior + COALESCE(rec.total, 0) - COALESCE(des.total, 0)))
+          AS descuadre,
+        COALESCE(rec.total, 0) AS recepciones,
+        c.capacidad_total,
+        le.leido_en
+      FROM lecturas le
+      JOIN combustible c ON c.id = $2 AND c.tenant_id = $1
+      LEFT JOIN LATERAL (
+        SELECT SUM(d.cantidad) AS total
+        FROM combustible_despachos d
+        WHERE d.tenant_id = $1 AND d.combustible_id = $2 AND d.anulada_en IS NULL
+          AND d.despachado_en > le.leido_en_anterior AND d.despachado_en <= le.leido_en
+      ) des ON true
+      LEFT JOIN LATERAL (
+        SELECT SUM(r.cantidad) AS total
+        FROM combustible_recepciones r
+        WHERE r.tenant_id = $1 AND r.combustible_id = $2 AND r.anulada_en IS NULL
+          AND r.recibido_en > le.leido_en_anterior AND r.recibido_en <= le.leido_en
+      ) rec ON true
+      WHERE le.nivel_anterior IS NOT NULL
+      ORDER BY le.leido_en
+      `,
+      [tenantId, combustibleId]
+    );
+    return result.rows.map((f) => ({
+      descuadre: Number(f.descuadre),
+      recepciones: Number(f.recepciones),
+      capacidad: Number(f.capacidad_total),
+      leido_en: f.leido_en,
+    }));
+  }
+
   /** Distingue "no existe / es de otro tenant" (404) de "ya estaba anulada"
    *  (409) -- mismo motivo que findLecturaPorId/findPrecioPorId. */
   async findRecepcionPorId(client: PoolClient, tenantId: string, id: number) {

@@ -1,7 +1,9 @@
 /** tests/combustible-sugerencia-umbral.test.ts
  *
- * Fase D, entrega 3: el asistente de calibración de `umbral_diferencia_pct`
- * (migración 0066). Nunca guarda nada solo -- devuelve un número sugerido
+ * El asistente de calibración. Nació para `umbral_diferencia_pct` (migración
+ * 0066) y desde el PR de los tres umbrales sugiere también los dos de
+ * descuadre -- la respuesta pasó de ser la sugerencia suelta a
+ * `{ diferencia, descuadre, ciclo }`. Nunca guarda nada solo -- devuelve un número sugerido
  * MÁS la muestra completa que lo justifica, para que un admin la revise
  * antes de aceptarlo (ver el comentario largo de
  * CombustibleService.sugerirUmbralDiferencia).
@@ -106,10 +108,10 @@ describe("combustible: asistente de calibración de umbral (Fase D, entrega 3)",
 
     const res = await agente.get(`/api/erp/combustible/${tanqueId}/sugerencia-umbral`);
     expect(res.status).toBe(200);
-    expect(res.body.muestraSuficiente).toBe(false);
-    expect(res.body.tamanioMuestra).toBe(3);
-    expect(res.body.minimoRequerido).toBe(10);
-    expect(res.body.sugerido).toBeUndefined();
+    expect(res.body.diferencia.muestraSuficiente).toBe(false);
+    expect(res.body.diferencia.tamanioMuestra).toBe(3);
+    expect(res.body.diferencia.minimoRequerido).toBe(10);
+    expect(res.body.diferencia.sugerido).toBeUndefined();
   });
 
   it("con muestra suficiente, sugiere promedio + 2 desvíos de |diferencia_pct|, con piso 1%", async () => {
@@ -120,8 +122,8 @@ describe("combustible: asistente de calibración de umbral (Fase D, entrega 3)",
 
     const res = await agente.get(`/api/erp/combustible/${tanqueId}/sugerencia-umbral`);
     expect(res.status).toBe(200);
-    expect(res.body.muestraSuficiente).toBe(true);
-    expect(res.body.tamanioMuestra).toBe(10);
+    expect(res.body.diferencia.muestraSuficiente).toBe(true);
+    expect(res.body.diferencia.tamanioMuestra).toBe(10);
 
     // cantidad = 1000 -> diferencia_pct = (l / 1000) * 100 = l / 10.
     const pctAbs = diferenciasLitros.map((l) => Math.abs(l) / 10);
@@ -131,10 +133,10 @@ describe("combustible: asistente de calibración de umbral (Fase D, entrega 3)",
     const desviacionEsperada = Math.sqrt(varianzaEsperada);
     const sugeridoEsperado = Math.max(1, promedioEsperado + 2 * desviacionEsperada);
 
-    expect(res.body.promedio).toBeCloseTo(promedioEsperado, 1);
-    expect(res.body.desviacion).toBeCloseTo(desviacionEsperada, 1);
-    expect(res.body.sugerido).toBeCloseTo(sugeridoEsperado, 1);
-    expect(res.body.muestra).toHaveLength(10);
+    expect(res.body.diferencia.promedio).toBeCloseTo(promedioEsperado, 1);
+    expect(res.body.diferencia.desviacion).toBeCloseTo(desviacionEsperada, 1);
+    expect(res.body.diferencia.sugerido).toBeCloseTo(sugeridoEsperado, 1);
+    expect(res.body.diferencia.muestra).toHaveLength(10);
   });
 
   it("nunca sugiere por debajo del piso de 1%, aunque la muestra sea perfecta", async () => {
@@ -143,9 +145,9 @@ describe("combustible: asistente de calibración de umbral (Fase D, entrega 3)",
     await construirMuestra(tanqueId, grifoId, new Array(10).fill(0));
 
     const res = await agente.get(`/api/erp/combustible/${tanqueId}/sugerencia-umbral`);
-    expect(res.body.muestraSuficiente).toBe(true);
-    expect(res.body.promedio).toBe(0);
-    expect(res.body.sugerido).toBe(1);
+    expect(res.body.diferencia.muestraSuficiente).toBe(true);
+    expect(res.body.diferencia.promedio).toBe(0);
+    expect(res.body.diferencia.sugerido).toBe(1);
   });
 
   it("una recepción anulada no cuenta para la muestra", async () => {
@@ -153,14 +155,14 @@ describe("combustible: asistente de calibración de umbral (Fase D, entrega 3)",
     const ids = await construirMuestra(tanqueId, grifoId, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
     const antes = await agente.get(`/api/erp/combustible/${tanqueId}/sugerencia-umbral`);
-    expect(antes.body.tamanioMuestra).toBe(10);
+    expect(antes.body.diferencia.tamanioMuestra).toBe(10);
 
     await agente
       .patch(`/api/erp/combustible/recepciones/${ids[0]}/anular`)
       .send({ motivo: "recepción de prueba, anulada a propósito" });
 
     const despues = await agente.get(`/api/erp/combustible/${tanqueId}/sugerencia-umbral`);
-    expect(despues.body.tamanioMuestra).toBe(9);
+    expect(despues.body.diferencia.tamanioMuestra).toBe(9);
   });
 
   it("un tanque inexistente da 404", async () => {
