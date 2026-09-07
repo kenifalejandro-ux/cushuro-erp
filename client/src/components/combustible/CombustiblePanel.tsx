@@ -199,6 +199,15 @@ interface SugerenciaUmbral {
   muestra?: Array<{ cantidad: number; diferenciaLitros: number; diferenciaPct: number }>;
 }
 
+/** Las tres sugerencias vienen juntas del mismo endpoint: salen del mismo
+ *  historial del tanque, y partirlas en tres requests haría tres pasadas
+ *  sobre lo mismo. */
+interface SugerenciasUmbral {
+  diferencia: SugerenciaUmbral;
+  descuadre: SugerenciaUmbral;
+  ciclo: SugerenciaUmbral;
+}
+
 // Fase D (migrations/0072) -- el hallazgo YA congelado, a diferencia de
 // AlertaCombustible que es el aviso vivo. Append-only: no tiene estado de
 // resolución porque no se puede resolver, es evidencia.
@@ -308,6 +317,50 @@ const CONTROLES_VIGILANCIA = [
       "Sin umbral de diferencia: no se detecta que el proveedor facture más de lo que descarga.",
   },
 ] as const;
+
+/** Sugerencia compacta debajo de un campo de umbral. La versión rica -- con
+ *  la muestra fila por fila -- se quedó solo en el umbral de diferencia, que
+ *  es el que más se discute con el proveedor. Para los otros dos alcanza con
+ *  el número y de cuántas mediciones sale: lo que importa es que el valor
+ *  provisional del alta se pueda reemplazar por uno medido.
+ *
+ *  Nunca aplica sola: el botón lo aprieta una persona. Mismo criterio que la
+ *  sugerencia de diferencia y que sugerirRateLimitTenant() en plataforma. */
+function SugerenciaCompacta({
+  sugerencia,
+  cargando,
+  onUsar,
+}: {
+  sugerencia: SugerenciaUmbral | undefined;
+  cargando: boolean;
+  onUsar: (valor: number) => void;
+}) {
+  if (cargando) return <p className="text-[11px] text-slate-400">Calculando sugerencia...</p>;
+  if (!sugerencia) return null;
+
+  if (!sugerencia.muestraSuficiente) {
+    return (
+      <p className="text-[11px] text-slate-400">
+        Sugerencia automática: faltan mediciones ({sugerencia.tamanioMuestra}/
+        {sugerencia.minimoRequerido}). Hasta entonces, el valor de arriba es provisional.
+      </p>
+    );
+  }
+
+  return (
+    <p className="text-[11px] text-slate-500">
+      Sugerencia: <strong>{sugerencia.sugerido}%</strong> ({sugerencia.tamanioMuestra} mediciones,
+      promedio {sugerencia.promedio}% ± {sugerencia.desviacion}%){" "}
+      <button
+        type="button"
+        onClick={() => onUsar(sugerencia.sugerido ?? 0)}
+        className="text-slate-700 underline hover:text-slate-900"
+      >
+        Usar este valor
+      </button>
+    </p>
+  );
+}
 
 function vigilanciaDe(t: Tanque): {
   nivel: "sin" | "parcial" | "completa";
@@ -642,7 +695,7 @@ export default function CombustiblePanel() {
   // --- Asistente de calibración de umbral (Fase D, entrega 3) ---
   // No se pide al crear un tanque (no tiene historial todavía), solo al
   // editar uno existente.
-  const [sugerenciaUmbral, setSugerenciaUmbral] = useState<SugerenciaUmbral | null>(null);
+  const [sugerenciasUmbral, setSugerenciasUmbral] = useState<SugerenciasUmbral | null>(null);
   const [cargandoSugerenciaUmbral, setCargandoSugerenciaUmbral] = useState(false);
   const [mostrarMuestraUmbral, setMostrarMuestraUmbral] = useState(false);
 
@@ -896,7 +949,7 @@ export default function CombustiblePanel() {
     setFormData(FORM_INICIAL);
     setModoVigilancia(null);
     // Un tanque nuevo no tiene historial -- nada que sugerir todavía.
-    setSugerenciaUmbral(null);
+    setSugerenciasUmbral(null);
     setMostrarMuestraUmbral(false);
     setModalTanqueAbierto(true);
   };
@@ -909,7 +962,7 @@ export default function CombustiblePanel() {
     try {
       const res = await apiFetch(`/api/erp/combustible/${tanqueId}/sugerencia-umbral`);
       const body = await res.json().catch(() => null);
-      setSugerenciaUmbral(body);
+      setSugerenciasUmbral(body);
     } finally {
       setCargandoSugerenciaUmbral(false);
     }
@@ -921,7 +974,7 @@ export default function CombustiblePanel() {
     // 0077 si afloja). "personalizado" deja los campos a la vista.
     setModoVigilancia("personalizado");
     setEditandoId(t.id);
-    setSugerenciaUmbral(null);
+    setSugerenciasUmbral(null);
     setMostrarMuestraUmbral(false);
     cargarSugerenciaUmbral(t.id);
     setFormData({
@@ -2583,26 +2636,32 @@ export default function CombustiblePanel() {
                           <div className="mt-2 border border-slate-200 rounded-xl p-3 bg-slate-50/60 text-sm">
                             {cargandoSugerenciaUmbral ? (
                               <p className="text-slate-400">Calculando sugerencia...</p>
-                            ) : !sugerenciaUmbral ? null : !sugerenciaUmbral.muestraSuficiente ? (
+                            ) : !sugerenciasUmbral ? null : !sugerenciasUmbral.diferencia
+                                .muestraSuficiente ? (
                               <p className="text-slate-500">
                                 Todavía no hay muestra suficiente para sugerir un umbral (
-                                {sugerenciaUmbral.tamanioMuestra}/{sugerenciaUmbral.minimoRequerido}{" "}
-                                recepciones con lectura antes y después).
+                                {sugerenciasUmbral.diferencia.tamanioMuestra}/
+                                {sugerenciasUmbral.diferencia.minimoRequerido} recepciones con
+                                lectura antes y después).
                               </p>
                             ) : (
                               <div className="space-y-2">
                                 <div className="flex items-center justify-between gap-2">
                                   <p className="text-slate-700">
-                                    Sugerencia: <strong>{sugerenciaUmbral.sugerido}%</strong> (
-                                    {sugerenciaUmbral.tamanioMuestra} recepciones, promedio{" "}
-                                    {sugerenciaUmbral.promedio}% ± {sugerenciaUmbral.desviacion}%)
+                                    Sugerencia:{" "}
+                                    <strong>{sugerenciasUmbral.diferencia.sugerido}%</strong> (
+                                    {sugerenciasUmbral.diferencia.tamanioMuestra} recepciones,
+                                    promedio {sugerenciasUmbral.diferencia.promedio}% ±{" "}
+                                    {sugerenciasUmbral.diferencia.desviacion}%)
                                   </p>
                                   <button
                                     type="button"
                                     onClick={() =>
                                       setFormData({
                                         ...formData,
-                                        umbral_diferencia_pct: String(sugerenciaUmbral.sugerido),
+                                        umbral_diferencia_pct: String(
+                                          sugerenciasUmbral.diferencia.sugerido
+                                        ),
                                       })
                                     }
                                     className="shrink-0 px-3 py-1.5 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800"
@@ -2620,13 +2679,13 @@ export default function CombustiblePanel() {
                                 </button>
                                 {mostrarMuestraUmbral && (
                                   <ul className="text-xs text-slate-500 max-h-32 overflow-y-auto divide-y divide-slate-100">
-                                    {sugerenciaUmbral.muestra?.map((m, i) => (
+                                    {sugerenciasUmbral.diferencia.muestra?.map((m, i) => (
                                       <li key={i} className="py-1 flex justify-between gap-2">
                                         <span>{m.cantidad.toLocaleString("es-PE")} recibido</span>
                                         <span
                                           className={
                                             Math.abs(m.diferenciaPct) >
-                                            (sugerenciaUmbral.sugerido ?? 0)
+                                            (sugerenciasUmbral.diferencia.sugerido ?? 0)
                                               ? "text-red-500 font-medium"
                                               : ""
                                           }
@@ -2673,6 +2732,15 @@ export default function CombustiblePanel() {
                           saber cuánto ruido produce la varilla de este tanque.{" "}
                           <strong>0 = alertar por cualquier faltante o sobrante</strong>.
                         </p>
+                        {editandoId !== null && (
+                          <SugerenciaCompacta
+                            sugerencia={sugerenciasUmbral?.descuadre}
+                            cargando={cargandoSugerenciaUmbral}
+                            onUsar={(v) =>
+                              setFormData((f) => ({ ...f, umbral_descuadre_pct: String(v) }))
+                            }
+                          />
+                        )}
                       </div>
                       <div className="space-y-1 col-span-2">
                         <label
@@ -2700,6 +2768,15 @@ export default function CombustiblePanel() {
                           Ponelo más alto que el de arriba (por ejemplo 1% y 2%): el ruido de la
                           varilla se acumula a lo largo del ciclo.
                         </p>
+                        {editandoId !== null && (
+                          <SugerenciaCompacta
+                            sugerencia={sugerenciasUmbral?.ciclo}
+                            cargando={cargandoSugerenciaUmbral}
+                            onUsar={(v) =>
+                              setFormData((f) => ({ ...f, umbral_descuadre_ciclo_pct: String(v) }))
+                            }
+                          />
+                        )}
                       </div>
                     </>
                   )}

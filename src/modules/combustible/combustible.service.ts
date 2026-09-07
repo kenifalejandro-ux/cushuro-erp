@@ -935,22 +935,11 @@ export class CombustibleService {
    *  MINIMO_MUESTRA = 10 -- con menos, cualquier sugerencia sería
    *  inventada (ver el recordatorio operativo de la Fase D). */
   async sugerirUmbralDiferencia(client: PoolClient, tenantId: string, combustibleId: number) {
-    const MINIMO_MUESTRA = 10;
-    const PISO_PCT = 1; // Ruido físico conocido: dilatación térmica + error de varilla (migración 0066).
-
     const muestra = await this.repository.findMuestraDiferenciasParaCalibracion(
       client,
       tenantId,
       combustibleId
     );
-
-    if (muestra.length < MINIMO_MUESTRA) {
-      return {
-        muestraSuficiente: false as const,
-        tamanioMuestra: muestra.length,
-        minimoRequerido: MINIMO_MUESTRA,
-      };
-    }
 
     const puntos = muestra.map((m) => ({
       cantidad: m.cantidad,
@@ -958,22 +947,131 @@ export class CombustibleService {
       diferenciaPct: (m.diferencia_litros / m.cantidad) * 100,
     }));
 
-    const pctAbs = puntos.map((p) => Math.abs(p.diferenciaPct));
-    const promedio = pctAbs.reduce((a, b) => a + b, 0) / pctAbs.length;
-    const varianza = pctAbs.reduce((acc, v) => acc + (v - promedio) ** 2, 0) / (pctAbs.length - 1);
-    const desviacion = Math.sqrt(varianza);
+    return CombustibleService.calibrar(
+      puntos.map((p) => p.diferenciaPct),
+      puntos
+    );
+  }
 
+  /** El estadístico compartido por los TRES umbrales. Estaba embebido en la
+   *  sugerencia de diferencia; se factorizó al extenderlo, para no terminar
+   *  con tres fórmulas distintas calibrando el mismo módulo.
+   *
+   *  Promedio de |x| + 2 desvíos, y NO un percentil: la migración 0066 avisa
+   *  que la muestra puede estar contaminada con robos reales, y un p90
+   *  fijaría el umbral A LA ALTURA del robo, dejándolo invisible la próxima
+   *  vez. Ningún estadístico se blinda solo contra eso -- por eso la
+   *  respuesta siempre incluye la muestra fila por fila, para que un humano
+   *  la mire antes de aceptar el número.
+   *
+   *  El piso de 1% es ruido físico conocido: dilatación térmica más error de
+   *  varilla. Por debajo de eso, el umbral alertaría por la temperatura del
+   *  día.
+   *
+   *  MINIMO_MUESTRA = 10 para los tres. Es alto para el ciclo -- un ciclo es
+   *  una carga completa de tanque, así que llegar a diez puede llevar meses
+   *  -- pero bajarlo solo para ese caso sería inventar un criterio para que
+   *  el número aparezca antes, que es exactamente lo que este módulo no
+   *  hace. Mientras tanto queda el valor provisional del alta, que protege. */
+  private static calibrar<T>(valoresPct: number[], muestra: T[]) {
+    const MINIMO_MUESTRA = 10;
+    const PISO_PCT = 1;
+
+    if (valoresPct.length < MINIMO_MUESTRA) {
+      return {
+        muestraSuficiente: false as const,
+        tamanioMuestra: valoresPct.length,
+        minimoRequerido: MINIMO_MUESTRA,
+      };
+    }
+
+    const abs = valoresPct.map((v) => Math.abs(v));
+    const promedio = abs.reduce((a, b) => a + b, 0) / abs.length;
+    const varianza = abs.reduce((acc, v) => acc + (v - promedio) ** 2, 0) / (abs.length - 1);
+    const desviacion = Math.sqrt(varianza);
     const sugerido = Math.min(100, Math.max(PISO_PCT, promedio + 2 * desviacion));
 
     return {
       muestraSuficiente: true as const,
-      tamanioMuestra: muestra.length,
+      tamanioMuestra: valoresPct.length,
       minimoRequerido: MINIMO_MUESTRA,
       sugerido: Number(sugerido.toFixed(1)),
       promedio: Number(promedio.toFixed(2)),
       desviacion: Number(desviacion.toFixed(2)),
-      muestra: puntos,
+      muestra,
     };
+  }
+
+  /** Umbral de descuadre POR TRAMO: un punto por cada intervalo entre dos
+   *  lecturas consecutivas, medido contra la capacidad del tanque (que es la
+   *  base que usa la alerta en vivo -- ver `evaluarDescuadre`). */
+  async sugerirUmbralDescuadre(client: PoolClient, tenantId: string, combustibleId: number) {
+    const intervalos = await this.repository.findMuestraDescuadresParaCalibracion(
+      client,
+      tenantId,
+      combustibleId
+    );
+
+    const puntos = intervalos
+      .filter((i) => i.capacidad > 0)
+      .map((i) => ({
+        descuadreLitros: Number(i.descuadre.toFixed(2)),
+        descuadrePct: (i.descuadre / i.capacidad) * 100,
+        leidoEn: i.leido_en,
+      }));
+
+    return CombustibleService.calibrar(
+      puntos.map((p) => p.descuadrePct),
+      puntos
+    );
+  }
+
+  /** Umbral de descuadre del CICLO. La muestra es un punto por ciclo cerrado
+   *  (de una recepción a la siguiente), no por lectura.
+   *
+   *  No hace falta volver a la base: el descuadre acumulado de un ciclo es la
+   *  SUMA de los descuadres de sus intervalos -- telescopan, porque el nivel
+   *  final de un intervalo es el inicial del siguiente. Un intervalo que
+   *  contiene una recepción es el que abre el ciclo nuevo.
+   *
+   *  El ciclo en curso NO entra en la muestra: todavía puede moverse, y un
+   *  ciclo a medias mediría menos acumulación de la que va a terminar
+   *  teniendo, tirando la sugerencia para abajo. */
+  async sugerirUmbralCiclo(client: PoolClient, tenantId: string, combustibleId: number) {
+    const intervalos = await this.repository.findMuestraDescuadresParaCalibracion(
+      client,
+      tenantId,
+      combustibleId
+    );
+
+    const ciclos: { descuadreLitros: number; capacidad: number; intervalos: number }[] = [];
+    let actual: { descuadreLitros: number; capacidad: number; intervalos: number } | null = null;
+
+    for (const i of intervalos) {
+      if (i.recepciones > 0) {
+        // Entró combustible: cierra el ciclo anterior y arranca uno nuevo.
+        if (actual) ciclos.push(actual);
+        actual = { descuadreLitros: 0, capacidad: i.capacidad, intervalos: 0 };
+        continue;
+      }
+      if (!actual) continue; // Todavía no hubo ninguna recepción: sin ciclo que medir.
+      actual.descuadreLitros += i.descuadre;
+      actual.intervalos += 1;
+    }
+    // `actual` queda afuera a propósito: es el ciclo en curso.
+
+    const puntos = ciclos
+      .filter((c) => c.capacidad > 0 && c.intervalos > 0)
+      .map((c) => ({
+        descuadreLitros: Number(c.descuadreLitros.toFixed(2)),
+        descuadrePct: (c.descuadreLitros / c.capacidad) * 100,
+        intervalos: c.intervalos,
+      }));
+
+    return CombustibleService.calibrar(
+      puntos.map((p) => p.descuadrePct),
+      puntos
+    );
   }
 
   // ── Grifos externos (migrations/0063) ───────────────────────────────
