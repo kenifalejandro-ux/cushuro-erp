@@ -76,7 +76,20 @@ export class CombustibleController {
         accion: "combustible.tanque_crear",
         tenantId,
         usuarioId: req.usuario!.id,
-        detalle: { combustibleId: nuevo.id, codigo: nuevo.codigo },
+        detalle: {
+          combustibleId: nuevo.id,
+          codigo: nuevo.codigo,
+          // Cómo se decidió vigilarlo, y con qué números quedó. Sin esto, un
+          // tanque que nace ciego es indistinguible en el log de uno bien
+          // configurado -- y "nadie lo vigilaba" es justo lo que hay que
+          // poder responder después.
+          modoVigilancia: data.modo_vigilancia ?? null,
+          umbrales: {
+            descuadre: data.umbral_descuadre_pct,
+            ciclo: data.umbral_descuadre_ciclo_pct,
+            diferencia: data.umbral_diferencia_pct,
+          },
+        },
         contexto: contextoAuditoriaModulo(req),
       });
       await publicarEventoTenant(tenantId, "combustible.tanque_creado", {
@@ -201,19 +214,32 @@ export class CombustibleController {
       const result = await withTenant(tenantId, (client) =>
         service.createBulk(client, tenantId, rows)
       );
+      // La carga masiva es la puerta de atrás del alta: el formulario obliga
+      // a elegir cómo se vigila el tanque, pero una planilla sin esas
+      // columnas entra igual y deja los umbrales en NULL. No se bloquea --
+      // pedir tres porcentajes por fila en un Excel garantiza que se llenen
+      // con cualquier cosa -- pero SÍ se cuenta y se devuelve, para que el
+      // cliente lo diga en pantalla y quede en la auditoría.
+      const sinVigilancia = rows.filter(
+        (f) =>
+          f.umbral_descuadre_pct === null &&
+          f.umbral_descuadre_ciclo_pct === null &&
+          f.umbral_diferencia_pct === null
+      ).length;
+
       // UNA fila de auditoría con el conteo, no una por tanque -- mismo
       // criterio que repuestos.carga_masiva (RepuestosController.bulk).
       await registrarAuditoria({
         accion: "combustible.tanques_carga_masiva",
         tenantId,
         usuarioId: req.usuario!.id,
-        detalle: { cantidad: result.length },
+        detalle: { cantidad: result.length, sinVigilancia },
         contexto: contextoAuditoriaModulo(req),
       });
       await publicarEventoTenant(tenantId, "combustible.tanques_carga_masiva", {
         cantidad: result.length,
       });
-      res.status(201).json({ insertados: result.length, data: result });
+      res.status(201).json({ insertados: result.length, sinVigilancia, data: result });
     } catch {
       res.status(500).json({ error: "Error en importación masiva" });
     }

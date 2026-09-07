@@ -268,6 +268,57 @@ const TIPOS_CRITICOS = new Set([
 ]);
 const esCritica = (tipo: string) => TIPOS_CRITICOS.has(tipo);
 
+/** Qué vigilancia tiene realmente un tanque. Deriva de los tres umbrales, no
+ *  se guarda en ningún lado: es un ESTADO, no un evento.
+ *
+ *  Existe porque hoy un tanque ciego se ve idéntico a uno vigilado -- mismo
+ *  código, mismo nivel, mismo "Activo" -- y un tenant puede usar el módulo
+ *  meses creyendo que está protegido. La etiqueta no se puede cerrar ni
+ *  marcar leída: desaparece cuando el tanque se configura, que es lo único
+ *  que arregla el problema.
+ *
+ *  NULL = sin configurar (migración 0075). El 0 SÍ vigila -- es tolerancia
+ *  cero -- así que preguntar por `!x` estaría mal: un tanque estrictísimo
+ *  aparecería como desprotegido. */
+/** Punto de partida RAZONADO, no medido: la varilla de un tanque de 20.000 L
+ *  tiene un error honesto del orden de 100-200 L, y el ruido se acumula a lo
+ *  largo del ciclo (de ahí que el del ciclo sea más alto que el de tramo).
+ *
+ *  Se presentan como provisionales en la UI a propósito. Un número inventado
+ *  que se muestra como definitivo es peor que ninguno: nadie lo vuelve a
+ *  mirar. El asistente de calibración los reemplaza cuando hay historial. */
+const VIGILANCIA_RECOMENDADA = {
+  umbral_descuadre_pct: "2",
+  umbral_descuadre_ciclo_pct: "3",
+  umbral_diferencia_pct: "2",
+};
+
+const CONTROLES_VIGILANCIA = [
+  {
+    campo: "umbral_descuadre_pct",
+    sinEl: "Sin umbral de descuadre: no se detecta un faltante entre dos varillas.",
+  },
+  {
+    campo: "umbral_descuadre_ciclo_pct",
+    sinEl: "Sin umbral del ciclo: no se detecta un faltante repartido en porciones chicas.",
+  },
+  {
+    campo: "umbral_diferencia_pct",
+    sinEl:
+      "Sin umbral de diferencia: no se detecta que el proveedor facture más de lo que descarga.",
+  },
+] as const;
+
+function vigilanciaDe(t: Tanque): {
+  nivel: "sin" | "parcial" | "completa";
+  apagados: string[];
+} {
+  const apagados = CONTROLES_VIGILANCIA.filter((c) => t[c.campo] === null).map((c) => c.sinEl);
+  if (apagados.length === CONTROLES_VIGILANCIA.length) return { nivel: "sin", apagados };
+  if (apagados.length > 0) return { nivel: "parcial", apagados };
+  return { nivel: "completa", apagados };
+}
+
 const ETIQUETA_ORIGEN_DESPACHO: Record<OrigenDespacho, string> = {
   tanque_propio: "Tanque propio",
   compra_externa: "Compra externa",
@@ -705,6 +756,12 @@ export default function CombustiblePanel() {
    *  resaltarla. La notificación es un PUNTERO: su trabajo es dejarte
    *  parado sobre el hallazgo, no reemplazar a la bandeja donde se actúa. */
   const [alertaResaltadaId, setAlertaResaltadaId] = useState<number | null>(null);
+  /** Cómo se vigila el tanque que se está creando. Arranca en null y hay que
+   *  elegir: es la diferencia entre que el tanque quede ciego porque alguien
+   *  lo decidió y que quede ciego porque nadie miró el formulario. */
+  const [modoVigilancia, setModoVigilancia] = useState<
+    "recomendado" | "personalizado" | "sin_vigilar" | null
+  >(null);
   const cerrarModalAlertas = () => {
     setModalAlertasAbierto(false);
     setAlertaResaltadaId(null);
@@ -837,6 +894,7 @@ export default function CombustiblePanel() {
   const abrirModalNuevo = () => {
     setEditandoId(null);
     setFormData(FORM_INICIAL);
+    setModoVigilancia(null);
     // Un tanque nuevo no tiene historial -- nada que sugerir todavía.
     setSugerenciaUmbral(null);
     setMostrarMuestraUmbral(false);
@@ -858,6 +916,10 @@ export default function CombustiblePanel() {
   };
 
   const abrirModalEditar = (t: Tanque) => {
+    // Editar no pregunta el modo: el tanque ya tiene una decisión tomada y
+    // cambiarla pasa por los campos numéricos (y por el motivo obligatorio de
+    // 0077 si afloja). "personalizado" deja los campos a la vista.
+    setModoVigilancia("personalizado");
     setEditandoId(t.id);
     setSugerenciaUmbral(null);
     setMostrarMuestraUmbral(false);
@@ -890,6 +952,13 @@ export default function CombustiblePanel() {
   const handleGuardarTanque = async (e: React.FormEvent) => {
     e.preventDefault();
     if (guardando) return;
+
+    // Sin elección no se guarda. Es el punto de toda la pantalla: que un
+    // tanque ciego lo sea porque alguien lo decidió, no porque nadie miró.
+    if (editandoId === null && modoVigilancia === null) {
+      alert("Elegí cómo se va a vigilar este tanque antes de guardarlo.");
+      return;
+    }
     setGuardando(true);
     try {
       const esEdicion = editandoId !== null;
@@ -928,6 +997,9 @@ export default function CombustiblePanel() {
             umbral_diferencia_pct: aNumeroONull(formData.umbral_diferencia_pct),
             umbral_descuadre_pct: aNumeroONull(formData.umbral_descuadre_pct),
             umbral_descuadre_ciclo_pct: aNumeroONull(formData.umbral_descuadre_ciclo_pct),
+            // Viaja para la auditoría del alta: distingue "eligió no vigilar"
+            // de "configuró umbrales que dan lo mismo".
+            modo_vigilancia: modoVigilancia,
           };
 
       const res = await apiFetch(url, {
@@ -1035,7 +1107,18 @@ export default function CombustiblePanel() {
         }
 
         const body = await res.json().catch(() => ({}));
-        setMensajeExito(`Se importaron ${body.insertados ?? data.length} tanques correctamente.`);
+        const importados = body.insertados ?? data.length;
+        // El alta obliga a elegir cómo se vigila el tanque; la planilla no
+        // puede ser la forma de saltearse esa decisión sin enterarse. No se
+        // bloquea la importación -- se dice, y la etiqueta roja de la lista
+        // hace el resto.
+        setMensajeExito(
+          body.sinVigilancia > 0
+            ? `Se importaron ${importados} tanques. ${body.sinVigilancia} quedaron SIN VIGILANCIA ` +
+                `(la planilla no traía umbrales): el sistema no va a detectar faltantes en esos ` +
+                `tanques hasta que los configures. Aparecen marcados en rojo en la lista.`
+            : `Se importaron ${importados} tanques correctamente.`
+        );
         await cargarTanques();
       } catch (err) {
         setErrorImportacion(err instanceof Error ? err.message : "Error al procesar el archivo.");
@@ -2075,6 +2158,22 @@ export default function CombustiblePanel() {
                       >
                         {t.activo ? "Activo" : "Desactivado"}
                       </span>
+                      {(() => {
+                        const v = vigilanciaDe(t);
+                        if (v.nivel === "completa") return null;
+                        return (
+                          <span
+                            title={v.apagados.join("\n")}
+                            className={`mt-1 block w-fit px-2 py-1 rounded-full text-xs font-semibold cursor-help ${
+                              v.nivel === "sin"
+                                ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                                : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                            }`}
+                          >
+                            {v.nivel === "sin" ? "Sin vigilancia" : "Vigilancia parcial"}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="p-4 text-right space-x-2">
                       <button
@@ -2317,6 +2416,80 @@ export default function CombustiblePanel() {
                   />
                 </div>
               )}
+              {/* ¿Cómo vigilamos este tanque? -- Solo al CREAR.
+
+                  El problema que resuelve: los tres umbrales nacían vacíos al
+                  fondo del formulario, así que el caso por defecto era un
+                  tanque que no vigila nada, y nadie lo había elegido. Acá la
+                  omisión deja de ser posible: hay que marcar una opción para
+                  poder guardar, y "sin vigilar" queda como una decisión con
+                  nombre y fecha en la auditoría. */}
+              {editandoId === null && (
+                <div className="border-t border-slate-100 pt-4 space-y-3">
+                  <p className="text-xs font-bold text-slate-400 uppercase">
+                    ¿Cómo vigilamos este tanque?
+                  </p>
+                  {[
+                    {
+                      valor: "recomendado" as const,
+                      titulo: "Recomendado",
+                      detalle: `Alerta desde ${VIGILANCIA_RECOMENDADA.umbral_descuadre_pct}% de faltante entre varillas, ${VIGILANCIA_RECOMENDADA.umbral_descuadre_ciclo_pct}% acumulado en el ciclo y ${VIGILANCIA_RECOMENDADA.umbral_diferencia_pct}% contra la factura del proveedor. Valores provisionales: se afinan con el historial del tanque.`,
+                    },
+                    {
+                      valor: "personalizado" as const,
+                      titulo: "Personalizado",
+                      detalle: "Elegís vos los tres umbrales.",
+                    },
+                    {
+                      valor: "sin_vigilar" as const,
+                      titulo: "Sin vigilar por ahora",
+                      detalle:
+                        "El sistema NO va a detectar faltantes en este tanque. Queda registrado quién lo eligió.",
+                    },
+                  ].map((opcion) => (
+                    <label
+                      key={opcion.valor}
+                      className={`flex gap-3 items-start p-3 rounded-xl border cursor-pointer transition-colors ${
+                        modoVigilancia === opcion.valor
+                          ? "border-slate-900 bg-slate-50"
+                          : "border-slate-200 hover:bg-slate-50/60"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="modo-vigilancia"
+                        className="mt-1"
+                        checked={modoVigilancia === opcion.valor}
+                        onChange={() => {
+                          setModoVigilancia(opcion.valor);
+                          if (opcion.valor === "recomendado") {
+                            setFormData((f) => ({ ...f, ...VIGILANCIA_RECOMENDADA }));
+                          } else if (opcion.valor === "sin_vigilar") {
+                            setFormData((f) => ({
+                              ...f,
+                              umbral_descuadre_pct: "",
+                              umbral_descuadre_ciclo_pct: "",
+                              umbral_diferencia_pct: "",
+                            }));
+                          }
+                        }}
+                      />
+                      <span>
+                        <span className="block text-sm font-semibold text-slate-800">
+                          {opcion.titulo}
+                        </span>
+                        <span
+                          className={`block text-[11px] ${
+                            opcion.valor === "sin_vigilar" ? "text-red-600" : "text-slate-400"
+                          }`}
+                        >
+                          {opcion.detalle}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
               {/* Fase C (0064) -- configuración que solo afecta a las
                   recepciones. Va junta y al final para no competir con los
                   campos que se llenan siempre. */}
@@ -2369,156 +2542,167 @@ export default function CombustiblePanel() {
                       Margen sobre la capacidad antes de rechazar una recepción. 0 = estricto.
                     </p>
                   </div>
-                  <div className="space-y-1 col-span-2">
-                    <label
-                      htmlFor="tanque-umbral-diferencia"
-                      className="text-xs font-bold text-slate-500 uppercase"
-                    >
-                      Umbral de diferencia (%)
-                    </label>
-                    <input
-                      id="tanque-umbral-diferencia"
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="0.01"
-                      className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
-                      value={formData.umbral_diferencia_pct}
-                      onChange={(e) =>
-                        setFormData({ ...formData, umbral_diferencia_pct: e.target.value })
-                      }
-                    />
-                    <p className="text-[11px] text-slate-400">
-                      Desde cuánta diferencia entre lo facturado y lo medido con varilla se marca
-                      una recepción como sospechosa. <strong>Vacío = no alertar todavía</strong>,
-                      conviene dejarlo así hasta juntar historial propio del tanque.{" "}
-                      <strong>0 = alertar por cualquier diferencia</strong>.
-                    </p>
+                  {/* Los tres umbrales solo se muestran en "Personalizado"
+                      (o al editar, donde ya hay una decisión tomada). En
+                      "Recomendado" ya quedaron cargados y en "Sin vigilar"
+                      quedaron vacíos a propósito: mostrarlos ahí invitaría a
+                      tocarlos sin haber cambiado la elección de arriba. */}
+                  {(editandoId !== null || modoVigilancia === "personalizado") && (
+                    <>
+                      <div className="space-y-1 col-span-2">
+                        <label
+                          htmlFor="tanque-umbral-diferencia"
+                          className="text-xs font-bold text-slate-500 uppercase"
+                        >
+                          Umbral de diferencia (%)
+                        </label>
+                        <input
+                          id="tanque-umbral-diferencia"
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="0.01"
+                          className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                          value={formData.umbral_diferencia_pct}
+                          onChange={(e) =>
+                            setFormData({ ...formData, umbral_diferencia_pct: e.target.value })
+                          }
+                        />
+                        <p className="text-[11px] text-slate-400">
+                          Desde cuánta diferencia entre lo facturado y lo medido con varilla se
+                          marca una recepción como sospechosa.{" "}
+                          <strong>Vacío = no alertar todavía</strong>, conviene dejarlo así hasta
+                          juntar historial propio del tanque.{" "}
+                          <strong>0 = alertar por cualquier diferencia</strong>.
+                        </p>
 
-                    {/* Fase D, entrega 3: el asistente nunca guarda solo --
+                        {/* Fase D, entrega 3: el asistente nunca guarda solo --
                         sugiere y muestra la muestra completa, el admin
                         decide. Solo aplica editando un tanque existente. */}
-                    {editandoId !== null && (
-                      <div className="mt-2 border border-slate-200 rounded-xl p-3 bg-slate-50/60 text-sm">
-                        {cargandoSugerenciaUmbral ? (
-                          <p className="text-slate-400">Calculando sugerencia...</p>
-                        ) : !sugerenciaUmbral ? null : !sugerenciaUmbral.muestraSuficiente ? (
-                          <p className="text-slate-500">
-                            Todavía no hay muestra suficiente para sugerir un umbral (
-                            {sugerenciaUmbral.tamanioMuestra}/{sugerenciaUmbral.minimoRequerido}{" "}
-                            recepciones con lectura antes y después).
-                          </p>
-                        ) : (
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-slate-700">
-                                Sugerencia: <strong>{sugerenciaUmbral.sugerido}%</strong> (
-                                {sugerenciaUmbral.tamanioMuestra} recepciones, promedio{" "}
-                                {sugerenciaUmbral.promedio}% ± {sugerenciaUmbral.desviacion}%)
+                        {editandoId !== null && (
+                          <div className="mt-2 border border-slate-200 rounded-xl p-3 bg-slate-50/60 text-sm">
+                            {cargandoSugerenciaUmbral ? (
+                              <p className="text-slate-400">Calculando sugerencia...</p>
+                            ) : !sugerenciaUmbral ? null : !sugerenciaUmbral.muestraSuficiente ? (
+                              <p className="text-slate-500">
+                                Todavía no hay muestra suficiente para sugerir un umbral (
+                                {sugerenciaUmbral.tamanioMuestra}/{sugerenciaUmbral.minimoRequerido}{" "}
+                                recepciones con lectura antes y después).
                               </p>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setFormData({
-                                    ...formData,
-                                    umbral_diferencia_pct: String(sugerenciaUmbral.sugerido),
-                                  })
-                                }
-                                className="shrink-0 px-3 py-1.5 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800"
-                              >
-                                Usar este valor
-                              </button>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setMostrarMuestraUmbral((v) => !v)}
-                              className="text-xs text-slate-500 hover:text-slate-900 hover:underline"
-                            >
-                              {mostrarMuestraUmbral ? "Ocultar" : "Ver"} la muestra antes de
-                              aceptarlo
-                            </button>
-                            {mostrarMuestraUmbral && (
-                              <ul className="text-xs text-slate-500 max-h-32 overflow-y-auto divide-y divide-slate-100">
-                                {sugerenciaUmbral.muestra?.map((m, i) => (
-                                  <li key={i} className="py-1 flex justify-between gap-2">
-                                    <span>{m.cantidad.toLocaleString("es-PE")} recibido</span>
-                                    <span
-                                      className={
-                                        Math.abs(m.diferenciaPct) > (sugerenciaUmbral.sugerido ?? 0)
-                                          ? "text-red-500 font-medium"
-                                          : ""
-                                      }
-                                    >
-                                      {m.diferenciaLitros > 0 ? "+" : ""}
-                                      {m.diferenciaLitros.toLocaleString("es-PE", {
-                                        maximumFractionDigits: 1,
-                                      })}{" "}
-                                      ({m.diferenciaPct > 0 ? "+" : ""}
-                                      {m.diferenciaPct.toFixed(1)}%)
-                                    </span>
-                                  </li>
-                                ))}
-                              </ul>
+                            ) : (
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-slate-700">
+                                    Sugerencia: <strong>{sugerenciaUmbral.sugerido}%</strong> (
+                                    {sugerenciaUmbral.tamanioMuestra} recepciones, promedio{" "}
+                                    {sugerenciaUmbral.promedio}% ± {sugerenciaUmbral.desviacion}%)
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setFormData({
+                                        ...formData,
+                                        umbral_diferencia_pct: String(sugerenciaUmbral.sugerido),
+                                      })
+                                    }
+                                    className="shrink-0 px-3 py-1.5 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800"
+                                  >
+                                    Usar este valor
+                                  </button>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setMostrarMuestraUmbral((v) => !v)}
+                                  className="text-xs text-slate-500 hover:text-slate-900 hover:underline"
+                                >
+                                  {mostrarMuestraUmbral ? "Ocultar" : "Ver"} la muestra antes de
+                                  aceptarlo
+                                </button>
+                                {mostrarMuestraUmbral && (
+                                  <ul className="text-xs text-slate-500 max-h-32 overflow-y-auto divide-y divide-slate-100">
+                                    {sugerenciaUmbral.muestra?.map((m, i) => (
+                                      <li key={i} className="py-1 flex justify-between gap-2">
+                                        <span>{m.cantidad.toLocaleString("es-PE")} recibido</span>
+                                        <span
+                                          className={
+                                            Math.abs(m.diferenciaPct) >
+                                            (sugerenciaUmbral.sugerido ?? 0)
+                                              ? "text-red-500 font-medium"
+                                              : ""
+                                          }
+                                        >
+                                          {m.diferenciaLitros > 0 ? "+" : ""}
+                                          {m.diferenciaLitros.toLocaleString("es-PE", {
+                                            maximumFractionDigits: 1,
+                                          })}{" "}
+                                          ({m.diferenciaPct > 0 ? "+" : ""}
+                                          {m.diferenciaPct.toFixed(1)}%)
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
                             )}
                           </div>
                         )}
                       </div>
-                    )}
-                  </div>
-                  <div className="space-y-1 col-span-2">
-                    <label
-                      htmlFor="tanque-umbral-descuadre"
-                      className="text-xs font-bold text-slate-500 uppercase"
-                    >
-                      Umbral de descuadre (%)
-                    </label>
-                    <input
-                      id="tanque-umbral-descuadre"
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="0.01"
-                      className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
-                      value={formData.umbral_descuadre_pct}
-                      onChange={(e) =>
-                        setFormData({ ...formData, umbral_descuadre_pct: e.target.value })
-                      }
-                    />
-                    <p className="text-[11px] text-slate-400">
-                      Cuánto puede diferir el nivel medido de lo que los vales y recepciones
-                      explican, antes de alertar. Se mide sobre la capacidad del tanque: 1% de
-                      20,000 L son 200 L. <strong>Vacío = no alertar todavía</strong>, hasta saber
-                      cuánto ruido produce la varilla de este tanque.{" "}
-                      <strong>0 = alertar por cualquier faltante o sobrante</strong>.
-                    </p>
-                  </div>
-                  <div className="space-y-1 col-span-2">
-                    <label
-                      htmlFor="tanque-umbral-ciclo"
-                      className="text-xs font-bold text-slate-500 uppercase"
-                    >
-                      Umbral acumulado del ciclo (%)
-                    </label>
-                    <input
-                      id="tanque-umbral-ciclo"
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="0.01"
-                      className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
-                      value={formData.umbral_descuadre_ciclo_pct}
-                      onChange={(e) =>
-                        setFormData({ ...formData, umbral_descuadre_ciclo_pct: e.target.value })
-                      }
-                    />
-                    <p className="text-[11px] text-slate-400">
-                      Igual que el anterior, pero sumando <strong>todo el ciclo</strong> desde que
-                      el tanque se cargó, no solo entre dos varillas. Atrapa el faltante repartido
-                      en porciones chicas, que medición por medición parece normal. Ponelo más alto
-                      que el de arriba (por ejemplo 1% y 2%): el ruido de la varilla se acumula a lo
-                      largo del ciclo.
-                    </p>
-                  </div>
+                      <div className="space-y-1 col-span-2">
+                        <label
+                          htmlFor="tanque-umbral-descuadre"
+                          className="text-xs font-bold text-slate-500 uppercase"
+                        >
+                          Umbral de descuadre (%)
+                        </label>
+                        <input
+                          id="tanque-umbral-descuadre"
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="0.01"
+                          className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                          value={formData.umbral_descuadre_pct}
+                          onChange={(e) =>
+                            setFormData({ ...formData, umbral_descuadre_pct: e.target.value })
+                          }
+                        />
+                        <p className="text-[11px] text-slate-400">
+                          Cuánto puede diferir el nivel medido de lo que los vales y recepciones
+                          explican, antes de alertar. Se mide sobre la capacidad del tanque: 1% de
+                          20,000 L son 200 L. <strong>Vacío = no alertar todavía</strong>, hasta
+                          saber cuánto ruido produce la varilla de este tanque.{" "}
+                          <strong>0 = alertar por cualquier faltante o sobrante</strong>.
+                        </p>
+                      </div>
+                      <div className="space-y-1 col-span-2">
+                        <label
+                          htmlFor="tanque-umbral-ciclo"
+                          className="text-xs font-bold text-slate-500 uppercase"
+                        >
+                          Umbral acumulado del ciclo (%)
+                        </label>
+                        <input
+                          id="tanque-umbral-ciclo"
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="0.01"
+                          className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                          value={formData.umbral_descuadre_ciclo_pct}
+                          onChange={(e) =>
+                            setFormData({ ...formData, umbral_descuadre_ciclo_pct: e.target.value })
+                          }
+                        />
+                        <p className="text-[11px] text-slate-400">
+                          Igual que el anterior, pero sumando <strong>todo el ciclo</strong> desde
+                          que el tanque se cargó, no solo entre dos varillas. Atrapa el faltante
+                          repartido en porciones chicas, que medición por medición parece normal.
+                          Ponelo más alto que el de arriba (por ejemplo 1% y 2%): el ruido de la
+                          varilla se acumula a lo largo del ciclo.
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </div>
                 <label className="flex items-start gap-2 text-sm text-slate-600">
                   <input
