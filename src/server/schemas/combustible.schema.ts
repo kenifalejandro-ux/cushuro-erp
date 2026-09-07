@@ -41,6 +41,16 @@ export const crearTanqueCombustibleSchema = z.object({
   // el ruido de la varilla se suma a lo largo del ciclo: el mismo número
   // para los dos haría que este alertara todos los días.
   umbral_descuadre_ciclo_pct: z.number().min(0).max(100).nullable().default(null),
+  /** Qué eligió la persona en el alta: "recomendado" | "personalizado" |
+   *  "sin_vigilar". NO se guarda en la tabla -- los umbrales ya dicen cómo
+   *  quedó configurado el tanque. Existe para la AUDITORÍA: distingue "eligió
+   *  explícitamente no vigilar" de "guardó sin mirar", que era el caso por
+   *  defecto y el problema que esta pantalla vino a cerrar.
+   *
+   *  Opcional en el schema y obligatorio en el formulario: la API no puede
+   *  romper a un cliente viejo (la cola offline, un script) por un dato que
+   *  solo sirve para el registro. */
+  modo_vigilancia: z.enum(["recomendado", "personalizado", "sin_vigilar"]).optional(),
 });
 
 export type CrearTanqueCombustibleInput = z.infer<typeof crearTanqueCombustibleSchema>;
