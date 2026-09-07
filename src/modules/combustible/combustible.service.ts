@@ -530,8 +530,15 @@ export class CombustibleService {
     if (!tanque) return null;
 
     const minimo = Number(tanque.nivel_minimo);
-    // 0 = sin configurar, mismo criterio que umbral_diferencia_pct (0066) y
-    // capacidad_tanque (0069): sin el dato no se alerta.
+    // 0 = sin configurar, sin el dato no se alerta -- mismo criterio que
+    // capacidad_tanque (0069).
+    //
+    // OJO: los dos UMBRALES ya no siguen esta convención. Desde 0075
+    // distinguen NULL (sin configurar) de 0 (estricto), porque ahí el 0
+    // tenía un significado legítimo que no se podía expresar. Acá no se
+    // migró porque "avisame cuando el tanque baje de 0 litros" no es un
+    // pedido que alguien vaya a hacer -- el tanque vacío ya se ve solo.
+    // Si algún día lo es, este es el mismo cambio que hizo 0075.
     if (minimo <= 0) return null;
 
     if (nivel >= minimo) {
@@ -589,10 +596,13 @@ export class CombustibleService {
     );
     if (!datos) return null;
 
-    // 0 = sin configurar, no alertar todavía -- mismo criterio que
-    // umbral_diferencia_pct (0066) y nivel_minimo en evaluarNivelBajo.
+    // NULL = sin configurar, no alertar (migración 0075). El 0 SÍ alerta:
+    // es tolerancia cero de verdad, cualquier descuadre cuenta. Ojo con
+    // Number(null), que da 0 -- hay que preguntar por el null antes de
+    // convertir, o el tanque sin configurar terminaría siendo el más
+    // estricto de todos.
+    if (datos.umbral_descuadre_pct === null) return null;
     const umbralPct = Number(datos.umbral_descuadre_pct);
-    if (umbralPct <= 0) return null;
 
     const nivelAnterior = Number(datos.nivel_anterior);
     const despachos = Number(datos.despachos);

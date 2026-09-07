@@ -34,8 +34,8 @@ interface Tanque {
   requiere_documento: boolean;
   // Desde cuántos % de diferencia entre lo facturado y lo medido se considera
   // sospechosa una recepción (migrations/0066). 0 = no alertar todavía.
-  umbral_diferencia_pct: string;
-  umbral_descuadre_pct: string;
+  umbral_diferencia_pct: string | null;
+  umbral_descuadre_pct: string | null;
 }
 
 /** Una fila del historial de recepciones (GET /recepciones, Fase C). A
@@ -494,9 +494,22 @@ const FORM_INICIAL = {
   // migración: sin margen de tolerancia y con documento exigido.
   tolerancia_capacidad_pct: "0",
   requiere_documento: true,
-  umbral_diferencia_pct: "0",
-  umbral_descuadre_pct: "0",
+  // Vacíos, no "0": desde la migración 0075 el 0 significa "estricto,
+  // alertar por cualquier diferencia" y el vacío es "sin configurar".
+  // Precargar un 0 le pondría a todo tanque nuevo la vigilancia más
+  // estricta posible sin que nadie la pidiera.
+  umbral_diferencia_pct: "",
+  umbral_descuadre_pct: "",
 };
+
+/** Campo vacío -> null (sin configurar). Cualquier número, incluido el 0,
+ *  viaja tal cual. `Number("")` da 0, que desde 0075 significa lo contrario
+ *  de lo que el campo vacío quiere decir -- de ahí que no alcance con
+ *  convertir directo. */
+function aNumeroONull(valor: string): number | null {
+  const limpio = valor.trim();
+  return limpio === "" ? null : Number(limpio);
+}
 
 function formatearFecha(iso: string): string {
   return new Date(iso).toLocaleString("es-PE", {
@@ -757,8 +770,8 @@ export default function CombustiblePanel() {
       activo: t.activo,
       tolerancia_capacidad_pct: t.tolerancia_capacidad_pct,
       requiere_documento: t.requiere_documento,
-      umbral_diferencia_pct: t.umbral_diferencia_pct,
-      umbral_descuadre_pct: t.umbral_descuadre_pct,
+      umbral_diferencia_pct: t.umbral_diferencia_pct ?? "",
+      umbral_descuadre_pct: t.umbral_descuadre_pct ?? "",
     });
     setModalTanqueAbierto(true);
   };
@@ -784,8 +797,8 @@ export default function CombustiblePanel() {
             activo: formData.activo,
             tolerancia_capacidad_pct: Number(formData.tolerancia_capacidad_pct),
             requiere_documento: formData.requiere_documento,
-            umbral_diferencia_pct: Number(formData.umbral_diferencia_pct),
-            umbral_descuadre_pct: Number(formData.umbral_descuadre_pct),
+            umbral_diferencia_pct: aNumeroONull(formData.umbral_diferencia_pct),
+            umbral_descuadre_pct: aNumeroONull(formData.umbral_descuadre_pct),
           }
         : {
             codigo: formData.codigo,
@@ -800,8 +813,8 @@ export default function CombustiblePanel() {
             moneda: formData.moneda,
             tolerancia_capacidad_pct: Number(formData.tolerancia_capacidad_pct),
             requiere_documento: formData.requiere_documento,
-            umbral_diferencia_pct: Number(formData.umbral_diferencia_pct),
-            umbral_descuadre_pct: Number(formData.umbral_descuadre_pct),
+            umbral_diferencia_pct: aNumeroONull(formData.umbral_diferencia_pct),
+            umbral_descuadre_pct: aNumeroONull(formData.umbral_descuadre_pct),
           };
 
       const res = await apiFetch(url, {
@@ -2169,9 +2182,9 @@ export default function CombustiblePanel() {
                     />
                     <p className="text-[11px] text-slate-400">
                       Desde cuánta diferencia entre lo facturado y lo medido con varilla se marca
-                      una recepción como sospechosa. <strong>0 = no alertar todavía</strong> (no es
-                      &quot;tolerancia cero&quot;): conviene dejarlo así hasta juntar historial
-                      propio del tanque.
+                      una recepción como sospechosa. <strong>Vacío = no alertar todavía</strong>,
+                      conviene dejarlo así hasta juntar historial propio del tanque.{" "}
+                      <strong>0 = alertar por cualquier diferencia</strong>.
                     </p>
 
                     {/* Fase D, entrega 3: el asistente nunca guarda solo --
@@ -2266,8 +2279,9 @@ export default function CombustiblePanel() {
                     <p className="text-[11px] text-slate-400">
                       Cuánto puede diferir el nivel medido de lo que los vales y recepciones
                       explican, antes de alertar. Se mide sobre la capacidad del tanque: 1% de
-                      20,000 L son 200 L. <strong>0 = no alertar todavía</strong> — subilo cuando
-                      sepas cuánto ruido produce la varilla de este tanque.
+                      20,000 L son 200 L. <strong>Vacío = no alertar todavía</strong>, hasta saber
+                      cuánto ruido produce la varilla de este tanque.{" "}
+                      <strong>0 = alertar por cualquier faltante o sobrante</strong>.
                     </p>
                   </div>
                 </div>
@@ -4277,12 +4291,17 @@ export default function CombustiblePanel() {
                               (() => {
                                 const litros = Number(r.diferencia_litros);
                                 const pct = (litros / Number(r.cantidad)) * 100;
-                                const umbral = Number(r.umbral_diferencia_pct);
-                                // Solo pinta en rojo si el tanque tiene umbral
-                                // configurado Y se pasa: con umbral 0 el dato
-                                // se muestra sin juzgar, que es lo correcto
-                                // hasta tener historial con qué calibrar.
-                                const excede = umbral > 0 && Math.abs(pct) > umbral;
+                                // null = sin configurar (0075): el dato se
+                                // muestra sin juzgar, que es lo correcto hasta
+                                // tener historial con qué calibrar. Con umbral
+                                // 0 sí pinta, porque ahora significa
+                                // "cualquier diferencia cuenta" -- de ahí que
+                                // se pregunte por null y no por `> 0`.
+                                const umbral =
+                                  r.umbral_diferencia_pct === null
+                                    ? null
+                                    : Number(r.umbral_diferencia_pct);
+                                const excede = umbral !== null && Math.abs(pct) > umbral;
                                 return (
                                   <span
                                     className={

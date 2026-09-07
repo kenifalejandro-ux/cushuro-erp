@@ -944,9 +944,11 @@ export class CombustibleRepository {
    *  corta" sin poder probarlo señalaría a un proveedor por el faltante de
    *  otro.
    *
-   *  `umbral_diferencia_pct > 0` en el WHERE: 0 significa "no alertar
-   *  todavía" (migración 0066), no "tolerancia cero". Un tanque sin
-   *  calibrar nunca dispara. */
+   *  `umbral_diferencia_pct IS NOT NULL` en el WHERE: NULL significa "sin
+   *  configurar" desde la migración 0075, y un tanque sin calibrar nunca
+   *  dispara. El 0, que antes era ese mismo caso, ahora sí alerta: es
+   *  tolerancia cero de verdad, y la comparación estricta (`> 0`) lo
+   *  respeta -- una diferencia de exactamente 0 sigue sin ser noticia. */
   async findRecepcionesConDiferenciaExcedida(client: PoolClient, tenantId: string) {
     const result = await client.query<{
       id: number;
@@ -995,7 +997,7 @@ export class CombustibleRepository {
       ) dif ON true
       WHERE r.tenant_id = $1
         AND r.anulada_en IS NULL
-        AND c.umbral_diferencia_pct > 0
+        AND c.umbral_diferencia_pct IS NOT NULL
         AND dif.diferencia_litros IS NOT NULL
         AND abs(dif.diferencia_litros / NULLIF(r.cantidad, 0)) * 100 > c.umbral_diferencia_pct
         AND NOT EXISTS (
@@ -1102,7 +1104,9 @@ export class CombustibleRepository {
       tanque_nombre: string;
       unidad: string;
       capacidad_total: string;
-      umbral_descuadre_pct: string;
+      // NULL = sin configurar (migración 0075), distinto de "0" que es
+      // tolerancia cero.
+      umbral_descuadre_pct: string | null;
       despachos: string;
       recepciones: string;
     }>(

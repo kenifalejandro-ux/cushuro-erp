@@ -30,12 +30,13 @@ export const crearTanqueCombustibleSchema = z.object({
   // estos campos se comporta igual que siempre.
   tolerancia_capacidad_pct: z.number().min(0).max(100).default(0),
   requiere_documento: z.boolean().default(true),
-  // 0 = "no alertar todavía", no "tolerancia cero" (migrations/0066): hasta
-  // tener historial propio del tanque, cualquier número sería inventado.
-  umbral_diferencia_pct: z.number().min(0).max(100).default(0),
-  // Mismo criterio de "0 = no alertar todavía" para el balance del tanque
-  // (migrations/0074).
-  umbral_descuadre_pct: z.number().min(0).max(100).default(0),
+  // Los dos umbrales son NULLABLE desde 0075, y los tres valores dicen
+  // cosas distintas: NULL = sin configurar (no alertar), 0 = estricto
+  // (alertar por cualquier diferencia), N = tolerar hasta ese %. Antes el 0
+  // significaba "sin configurar" y la tolerancia cero real no se podía
+  // expresar -- ver el encabezado de 0075.
+  umbral_diferencia_pct: z.number().min(0).max(100).nullable().default(null),
+  umbral_descuadre_pct: z.number().min(0).max(100).nullable().default(null),
 });
 
 export type CrearTanqueCombustibleInput = z.infer<typeof crearTanqueCombustibleSchema>;
@@ -60,8 +61,8 @@ export const actualizarTanqueCombustibleSchema = z.object({
   // entera, omitir un campo no significa "dejalo como está".
   tolerancia_capacidad_pct: z.number().min(0).max(100),
   requiere_documento: z.boolean(),
-  umbral_diferencia_pct: z.number().min(0).max(100),
-  umbral_descuadre_pct: z.number().min(0).max(100),
+  umbral_diferencia_pct: z.number().min(0).max(100).nullable(),
+  umbral_descuadre_pct: z.number().min(0).max(100).nullable(),
 });
 
 export type ActualizarTanqueCombustibleInput = z.infer<typeof actualizarTanqueCombustibleSchema>;

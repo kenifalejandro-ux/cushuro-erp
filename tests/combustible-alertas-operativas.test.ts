@@ -143,9 +143,9 @@ describe("combustible: alertas operativas (migración 0073)", () => {
     );
   });
 
-  it("con umbral 0 (sin calibrar) nunca alerta, por grande que sea la diferencia", async () => {
-    // 0 significa "no alertar todavía", no "tolerancia cero" (migración 0066).
-    const tanque = await crearTanque({ umbral_diferencia_pct: 0 });
+  it("sin umbral configurado (null) nunca alerta, por grande que sea la diferencia", async () => {
+    // Desde la migración 0075 el "sin calibrar" es NULL, no 0.
+    const tanque = await crearTanque({ umbral_diferencia_pct: null });
     const grifo = await crearGrifo();
     const recepcion = await recepcionConDiferencia(tanque.id, grifo.id, 1000, -500);
 
@@ -155,6 +155,22 @@ describe("combustible: alertas operativas (migración 0073)", () => {
     expect(alertas.some((a: { recepcion_id: number }) => a.recepcion_id === recepcion.id)).toBe(
       false
     );
+  });
+
+  it("con umbral 0 (tolerancia cero) alerta por la diferencia más chica", async () => {
+    // El caso que antes NO se podía expresar: el cliente que quiere saber de
+    // cualquier diferencia, aunque sea de un litro. Antes de 0075 el 0 lo
+    // apagaba todo y no había forma de pedir esto.
+    const tanque = await crearTanque({ umbral_diferencia_pct: 0 });
+    const grifo = await crearGrifo();
+    const recepcion = await recepcionConDiferencia(tanque.id, grifo.id, 1000, -1);
+
+    await correrConciliacion();
+
+    const alertas = await alertasDeTipo("diferencia_recepcion");
+    const propia = alertas.find((a: { recepcion_id: number }) => a.recepcion_id === recepcion.id);
+    expect(propia).toBeDefined();
+    expect(Number(propia.detalle.diferenciaLitros)).toBe(-1);
   });
 
   it("no duplica la alerta aunque el worker corra varias veces", async () => {
