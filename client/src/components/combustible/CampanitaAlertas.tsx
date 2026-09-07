@@ -8,6 +8,7 @@
 import { Bell } from "lucide-react";
 import { useState } from "react";
 
+import { esCritica } from "./gravedadAlertas";
 import { useAlertasCombustibleStream } from "./useAlertasCombustibleStream";
 
 const ETIQUETA_TIPO: Record<string, string> = {
@@ -52,6 +53,9 @@ interface CampanitaAlertasProps {
 export default function CampanitaAlertas({ activo, onIrACombustible }: CampanitaAlertasProps) {
   const [abierta, setAbierta] = useState(false);
   const { alertas, noLeidas, marcarTodasLeidas } = useAlertasCombustibleStream(activo);
+  // Un contador solo no distingue "tres avisos de reposición" de "tres
+  // sospechas de robo". El color del badge sí.
+  const criticasSinLeer = alertas.filter((a) => esCritica(a.tipo)).length;
 
   if (!activo) return null;
 
@@ -62,9 +66,14 @@ export default function CampanitaAlertas({ activo, onIrACombustible }: Campanita
         className="relative p-2 text-slate-400 hover:text-[#DDF500] hover:bg-white/5 rounded-md transition-all"
         title="Alertas de combustible"
       >
-        <Bell size={18} />
+        <Bell size={18} className={criticasSinLeer > 0 ? "animate-pulse" : undefined} />
         {noLeidas > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+          <span
+            className={
+              "absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-white text-[10px] font-bold flex items-center justify-center " +
+              (criticasSinLeer > 0 ? "bg-red-600 ring-2 ring-red-300" : "bg-slate-500")
+            }
+          >
             {noLeidas > 99 ? "99+" : noLeidas}
           </span>
         )}
@@ -90,17 +99,31 @@ export default function CampanitaAlertas({ activo, onIrACombustible }: Campanita
               {alertas.length === 0 ? (
                 <p className="p-4 text-sm text-slate-400 text-center">Sin alertas pendientes</p>
               ) : (
-                alertas.map((a) => (
-                  <div key={a.id} className="p-3 border-b border-slate-50 last:border-0">
-                    <p className="text-sm font-semibold text-slate-800">{formatearAlerta(a)}</p>
-                    {a.tipo === "vale_anulado" && typeof a.detalle.motivo === "string" && (
-                      <p className="text-xs text-slate-500 mt-0.5">Motivo: {a.detalle.motivo}</p>
-                    )}
-                    <p className="text-[10px] text-slate-400 mt-1">
-                      {new Date(a.creado_en).toLocaleString("es-PE")}
-                    </p>
-                  </div>
-                ))
+                [...alertas]
+                  .sort((x, y) => Number(esCritica(y.tipo)) - Number(esCritica(x.tipo)))
+                  .map((a) => (
+                    <div
+                      key={a.id}
+                      className={
+                        esCritica(a.tipo)
+                          ? "p-3 border-b border-slate-50 last:border-0 border-l-4 border-l-red-500 bg-red-50/40"
+                          : "p-3 border-b border-slate-50 last:border-0 border-l-4 border-l-transparent"
+                      }
+                    >
+                      {esCritica(a.tipo) && (
+                        <p className="text-[10px] font-bold text-red-600 uppercase tracking-wide">
+                          Requiere revisión
+                        </p>
+                      )}
+                      <p className="text-sm font-semibold text-slate-800">{formatearAlerta(a)}</p>
+                      {a.tipo === "vale_anulado" && typeof a.detalle.motivo === "string" && (
+                        <p className="text-xs text-slate-500 mt-0.5">Motivo: {a.detalle.motivo}</p>
+                      )}
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        {new Date(a.creado_en).toLocaleString("es-PE")}
+                      </p>
+                    </div>
+                  ))
               )}
             </div>
 

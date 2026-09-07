@@ -180,6 +180,46 @@ describe("combustible: alertas (Fase D, migración 0068)", () => {
     ).toBe(false);
   });
 
+  it("marcar leídas POR ID no toca las que no estaban en la lista", async () => {
+    // El contrato del que depende la campanita desde el arreglo de
+    // visibilidad. El body vacío marca TODAS las del tenant, y eso hizo
+    // desaparecer una alerta de descuadre nueve segundos después de nacer,
+    // sin que nadie la viera: quien apretó "marcar todas leídas" estaba
+    // limpiando huecos viejos que sí tenía en pantalla.
+    const serieVieja = serieUnica();
+    await agente.post("/api/erp/combustible/despachos").send(payloadVale(serieVieja, 1));
+    await agente.post("/api/erp/combustible/despachos").send(payloadVale(serieVieja, 3));
+
+    const enPantalla = await agente
+      .get("/api/erp/combustible/alertas")
+      .query({ solo_no_leidas: "true", pageSize: 200 });
+    const idsVisibles = enPantalla.body.data
+      .filter((a: { serie_talonario: string }) => a.serie_talonario === serieVieja)
+      .map((a: { id: number }) => a.id);
+    expect(idsVisibles.length).toBeGreaterThan(0);
+
+    // Llega una alerta NUEVA justo después de que la pantalla se dibujó.
+    const serieNueva = serieUnica();
+    await agente.post("/api/erp/combustible/despachos").send(payloadVale(serieNueva, 1));
+    await agente.post("/api/erp/combustible/despachos").send(payloadVale(serieNueva, 3));
+
+    const marcado = await agente
+      .patch("/api/erp/combustible/alertas/leidas")
+      .send({ ids: idsVisibles });
+    expect(marcado.status).toBe(204);
+
+    const despues = await agente
+      .get("/api/erp/combustible/alertas")
+      .query({ solo_no_leidas: "true", pageSize: 200 });
+    // Las que se vieron: leídas. La que llegó después: intacta.
+    expect(
+      despues.body.data.some((a: { serie_talonario: string }) => a.serie_talonario === serieVieja)
+    ).toBe(false);
+    expect(
+      despues.body.data.some((a: { serie_talonario: string }) => a.serie_talonario === serieNueva)
+    ).toBe(true);
+  });
+
   it("resolver manualmente solo aplica a vale_anulado, no a hueco_detectado", async () => {
     const serie = serieUnica();
     const creado = await agente.post("/api/erp/combustible/despachos").send(payloadVale(serie, 1));

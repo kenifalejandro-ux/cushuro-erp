@@ -78,20 +78,64 @@ export function useAlertasCombustibleStream(activo: boolean) {
       cargar();
     });
 
+    // ── Por qué el stream no alcanza ────────────────────────────────────
+    //
+    // Durante semanas la campanita mostró un contador viejo y hubo que
+    // recargar la página para ver alertas que ya existían en la base. El
+    // servidor estaba bien (hay test que lo prueba: los eventos salen), así
+    // que el corte estaba en el camino -- un proxy que bufferea, la pestaña
+    // dormida, una conexión que se cayó y no volvió.
+    //
+    // La conclusión de fondo: para un módulo anti-fraude, el número de
+    // alertas sin leer no puede depender de que un socket haya sobrevivido.
+    // El stream queda como el camino RÁPIDO; estas dos redes lo respaldan.
+
+    // 1. Al volver a la pestaña. Cubre el caso más común y más barato: el
+    //    usuario estuvo en otra ventana mientras llegaba la alerta.
+    const alVolver = () => {
+      if (document.visibilityState === "visible") cargar();
+    };
+    document.addEventListener("visibilitychange", alVolver);
+    window.addEventListener("focus", alVolver);
+
+    // 2. Un repaso periódico, corra o no el stream. 60s es suficientemente
+    //    lento para no pesar (una consulta paginada a 10 filas) y
+    //    suficientemente rápido para que nadie tenga que recargar a mano.
+    const repaso = setInterval(cargar, 60_000);
+
     return () => {
       es.close();
       eventSourceRef.current = null;
+      document.removeEventListener("visibilitychange", alVolver);
+      window.removeEventListener("focus", alVolver);
+      clearInterval(repaso);
     };
   }, [activo, cargar]);
 
+  /** Marca leídas SOLO las que están en pantalla, por id.
+   *
+   *  Antes mandaba un body vacío, que del lado del servidor significa "todas
+   *  las no leídas del tenant". Kenif lo sufrió en vivo: una alerta de
+   *  descuadre nació a las 03:13:39 y quedó marcada como leída a las
+   *  03:13:48 -- nueve segundos, sin que él la hubiera visto nunca. Estaba
+   *  limpiando los huecos viejos que sí tenía en pantalla.
+   *
+   *  Y como el estado de lectura es compartido entre todos los admins del
+   *  tenant (migración 0068), ese clic también la ocultó para los demás.
+   *
+   *  Mandar los ids visibles hace que el botón signifique lo que dice: "vi
+   *  estas". Lo que llegó después sigue sin leer, que es la verdad. */
   const marcarTodasLeidas = useCallback(async () => {
+    const ids = alertas.map((a) => a.id);
+    if (ids.length === 0) return;
+
     await apiFetch("/api/erp/combustible/alertas/leidas", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ ids }),
     });
     await cargar();
-  }, [cargar]);
+  }, [alertas, cargar]);
 
   return { alertas, noLeidas, marcarTodasLeidas, recargar: cargar };
 }

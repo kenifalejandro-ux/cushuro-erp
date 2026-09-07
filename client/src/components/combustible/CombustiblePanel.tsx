@@ -251,6 +251,23 @@ interface AlertaCombustible {
   resuelta_por: string | null;
 }
 
+/** Copia de `gravedadAlertas.ts` (mismo directorio). No se importa porque
+ *  este archivo solo tiene imports padre y agregarle uno hermano crashea
+ *  eslint-plugin-import -- ver el encabezado de ese archivo, que es la
+ *  fuente de verdad. Si cambia la lista de allá, cambiar también acá. */
+const TIPOS_CRITICOS = new Set([
+  "hueco_detectado",
+  "vale_anulado",
+  "sobredespacho",
+  "diferencia_recepcion",
+  "medidor_inconsistente",
+  "descuadre_inventario",
+  "descuadre_ciclo",
+  "vale_fuera_de_orden",
+  "tanque_sin_medir",
+]);
+const esCritica = (tipo: string) => TIPOS_CRITICOS.has(tipo);
+
 const ETIQUETA_ORIGEN_DESPACHO: Record<OrigenDespacho, string> = {
   tanque_propio: "Tanque propio",
   compra_externa: "Compra externa",
@@ -681,6 +698,9 @@ export default function CombustiblePanel() {
   // Plazo sin varilla (migración 0076). Comparte el mismo formulario y el
   // mismo PUT que la ventana de gracia: las dos son política del tenant.
   const [diasSinMedir, setDiasSinMedir] = useState("3");
+  /** Hallazgos críticos SIN RESOLVER -- distinto de "sin leer": una alerta
+   *  leída sigue abierta hasta que alguien la revisa y la cierra. */
+  const [criticasAbiertas, setCriticasAbiertas] = useState(0);
   // La confirmación va DENTRO del modal, no en el banner verde de la
   // pantalla principal: ese banner queda tapado por el propio modal, así
   // que guardar parecía no hacer nada (reportado en pantalla por Kenif).
@@ -751,6 +771,40 @@ export default function CombustiblePanel() {
       setLoading(false)
     );
   }, [cargarTanques, cargarEquipos, cargarGrifos]);
+
+  /** Cuenta los hallazgos críticos abiertos para la franja de arriba. Pide
+   *  TODAS las alertas y no solo las no leídas: el punto de la franja es que
+   *  marcarlas leídas no las hace desaparecer. */
+  const cargarCriticasAbiertas = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/erp/combustible/alertas?pageSize=200");
+      if (!res.ok) return;
+      const body = await res.json();
+      const abiertas = (Array.isArray(body?.data) ? body.data : []).filter(
+        (a: { tipo: string; resuelta_en: string | null }) =>
+          a.resuelta_en === null && esCritica(a.tipo)
+      );
+      setCriticasAbiertas(abiertas.length);
+    } catch {
+      // Sin red la franja simplemente no aparece; no rompe la pantalla.
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    cargarCriticasAbiertas();
+    // Mismo criterio que la campanita: el stream es el camino rápido, pero
+    // el número no puede depender de que un socket haya sobrevivido.
+    const repaso = setInterval(cargarCriticasAbiertas, 60_000);
+    const alVolver = () => {
+      if (document.visibilityState === "visible") cargarCriticasAbiertas();
+    };
+    document.addEventListener("visibilitychange", alVolver);
+    return () => {
+      clearInterval(repaso);
+      document.removeEventListener("visibilitychange", alVolver);
+    };
+  }, [cargarCriticasAbiertas]);
 
   // Cuando la cola offline termina de drenar, una lectura cargada sin señal
   // ya existe del lado del servidor -- recargar pone nivel_actual al día
@@ -1594,6 +1648,9 @@ export default function CombustiblePanel() {
         return;
       }
       await abrirModalAlertas();
+      // La franja de arriba tiene que bajar el conteo en el momento: si
+      // sigue mostrando el número viejo, el usuario cree que no se guardó.
+      await cargarCriticasAbiertas();
     } finally {
       setResolviendoAlertaId(null);
     }
@@ -1737,6 +1794,34 @@ export default function CombustiblePanel() {
 
   return (
     <div className="p-4 lg:p-8 animate-in fade-in duration-500">
+      {/* Franja de hallazgos SIN RESOLVER. No se puede cerrar y no se va
+          sola: desaparece cuando alguien resuelve las alertas, que es la
+          única forma de que el problema deje de existir.
+
+          Va acá arriba y no en la campanita porque una alerta anti-fraude
+          leída sigue estando abierta -- "leí" no es "revisé", y esa
+          confusión es justo la que hizo desaparecer una alerta de descuadre
+          nueve segundos después de nacer. */}
+      {criticasAbiertas > 0 && (
+        <button
+          onClick={abrirModalAlertas}
+          className="w-full mb-6 flex items-center gap-3 rounded-xl border-2 border-red-300 bg-red-50 px-5 py-4 text-left hover:bg-red-100 transition-colors"
+        >
+          <span className="text-2xl leading-none">⚠️</span>
+          <span className="flex-1">
+            <span className="block text-sm font-bold text-red-800">
+              {criticasAbiertas === 1
+                ? "Hay 1 hallazgo sin resolver"
+                : `Hay ${criticasAbiertas} hallazgos sin resolver`}
+            </span>
+            <span className="block text-xs text-red-700">
+              Combustible o vales que no cuadran. Requieren que alguien los revise y los cierre
+              indicando el motivo.
+            </span>
+          </span>
+          <span className="text-xs font-semibold text-red-800 underline">Revisar</span>
+        </button>
+      )}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-10">
         <div>
           <h1 className="text-3xl font-bold text-slate-800">Control de Combustible</h1>
