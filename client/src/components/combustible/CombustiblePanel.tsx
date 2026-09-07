@@ -36,6 +36,7 @@ interface Tanque {
   // sospechosa una recepción (migrations/0066). 0 = no alertar todavía.
   umbral_diferencia_pct: string | null;
   umbral_descuadre_pct: string | null;
+  umbral_descuadre_ciclo_pct: string | null;
 }
 
 /** Una fila del historial de recepciones (GET /recepciones, Fase C). A
@@ -66,6 +67,7 @@ interface RecepcionHistorial {
   nivel_despues: string | null;
   umbral_diferencia_pct: string;
   umbral_descuadre_pct: string;
+  umbral_descuadre_ciclo_pct: string;
 }
 
 const ETIQUETA_TIPO_DOCUMENTO: Record<"factura" | "guia_remision", string> = {
@@ -209,7 +211,8 @@ interface AnomaliaCombustible {
     | "sobredespacho"
     | "diferencia_recepcion"
     | "medidor_inconsistente"
-    | "descuadre_inventario";
+    | "descuadre_inventario"
+    | "descuadre_ciclo";
   serie_talonario: string | null;
   n_vale: number | null;
   recepcion_id: number | null;
@@ -230,7 +233,9 @@ interface AlertaCombustible {
     | "diferencia_recepcion"
     | "nivel_bajo"
     | "medidor_inconsistente"
-    | "descuadre_inventario";
+    | "descuadre_inventario"
+    | "descuadre_ciclo"
+    | "tanque_sin_medir";
   // Nullable desde 0073: las alertas de recepción y de nivel no son sobre
   // un vale, se anclan al tanque o a la recepción.
   serie_talonario: string | null;
@@ -259,6 +264,8 @@ const ETIQUETA_TIPO_ALERTA: Record<AlertaCombustible["tipo"], string> = {
   nivel_bajo: "Nivel bajo de tanque",
   medidor_inconsistente: "Medidor inconsistente",
   descuadre_inventario: "Descuadre de inventario",
+  descuadre_ciclo: "Descuadre del ciclo",
+  tanque_sin_medir: "Tanque sin medir",
 };
 
 /** El `detalle` es JSONB libre y cada tipo de alerta guarda cosas
@@ -297,6 +304,32 @@ function describirDetalleAlerta(a: AlertaCombustible): string {
     return (
       `Despachó ${cantidad} ${unidadDespacho ?? ""} a un tanque de ` +
       `${capacidad} ${unidadCapacidad ?? ""} (+${excesoPct ?? "?"}%)`
+    );
+  }
+  if (a.tipo === "tanque_sin_medir") {
+    const { diasSinMedir, plazoDias } = a.detalle as {
+      diasSinMedir?: number | null;
+      plazoDias?: number;
+    };
+    return diasSinMedir == null
+      ? `Nunca se midió (plazo: ${plazoDias ?? "?"} días)`
+      : `${diasSinMedir} días sin varilla (plazo: ${plazoDias ?? "?"} días)`;
+  }
+  if (a.tipo === "descuadre_ciclo") {
+    const { descuadreLitros, sentido, unidad, cicloDesde } = a.detalle as {
+      descuadreLitros?: number;
+      sentido?: string;
+      unidad?: string;
+      cicloDesde?: string;
+    };
+    if (descuadreLitros === undefined) return "—";
+    const magnitud = Math.abs(descuadreLitros).toLocaleString("es-PE", {
+      maximumFractionDigits: 2,
+    });
+    const desde = cicloDesde ? new Date(cicloDesde).toLocaleDateString("es-PE") : "?";
+    return (
+      `${sentido === "falta" ? "Faltan" : "Sobran"} ${magnitud} ${unidad ?? ""} ` +
+      `acumulados desde la carga del ${desde}`
     );
   }
   if (a.tipo === "descuadre_inventario") {
@@ -500,6 +533,7 @@ const FORM_INICIAL = {
   // estricta posible sin que nadie la pidiera.
   umbral_diferencia_pct: "",
   umbral_descuadre_pct: "",
+  umbral_descuadre_ciclo_pct: "",
 };
 
 /** Campo vacío -> null (sin configurar). Cualquier número, incluido el 0,
@@ -642,6 +676,9 @@ export default function CombustiblePanel() {
   const [anomalias, setAnomalias] = useState<AnomaliaCombustible[]>([]);
   const [ventanaGraciaHoras, setVentanaGraciaHoras] = useState("72");
   const [guardandoVentana, setGuardandoVentana] = useState(false);
+  // Plazo sin varilla (migración 0076). Comparte el mismo formulario y el
+  // mismo PUT que la ventana de gracia: las dos son política del tenant.
+  const [diasSinMedir, setDiasSinMedir] = useState("3");
   // La confirmación va DENTRO del modal, no en el banner verde de la
   // pantalla principal: ese banner queda tapado por el propio modal, así
   // que guardar parecía no hacer nada (reportado en pantalla por Kenif).
@@ -772,6 +809,7 @@ export default function CombustiblePanel() {
       requiere_documento: t.requiere_documento,
       umbral_diferencia_pct: t.umbral_diferencia_pct ?? "",
       umbral_descuadre_pct: t.umbral_descuadre_pct ?? "",
+      umbral_descuadre_ciclo_pct: t.umbral_descuadre_ciclo_pct ?? "",
     });
     setModalTanqueAbierto(true);
   };
@@ -799,6 +837,7 @@ export default function CombustiblePanel() {
             requiere_documento: formData.requiere_documento,
             umbral_diferencia_pct: aNumeroONull(formData.umbral_diferencia_pct),
             umbral_descuadre_pct: aNumeroONull(formData.umbral_descuadre_pct),
+            umbral_descuadre_ciclo_pct: aNumeroONull(formData.umbral_descuadre_ciclo_pct),
           }
         : {
             codigo: formData.codigo,
@@ -815,6 +854,7 @@ export default function CombustiblePanel() {
             requiere_documento: formData.requiere_documento,
             umbral_diferencia_pct: aNumeroONull(formData.umbral_diferencia_pct),
             umbral_descuadre_pct: aNumeroONull(formData.umbral_descuadre_pct),
+            umbral_descuadre_ciclo_pct: aNumeroONull(formData.umbral_descuadre_ciclo_pct),
           };
 
       const res = await apiFetch(url, {
@@ -1462,6 +1502,9 @@ export default function CombustiblePanel() {
       if (bodyConfig?.ventana_gracia_horas !== undefined) {
         setVentanaGraciaHoras(String(bodyConfig.ventana_gracia_horas));
       }
+      if (bodyConfig?.dias_sin_medir !== undefined) {
+        setDiasSinMedir(String(bodyConfig.dias_sin_medir));
+      }
     } finally {
       setCargandoAlertas(false);
     }
@@ -1471,20 +1514,22 @@ export default function CombustiblePanel() {
    *  congelarse), por eso el backend lo audita con el "quién". */
   const handleGuardarVentana = async () => {
     const horas = Number(ventanaGraciaHoras);
+    const dias = Number(diasSinMedir);
     if (guardandoVentana || !Number.isInteger(horas) || horas < 1 || horas > 8760) return;
+    if (!Number.isInteger(dias) || dias < 1 || dias > 365) return;
     setGuardandoVentana(true);
     try {
       const res = await apiFetch("/api/erp/combustible/config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ventana_gracia_horas: horas }),
+        body: JSON.stringify({ ventana_gracia_horas: horas, dias_sin_medir: dias }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setMensajeVentana(body.error || "No se pudo guardar la ventana.");
+        setMensajeVentana(body.error || "No se pudo guardar la configuración.");
         return;
       }
-      setMensajeVentana(`Guardado: ${horas} horas`);
+      setMensajeVentana(`Guardado: ventana ${horas} h, aviso sin medir a los ${dias} días`);
     } finally {
       setGuardandoVentana(false);
     }
@@ -2282,6 +2327,33 @@ export default function CombustiblePanel() {
                       20,000 L son 200 L. <strong>Vacío = no alertar todavía</strong>, hasta saber
                       cuánto ruido produce la varilla de este tanque.{" "}
                       <strong>0 = alertar por cualquier faltante o sobrante</strong>.
+                    </p>
+                  </div>
+                  <div className="space-y-1 col-span-2">
+                    <label
+                      htmlFor="tanque-umbral-ciclo"
+                      className="text-xs font-bold text-slate-500 uppercase"
+                    >
+                      Umbral acumulado del ciclo (%)
+                    </label>
+                    <input
+                      id="tanque-umbral-ciclo"
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.01"
+                      className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                      value={formData.umbral_descuadre_ciclo_pct}
+                      onChange={(e) =>
+                        setFormData({ ...formData, umbral_descuadre_ciclo_pct: e.target.value })
+                      }
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Igual que el anterior, pero sumando <strong>todo el ciclo</strong> desde que
+                      el tanque se cargó, no solo entre dos varillas. Atrapa el faltante repartido
+                      en porciones chicas, que medición por medición parece normal. Ponelo más alto
+                      que el de arriba (por ejemplo 1% y 2%): el ruido de la varilla se acumula a lo
+                      largo del ciclo.
                     </p>
                   </div>
                 </div>
@@ -3689,6 +3761,25 @@ export default function CombustiblePanel() {
                 }}
               />
               <span className="text-sm text-slate-500">horas</span>
+              <label
+                htmlFor="dias-sin-medir"
+                className="text-xs font-bold text-slate-500 uppercase ml-2"
+              >
+                Avisar si no se mide en
+              </label>
+              <input
+                id="dias-sin-medir"
+                type="number"
+                min={1}
+                max={365}
+                className="w-20 border border-slate-200 rounded-lg p-2 outline-none focus:ring-2 focus:ring-slate-900"
+                value={diasSinMedir}
+                onChange={(e) => {
+                  setDiasSinMedir(e.target.value);
+                  setMensajeVentana(null);
+                }}
+              />
+              <span className="text-sm text-slate-500">días</span>
               <button
                 onClick={handleGuardarVentana}
                 disabled={guardandoVentana}

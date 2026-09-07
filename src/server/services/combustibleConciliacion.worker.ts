@@ -34,12 +34,14 @@
  * corre dentro de la transacción del lock, así que tomarlo una sola vez
  * para todos los tenants lo mantendría agarrado durante toda la pasada.
  */
-import { pool } from "../config/database";
+import { pool, withTenant } from "../config/database";
 import { logger } from "../config/logger";
 import { env } from "../config/env";
 import { runSiPrimero, LOCK_IDS } from "../shared/utils/advisoryLock";
 import { capturarError } from "../config/sentry";
 import { CombustibleService } from "../../modules/combustible/combustible.service";
+import { enviarCorreoAlertaSinMedir } from "../../modules/combustible/combustibleAlertas.mailer";
+import { publicarEventoTenant } from "./realtimeEvents.service";
 
 const service = new CombustibleService();
 
@@ -56,16 +58,35 @@ async function idsDeTenants(): Promise<string[]> {
  *  correrRetencionEventosCoordinada() en el worker de retención. */
 export async function correrConciliacion(): Promise<{ congeladas: number }> {
   let total = 0;
+  // Se juntan y salen después del COMMIT -- ver avisarSinMedir().
+  const avisosSinMedir: {
+    tenantId: string;
+    alertas: {
+      tanque_nombre: string;
+      dias_sin_medir: string | null;
+      ultima_lectura: Date | null;
+    }[];
+    dias: number;
+  }[] = [];
+
   for (const tenantId of await idsDeTenants()) {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
       await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
-      // El orden importa: primero se crean las alertas de diferencia, después
-      // se congela lo vencido. Al revés, una diferencia recién detectada
-      // tendría que esperar a la corrida siguiente para poder congelarse.
+      // El orden importa: primero se crean las alertas, después se congela
+      // lo vencido. Al revés, una alerta recién detectada tendría que
+      // esperar a la corrida siguiente para poder congelarse.
       await service.alertarDiferenciasDeRecepcion(client, tenantId);
+      // Tanques que dejaron de medirse (migración 0076). Va en el worker y
+      // no event-driven porque el hecho a detectar es que NO pasó nada, y un
+      // evento que no ocurre no dispara ningún handler. Se avisa por correo
+      // fuera de la transacción, junto con el resto.
+      const sinMedir = await service.evaluarTanquesSinMedir(client, tenantId);
       const { congeladas } = await service.congelarAlertasVencidas(client, tenantId);
+      if (sinMedir.alertas.length > 0) {
+        avisosSinMedir.push({ tenantId, ...sinMedir });
+      }
       await client.query("COMMIT");
       total += congeladas;
     } catch (err) {
@@ -75,7 +96,48 @@ export async function correrConciliacion(): Promise<{ congeladas: number }> {
       client.release();
     }
   }
+
+  for (const aviso of avisosSinMedir) {
+    await avisarSinMedir(aviso.tenantId, aviso.alertas, aviso.dias);
+  }
+
   return { congeladas: total };
+}
+
+/** Correo + evento de los tanques sin medir. Lo usan los DOS caminos (la
+ *  corrida directa y la coordinada), y siempre FUERA de la transacción:
+ *  mandarlo adentro la dejaría abierta durante todo el SMTP, y un fallo del
+ *  correo haría rollback de alertas que sí corresponde persistir.
+ *
+ *  Un correo POR TANQUE y no uno con la lista: cada tanque sin medir es una
+ *  acción concreta para alguien, y un correo que enumera cinco se lee como
+ *  reporte en vez de como pedido.
+ *
+ *  Nunca lanza: las alertas ya están guardadas, y que falle el aviso no
+ *  puede tumbar la corrida ni impedir que se congele lo vencido. */
+async function avisarSinMedir(
+  tenantId: string,
+  tanques: { tanque_nombre: string; dias_sin_medir: string | null; ultima_lectura: Date | null }[],
+  plazoDias: number
+): Promise<void> {
+  try {
+    const admins = await withTenant(tenantId, (client) =>
+      service.findAdminsConCombustibleHabilitado(client, tenantId)
+    );
+    for (const tanque of tanques) {
+      await enviarCorreoAlertaSinMedir(admins, {
+        tanqueNombre: tanque.tanque_nombre,
+        diasSinMedir: tanque.dias_sin_medir === null ? null : Number(tanque.dias_sin_medir),
+        ultimaLectura: tanque.ultima_lectura ? new Date(tanque.ultima_lectura).toISOString() : null,
+        plazoDias,
+      });
+    }
+    await publicarEventoTenant(tenantId, "combustible.alerta_creada", {
+      tipo: "tanque_sin_medir",
+    });
+  } catch (err) {
+    logger.warn({ err, tenantId }, "No se pudo avisar de tanques sin medir");
+  }
 }
 
 /** Uso del worker periódico: un lock por tenant -- ver el comentario del
@@ -88,13 +150,22 @@ async function correrConciliacionCoordinada(): Promise<void> {
     const resultado = await runSiPrimero(LOCK_IDS.combustibleConciliacion, async (client) => {
       await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
       await service.alertarDiferenciasDeRecepcion(client, tenantId);
-      return service.congelarAlertasVencidas(client, tenantId);
+      // Va también acá y no solo en correrConciliacion(): ESTE es el camino
+      // que corre en producción cada hora. Engancharlo solo en el otro
+      // dejaría la detección viva únicamente en los tests -- que es
+      // exactamente la clase de hueco que esta entrega vino a cerrar.
+      const sinMedir = await service.evaluarTanquesSinMedir(client, tenantId);
+      const congelado = await service.congelarAlertasVencidas(client, tenantId);
+      return { ...congelado, sinMedir };
     });
     // undefined = otra instancia tiene el lock; se salta este tenant, la
     // próxima corrida lo agarra.
     if (resultado === undefined) continue;
     total += resultado.congeladas;
     ultimaVentana = resultado.ventanaHoras;
+    if (resultado.sinMedir.alertas.length > 0) {
+      await avisarSinMedir(tenantId, resultado.sinMedir.alertas, resultado.sinMedir.dias);
+    }
   }
 
   // Una corrida sin nada que congelar es lo NORMAL (todas las alertas se

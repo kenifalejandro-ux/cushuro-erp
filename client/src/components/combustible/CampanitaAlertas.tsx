@@ -19,6 +19,8 @@ const ETIQUETA_TIPO: Record<string, string> = {
   nivel_bajo: "Nivel bajo de tanque",
   medidor_inconsistente: "Medidor inconsistente",
   descuadre_inventario: "Descuadre de inventario",
+  descuadre_ciclo: "Descuadre del ciclo",
+  tanque_sin_medir: "Tanque sin medir",
 };
 
 /** No toda alerta es sobre un vale (migración 0073): las de nivel bajo van

@@ -15,6 +15,7 @@ import {
   enviarCorreoAlertaMedidor,
   enviarCorreoAlertaNivelBajo,
   enviarCorreoAlertaDescuadre,
+  enviarCorreoAlertaDescuadreCiclo,
 } from "./combustibleAlertas.mailer";
 import type {
   RegistrarLecturaCombustibleInput,
@@ -384,6 +385,13 @@ export class CombustibleController {
         // pg devuelve TIMESTAMPTZ como Date; el balance necesita el mismo
         // instante exacto que quedó guardado (no `data.leido_en`, que es
         // opcional en el body y puede venir sin definir).
+        new Date(fila!.lectura.leido_en).toISOString()
+      );
+      await this.procesarAlertaDescuadreCiclo(
+        tenantId,
+        data.combustible_id,
+        Number(fila!.lectura.id),
+        data.nivel,
         new Date(fila!.lectura.leido_en).toISOString()
       );
       res.status(201).json(fila);
@@ -777,6 +785,58 @@ export class CombustibleController {
     }
   }
 
+  /** Saldo acumulado del ciclo (migración 0076). Corre junto al descuadre
+   *  por tramo y con el mismo contrato "nunca lanza": son dos preguntas
+   *  distintas sobre la misma lectura -- "¿cerró este tramo?" y "¿cierra el
+   *  ciclo desde que se cargó el tanque?" -- y la segunda es la que atrapa
+   *  el faltante repartido en pedazos chicos.
+   *
+   *  También resuelve la alerta de "sin medir" si había una abierta: acaba
+   *  de llegar una lectura, así que el problema que esa alerta reportaba
+   *  dejó de existir. */
+  private async procesarAlertaDescuadreCiclo(
+    tenantId: string,
+    combustibleId: number,
+    lecturaId: number,
+    nivel: number,
+    leidoEn: string
+  ) {
+    try {
+      const { ciclo, admins } = await withTenant(tenantId, async (client) => {
+        await service.resolverAlertaSinMedirSiExiste(client, tenantId, combustibleId);
+
+        const ciclo = await service.evaluarDescuadreCiclo(
+          client,
+          tenantId,
+          combustibleId,
+          lecturaId,
+          nivel,
+          leidoEn
+        );
+        if (!ciclo) return { ciclo, admins: [] as { email: string; nombre: string }[] };
+
+        await service.crearAlertas(client, tenantId, [
+          { tipo: "descuadre_ciclo", combustibleId, detalle: { ...ciclo } },
+        ]);
+        const admins = await service.findAdminsConCombustibleHabilitado(client, tenantId);
+        return { ciclo, admins };
+      });
+
+      if (!ciclo) return;
+
+      await publicarEventoTenant(tenantId, "combustible.alerta_creada", {
+        tipo: "descuadre_ciclo",
+        combustibleId,
+      });
+      await enviarCorreoAlertaDescuadreCiclo(admins, ciclo);
+    } catch (err) {
+      logger.warn(
+        { err, tenantId, combustibleId },
+        "No se pudo procesar la alerta de descuadre del ciclo"
+      );
+    }
+  }
+
   /** Mismo contrato "nunca lanza" que procesarAlertasDespachoCreado(). */
   private async procesarAlertaAnulacion(
     tenantId: string,
@@ -936,10 +996,16 @@ export class CombustibleController {
   async guardarConfig(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
-      const { ventana_gracia_horas } = req.validatedBody as ConfigCombustibleInput;
+      const { ventana_gracia_horas, dias_sin_medir } = req.validatedBody as ConfigCombustibleInput;
 
       const guardada = await withTenant(tenantId, (client) =>
-        service.guardarConfig(client, tenantId, ventana_gracia_horas, req.usuario!.id)
+        service.guardarConfig(
+          client,
+          tenantId,
+          ventana_gracia_horas,
+          dias_sin_medir,
+          req.usuario!.id
+        )
       );
 
       await registrarAuditoria({

@@ -19,7 +19,9 @@ export type TipoAlertaCombustible =
   | "diferencia_recepcion"
   | "nivel_bajo"
   | "medidor_inconsistente"
-  | "descuadre_inventario";
+  | "descuadre_inventario"
+  | "descuadre_ciclo"
+  | "tanque_sin_medir";
 
 /** Una alerta por crear. Las anclas son todas opcionales en el tipo, pero
  *  el CHECK de la base exige al menos una (vale, tanque o recepción). */
@@ -54,7 +56,7 @@ const COLUMNAS_TANQUE = `
   c.ubicacion, c.capacidad_total, c.nivel_minimo, c.totalizador_actual,
   c.costo_promedio, c.moneda, c.activo,
   c.tolerancia_capacidad_pct, c.requiere_documento, c.umbral_diferencia_pct,
-  c.umbral_descuadre_pct,
+  c.umbral_descuadre_pct, c.umbral_descuadre_ciclo_pct,
   ultima.nivel AS nivel_actual,
   ultima.leido_en AS fecha_actualizacion,
   ROUND((ultima.nivel / c.capacidad_total) * 100, 2) AS porcentaje
@@ -126,9 +128,9 @@ export class CombustibleRepository {
         tenant_id, codigo, tanque_nombre, tipo_combustible, unidad, tipo_punto,
         ubicacion, capacidad_total, nivel_minimo, moneda,
         tolerancia_capacidad_pct, requiere_documento, umbral_diferencia_pct,
-        umbral_descuadre_pct
+        umbral_descuadre_pct, umbral_descuadre_ciclo_pct
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
       RETURNING id
       `,
       [
@@ -146,6 +148,7 @@ export class CombustibleRepository {
         data.requiere_documento,
         data.umbral_diferencia_pct,
         data.umbral_descuadre_pct,
+        data.umbral_descuadre_ciclo_pct,
       ]
     );
 
@@ -205,8 +208,9 @@ export class CombustibleRepository {
         tolerancia_capacidad_pct = $11,
         requiere_documento = $12,
         umbral_diferencia_pct = $13,
-        umbral_descuadre_pct = $14
-      WHERE id = $15 AND tenant_id = $16
+        umbral_descuadre_pct = $14,
+        umbral_descuadre_ciclo_pct = $15
+      WHERE id = $16 AND tenant_id = $17
       RETURNING id
       `,
       [
@@ -224,6 +228,7 @@ export class CombustibleRepository {
         data.requiere_documento,
         data.umbral_diferencia_pct,
         data.umbral_descuadre_pct,
+        data.umbral_descuadre_ciclo_pct,
         id,
         tenantId,
       ]
@@ -860,14 +865,30 @@ export class CombustibleRepository {
     return Number(result.rows[0].ventana_gracia_horas);
   }
 
+  /** Cada cuántos días la empresa exige que se tome varilla (migración
+   *  0076). Mismo COALESCE que la ventana de gracia: el tenant que nunca
+   *  tocó su configuración no tiene fila propia y usa el default. */
+  async getDiasSinMedir(client: PoolClient, tenantId: string): Promise<number> {
+    const result = await client.query<{ dias_sin_medir: number }>(
+      `SELECT COALESCE(
+         (SELECT dias_sin_medir FROM combustible_config WHERE tenant_id = $1),
+         3
+       ) AS dias_sin_medir`,
+      [tenantId]
+    );
+    return Number(result.rows[0].dias_sin_medir);
+  }
+
   async getConfig(client: PoolClient, tenantId: string) {
     const ventana = await this.getVentanaGraciaHoras(client, tenantId);
+    const diasSinMedir = await this.getDiasSinMedir(client, tenantId);
     const result = await client.query(
       `SELECT actualizado_en, actualizado_por FROM combustible_config WHERE tenant_id = $1`,
       [tenantId]
     );
     return {
       ventana_gracia_horas: ventana,
+      dias_sin_medir: diasSinMedir,
       actualizado_en: result.rows[0]?.actualizado_en ?? null,
       actualizado_por: result.rows[0]?.actualizado_por ?? null,
     };
@@ -879,19 +900,22 @@ export class CombustibleRepository {
     client: PoolClient,
     tenantId: string,
     ventanaGraciaHoras: number,
+    diasSinMedir: number,
     usuarioId: string
   ) {
     const result = await client.query(
       `
-      INSERT INTO combustible_config (tenant_id, ventana_gracia_horas, actualizado_por)
-      VALUES ($1, $2, $3)
+      INSERT INTO combustible_config
+        (tenant_id, ventana_gracia_horas, dias_sin_medir, actualizado_por)
+      VALUES ($1, $2, $3, $4)
       ON CONFLICT (tenant_id) DO UPDATE
         SET ventana_gracia_horas = EXCLUDED.ventana_gracia_horas,
+            dias_sin_medir = EXCLUDED.dias_sin_medir,
             actualizado_por = EXCLUDED.actualizado_por,
             actualizado_en = now()
-      RETURNING ventana_gracia_horas, actualizado_en, actualizado_por
+      RETURNING ventana_gracia_horas, dias_sin_medir, actualizado_en, actualizado_por
       `,
-      [tenantId, ventanaGraciaHoras, usuarioId]
+      [tenantId, ventanaGraciaHoras, diasSinMedir, usuarioId]
     );
     return result.rows[0];
   }
@@ -922,7 +946,8 @@ export class CombustibleRepository {
        FROM combustible_alertas
        WHERE tenant_id = $1
          AND tipo IN ('hueco_detectado', 'sobredespacho', 'diferencia_recepcion',
-                      'medidor_inconsistente', 'descuadre_inventario')
+                      'medidor_inconsistente', 'descuadre_inventario',
+                      'descuadre_ciclo')
          AND resuelta_en IS NULL
          AND congelada_en IS NULL
          AND creado_en < now() - make_interval(hours => $2)
@@ -1142,6 +1167,147 @@ export class CombustibleRepository {
       [tenantId, combustibleId, lecturaId, leidoEn]
     );
     return result.rows[0] ?? null;
+  }
+
+  /** El saldo del CICLO: todo lo que pasó desde la última recepción hasta
+   *  la lectura que se acaba de registrar (migración 0076).
+   *
+   *  Por qué existe además del descuadre por tramo: el de tramo compara
+   *  lectura contra lectura, así que un faltante repartido en pedazos chicos
+   *  -- cada uno debajo de la banda -- nunca dispara. La auditoría lo
+   *  demostró sacando 600 L en cuatro tramos de 150 sin generar una sola
+   *  alerta. Y como los tramos se compensan entre sí, el último puede decir
+   *  "sobran 500" mientras el ciclo entero está 1.000 corto.
+   *
+   *  El ancla es la última recepción y no un rango de días: cargar el tanque
+   *  es el único evento real que cierra un período de consumo. Si el tanque
+   *  nunca recibió nada (todavía no se cargó por el sistema), el ciclo
+   *  arranca en su lectura más antigua vigente -- que es la del alta.
+   *
+   *  Devuelve null si no hay ningún punto de partida con nivel medido: sin
+   *  eso el acumulado no se puede calcular y estimarlo sería inventar. */
+  async findSaldoCiclo(
+    client: PoolClient,
+    tenantId: string,
+    combustibleId: number,
+    lecturaId: number,
+    leidoEn: string
+  ) {
+    const result = await client.query<{
+      inicio_en: Date;
+      nivel_inicio: string;
+      tanque_nombre: string;
+      unidad: string;
+      capacidad_total: string;
+      umbral_descuadre_ciclo_pct: string | null;
+      despachos: string;
+      recepciones: string;
+    }>(
+      `
+      -- El arranque del ciclo: la lectura vigente inmediatamente POSTERIOR
+      -- a la última recepción (el nivel ya con el combustible adentro). Sin
+      -- recepciones, la lectura vigente más antigua del tanque.
+      WITH ultima_recepcion AS (
+        SELECT MAX(r.recibido_en) AS recibido_en
+        FROM combustible_recepciones r
+        WHERE r.tenant_id = $1 AND r.combustible_id = $2 AND r.anulada_en IS NULL
+          AND r.recibido_en <= $4::timestamptz
+      ),
+      inicio AS (
+        SELECT l.id, l.nivel, l.leido_en
+        FROM combustible_lecturas l, ultima_recepcion ur
+        WHERE l.tenant_id = $1 AND l.combustible_id = $2
+          AND l.anulada_en IS NULL AND l.id <> $3
+          AND (l.leido_en, l.id) < ($4::timestamptz, $3::bigint)
+          AND (ur.recibido_en IS NULL OR l.leido_en >= ur.recibido_en)
+        ORDER BY l.leido_en ASC, l.id ASC
+        LIMIT 1
+      )
+      SELECT i.leido_en AS inicio_en,
+             i.nivel AS nivel_inicio,
+             c.tanque_nombre, c.unidad, c.capacidad_total,
+             c.umbral_descuadre_ciclo_pct,
+             COALESCE((
+               SELECT SUM(d.cantidad) FROM combustible_despachos d
+               WHERE d.tenant_id = $1 AND d.combustible_id = $2
+                 AND d.anulada_en IS NULL
+                 AND d.despachado_en > i.leido_en AND d.despachado_en <= $4::timestamptz
+             ), 0) AS despachos,
+             COALESCE((
+               SELECT SUM(r.cantidad) FROM combustible_recepciones r
+               WHERE r.tenant_id = $1 AND r.combustible_id = $2
+                 AND r.anulada_en IS NULL
+                 AND r.recibido_en > i.leido_en AND r.recibido_en <= $4::timestamptz
+             ), 0) AS recepciones
+      FROM inicio i
+      JOIN combustible c ON c.id = $2 AND c.tenant_id = $1
+      `,
+      [tenantId, combustibleId, lecturaId, leidoEn]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  /** Tanques ACTIVOS cuya última lectura vigente es más vieja que el plazo
+   *  del tenant, y que todavía no tienen una alerta abierta por eso
+   *  (migración 0076).
+   *
+   *  Incluye los tanques que NUNCA tuvieron lectura vigente: un tanque dado
+   *  de alta y nunca medido es exactamente el mismo problema, y dejarlo
+   *  afuera con un INNER JOIN sería el caso que más silenciosamente se
+   *  escapa. De ahí el LEFT JOIN LATERAL y el `IS NULL` en la condición.
+   *
+   *  La deduplicación va acá y no en el llamador por el mismo motivo que en
+   *  `nivel_bajo`: sin ella, cada corrida del worker generaría una alerta
+   *  nueva del mismo tanque y el control moriría por ruidoso. */
+  async findTanquesSinMedir(client: PoolClient, tenantId: string, dias: number) {
+    const result = await client.query<{
+      id: number;
+      tanque_nombre: string;
+      unidad: string;
+      ultima_lectura: Date | null;
+      dias_sin_medir: string | null;
+    }>(
+      `
+      SELECT c.id, c.tanque_nombre, c.unidad,
+             ultima.leido_en AS ultima_lectura,
+             EXTRACT(DAY FROM now() - ultima.leido_en)::text AS dias_sin_medir
+      FROM combustible c
+      LEFT JOIN LATERAL (
+        SELECT l.leido_en
+        FROM combustible_lecturas l
+        WHERE l.combustible_id = c.id AND l.anulada_en IS NULL
+        ORDER BY l.leido_en DESC, l.id DESC
+        LIMIT 1
+      ) ultima ON true
+      WHERE c.tenant_id = $1 AND c.activo = true
+        AND (ultima.leido_en IS NULL OR ultima.leido_en < now() - make_interval(days => $2))
+        AND NOT EXISTS (
+          SELECT 1 FROM combustible_alertas a
+          WHERE a.tenant_id = $1 AND a.combustible_id = c.id
+            AND a.tipo = 'tanque_sin_medir' AND a.resuelta_en IS NULL
+        )
+      ORDER BY c.id
+      `,
+      [tenantId, dias]
+    );
+    return result.rows;
+  }
+
+  /** Alguien volvió a medir: la alerta de "sin medir" se cierra sola, igual
+   *  que la de nivel bajo cuando se repone. `resuelta_por` queda NULL porque
+   *  lo resolvió el sistema, no una persona. */
+  async resolverAlertaSinMedirSiExiste(
+    client: PoolClient,
+    tenantId: string,
+    combustibleId: number
+  ): Promise<void> {
+    await client.query(
+      `UPDATE combustible_alertas
+       SET resuelta_en = now()
+       WHERE tenant_id = $1 AND combustible_id = $2
+         AND tipo = 'tanque_sin_medir' AND resuelta_en IS NULL`,
+      [tenantId, combustibleId]
+    );
   }
 
   /** El tanque volvió por encima de su mínimo: la alerta de nivel se

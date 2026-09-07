@@ -204,6 +204,93 @@ export async function enviarCorreoAlertaDescuadre(
   });
 }
 
+/** El saldo del CICLO no cierra (migración 0076): sumando todo desde que el
+ *  tanque se cargó, falta o sobra combustible.
+ *
+ *  Es el hallazgo más fuerte del módulo, y por eso el correo lo dice
+ *  distinto que el de tramo: acá el número no es "lo que pasó entre dos
+ *  mediciones" sino "lo que no cuadra desde que este tanque se llenó", que
+ *  es lo que un gerente puede llevar a una reunión. */
+export async function enviarCorreoAlertaDescuadreCiclo(
+  destinatarios: Destinatario[],
+  params: {
+    tanqueNombre: string;
+    unidad: string;
+    cicloDesde: string;
+    nivelInicio: number;
+    nivelMedido: number;
+    despachos: number;
+    recepciones: number;
+    esperado: number;
+    descuadreLitros: number;
+    sentido: "falta" | "sobra";
+    umbralPct: number;
+  }
+) {
+  const u = params.unidad;
+  const faltante = params.sentido === "falta";
+  const magnitud = Math.abs(params.descuadreLitros);
+  const desde = new Date(params.cicloDesde).toLocaleString("es-PE");
+
+  await enviarCorreoAlerta({
+    destinatarios,
+    asunto:
+      `Combustible: ${faltante ? "faltan" : "sobran"} ${magnitud} ${u} ` +
+      `acumulados en ${params.tanqueNombre}`,
+    titulo: `${params.tanqueNombre}: el ciclo completo no cierra`,
+    lineas: [
+      `Período analizado: desde ${desde} (última carga del tanque) hasta ahora.`,
+      `Nivel al inicio del ciclo: ${params.nivelInicio} ${u}.`,
+      `Recepciones del ciclo: +${params.recepciones} ${u}.`,
+      `Despachos del ciclo: −${params.despachos} ${u}.`,
+      `Debería haber ${params.esperado} ${u}, y la varilla marca ${params.nivelMedido} ${u}.`,
+      faltante
+        ? `Faltan ${magnitud} ${u} en todo el ciclo. Esto se detecta aunque cada medición ` +
+          `individual haya parecido normal: un faltante repartido en porciones chicas solo ` +
+          `se ve sumando el período completo.`
+        : `Sobran ${magnitud} ${u} en todo el ciclo: los vales del período declaran más ` +
+          `salida de la que realmente hubo.`,
+      `Umbral del ciclo para este tanque: ${params.umbralPct}% de su capacidad.`,
+    ],
+  });
+}
+
+/** Nadie tomó varilla en este tanque dentro del plazo (migración 0076).
+ *
+ *  No es una alerta de combustible sino de PROCESO, y es la más importante
+ *  de todas en un sentido: sin lecturas, ni el descuadre ni la diferencia de
+ *  recepción se pueden calcular. Dejar de medir apaga el control entero, y
+ *  no requiere saber nada del sistema para lograrlo. */
+export async function enviarCorreoAlertaSinMedir(
+  destinatarios: Destinatario[],
+  params: {
+    tanqueNombre: string;
+    diasSinMedir: number | null;
+    ultimaLectura: string | null;
+    plazoDias: number;
+  }
+) {
+  const cuando =
+    params.ultimaLectura === null
+      ? "Nunca se registró una lectura de varilla en este tanque."
+      : `La última lectura fue el ${new Date(params.ultimaLectura).toLocaleString("es-PE")}` +
+        (params.diasSinMedir === null ? "." : `, hace ${params.diasSinMedir} días.`);
+
+  await enviarCorreoAlerta({
+    destinatarios,
+    asunto: `Combustible: ${params.tanqueNombre} lleva días sin medirse`,
+    titulo: `Sin lecturas de varilla en ${params.tanqueNombre}`,
+    lineas: [
+      cuando,
+      `El plazo configurado es de ${params.plazoDias} días.`,
+      "Mientras no se mida, el sistema NO puede detectar faltantes ni comparar lo que " +
+        "facturó el proveedor contra lo que realmente entró: las dos verificaciones " +
+        "dependen de la varilla.",
+      "Tomar la lectura cierra esta alerta automáticamente.",
+    ],
+  });
+}
+
 /** Un vale que sí se había registrado se anuló -- a diferencia del hueco,
  *  esto siempre tiene un motivo escrito por quien lo anuló, pero necesita
  *  revisión: "todo tiene que tener sustento". */

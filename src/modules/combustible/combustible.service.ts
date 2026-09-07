@@ -342,9 +342,16 @@ export class CombustibleService {
     client: PoolClient,
     tenantId: string,
     ventanaGraciaHoras: number,
+    diasSinMedir: number,
     usuarioId: string
   ) {
-    return this.repository.guardarConfig(client, tenantId, ventanaGraciaHoras, usuarioId);
+    return this.repository.guardarConfig(
+      client,
+      tenantId,
+      ventanaGraciaHoras,
+      diasSinMedir,
+      usuarioId
+    );
   }
 
   listarAnomalias(client: PoolClient, tenantId: string, paginacion: Paginacion) {
@@ -632,6 +639,106 @@ export class CombustibleService {
       lecturaAnteriorId: Number(datos.lectura_anterior_id),
       lecturaId,
     };
+  }
+
+  /** Saldo acumulado del ciclo (migración 0076): el mismo balance que
+   *  `evaluarDescuadre`, pero medido desde la última recepción en vez de
+   *  desde la lectura anterior.
+   *
+   *  Existe porque el de tramo tiene un agujero explotable: un faltante
+   *  repartido en pedazos chicos, cada uno debajo de la banda, no dispara
+   *  nunca. La auditoría lo demostró con 600 L en cuatro tramos de 150.
+   *
+   *  Umbral SEPARADO del de tramo a propósito. El ruido de la varilla se
+   *  acumula a lo largo del ciclo, así que reusar el mismo porcentaje haría
+   *  que esto alertara todos los días y muriera por ruidoso -- el riesgo
+   *  que nombra el punto 4 del documento de diseño. */
+  async evaluarDescuadreCiclo(
+    client: PoolClient,
+    tenantId: string,
+    combustibleId: number,
+    lecturaId: number,
+    nivel: number,
+    leidoEn: string
+  ) {
+    const datos = await this.repository.findSaldoCiclo(
+      client,
+      tenantId,
+      combustibleId,
+      lecturaId,
+      leidoEn
+    );
+    if (!datos) return null;
+    if (datos.umbral_descuadre_ciclo_pct === null) return null;
+
+    const umbralPct = Number(datos.umbral_descuadre_ciclo_pct);
+    const nivelInicio = Number(datos.nivel_inicio);
+    const despachos = Number(datos.despachos);
+    const recepciones = Number(datos.recepciones);
+    const capacidad = Number(datos.capacidad_total);
+
+    const esperado = nivelInicio + recepciones - despachos;
+    const descuadre = nivel - esperado;
+    const toleradoLitros = (capacidad * umbralPct) / 100;
+
+    if (Math.abs(descuadre) <= toleradoLitros) return null;
+
+    return {
+      tanqueNombre: datos.tanque_nombre,
+      unidad: datos.unidad,
+      cicloDesde: new Date(datos.inicio_en).toISOString(),
+      nivelInicio,
+      nivelMedido: nivel,
+      despachos,
+      recepciones,
+      esperado,
+      descuadreLitros: descuadre,
+      sentido: descuadre < 0 ? ("falta" as const) : ("sobra" as const),
+      umbralPct,
+      toleradoLitros,
+      lecturaId,
+    };
+  }
+
+  /** Llegó una lectura: si el tanque tenía una alerta de "sin medir"
+   *  abierta, se cierra sola. Mismo mecanismo que el nivel bajo cuando se
+   *  repone -- nadie tiene que acordarse de cerrarla a mano. */
+  async resolverAlertaSinMedirSiExiste(
+    client: PoolClient,
+    tenantId: string,
+    combustibleId: number
+  ) {
+    return this.repository.resolverAlertaSinMedirSiExiste(client, tenantId, combustibleId);
+  }
+
+  /** Tanques que dejaron de medirse (migración 0076). Corre en el worker,
+   *  no event-driven: el hecho que hay que detectar es justamente que NO
+   *  pasó nada, y un evento que no ocurre no dispara ningún handler.
+   *
+   *  Es la evasión más simple del módulo entero, y no requiere entender
+   *  nada: sin lecturas no hay descuadre que calcular ni diferencia de
+   *  recepción que comparar. Las dos detecciones se apagan solas. */
+  async evaluarTanquesSinMedir(client: PoolClient, tenantId: string) {
+    const dias = await this.repository.getDiasSinMedir(client, tenantId);
+    const tanques = await this.repository.findTanquesSinMedir(client, tenantId, dias);
+    if (tanques.length === 0) return { alertas: [], dias };
+
+    await this.repository.crearAlertas(
+      client,
+      tenantId,
+      tanques.map((t) => ({
+        tipo: "tanque_sin_medir" as const,
+        combustibleId: t.id,
+        detalle: {
+          tanqueNombre: t.tanque_nombre,
+          unidad: t.unidad,
+          diasSinMedir: t.dias_sin_medir === null ? null : Number(t.dias_sin_medir),
+          ultimaLectura: t.ultima_lectura ? new Date(t.ultima_lectura).toISOString() : null,
+          plazoDias: dias,
+        },
+      }))
+    );
+    return { alertas: tanques, dias };
   }
 
   /** Sobredespacho (migraciones 0069/0070): se despachó más de lo que el
