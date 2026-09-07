@@ -21,7 +21,8 @@ export type TipoAlertaCombustible =
   | "medidor_inconsistente"
   | "descuadre_inventario"
   | "descuadre_ciclo"
-  | "tanque_sin_medir";
+  | "tanque_sin_medir"
+  | "vale_fuera_de_orden";
 
 /** Una alerta por crear. Las anclas son todas opcionales en el tipo, pero
  *  el CHECK de la base exige al menos una (vale, tanque o recepción). */
@@ -812,6 +813,52 @@ export class CombustibleRepository {
     return revelados;
   }
 
+  /** ¿Este vale entró por DEBAJO del máximo de su serie? (migración 0077)
+   *
+   *  Complemento de `detectarHuecosRevelados`, que solo mira hacia adelante.
+   *  Devuelve el máximo anterior cuando el vale nuevo queda por debajo, o
+   *  null cuando la carga es normal (el vale sigue al máximo, o es el primero
+   *  de la serie).
+   *
+   *  Mismo `id <> $3` de siempre: corre después del INSERT, así que sin
+   *  excluir la fila recién creada se compararía contra sí misma. */
+  async detectarValeFueraDeOrden(
+    client: PoolClient,
+    tenantId: string,
+    serieTalonario: string,
+    despachoId: number,
+    nuevoNVale: number
+  ): Promise<number | null> {
+    const result = await client.query<{ max_anterior: number | null }>(
+      `SELECT MAX(n_vale) AS max_anterior
+       FROM combustible_despachos
+       WHERE tenant_id = $1 AND serie_talonario = $2 AND id <> $3`,
+      [tenantId, serieTalonario, despachoId]
+    );
+    const maxAnterior = result.rows[0]?.max_anterior;
+    if (maxAnterior === null || maxAnterior === undefined) return null;
+    return nuevoNVale < maxAnterior ? maxAnterior : null;
+  }
+
+  /** ¿Existió alguna vez una alerta de hueco por este número? Incluye las
+   *  resueltas y las congeladas: lo que importa es que el sistema HABÍA
+   *  reportado que faltaba, no en qué estado quedó esa alerta. */
+  async existioHuecoPara(
+    client: PoolClient,
+    tenantId: string,
+    serieTalonario: string,
+    nVale: number
+  ): Promise<boolean> {
+    const result = await client.query(
+      `SELECT 1 FROM combustible_alertas
+       WHERE tenant_id = $1 AND tipo = 'hueco_detectado'
+         AND serie_talonario = $2 AND n_vale = $3
+       LIMIT 1`,
+      [tenantId, serieTalonario, nVale]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   /** El vale tardío que llena un hueco ya alertado (típicamente porque
    *  sincronizó desde la cola offline) lo resuelve solo -- `resuelta_por`
    *  queda NULL porque lo resolvió el sistema, no una persona. Corre
@@ -1534,21 +1581,50 @@ export class CombustibleRepository {
    *  vale que faltaba (ver resolverAlertaHuecoSiExiste) -- y el filtro por
    *  tipo del WHERE no es redundante con el controller: es lo que impide
    *  que alguien silencie a mano un hueco que en realidad sigue abierto. */
+  /** Los tipos que se cierran A MANO, porque alguien tiene que mirarlos.
+   *
+   *  Hasta 0077 la lista tenía solo dos, y los cuatro agregados después
+   *  (0073/0074/0076) habían quedado SIN NINGÚN camino de cierre: se
+   *  acumulaban abiertos para siempre, y lo único que los sacaba de la
+   *  campanita era "marcar todas leídas" -- que no es revisar, es tapar.
+   *
+   *  Los que NO están acá es porque se resuelven solos y meterlos sería
+   *  darle a una persona la posibilidad de cerrar algo que el sistema sabe
+   *  contestar mejor: `hueco_detectado` (llega el vale que faltaba),
+   *  `nivel_bajo` (se repone) y `tanque_sin_medir` (se mide). */
+  private static readonly TIPOS_REVISABLES = [
+    "vale_anulado",
+    "sobredespacho",
+    "despacho_tardio",
+    "diferencia_recepcion",
+    "medidor_inconsistente",
+    "descuadre_inventario",
+    "descuadre_ciclo",
+    "vale_fuera_de_orden",
+  ];
+
+  /** El motivo se guarda dentro de `detalle` y no en una columna propia: es
+   *  el único dato de la revisión, la tabla ya tiene el JSONB para lo que
+   *  varía por tipo, y agregarle una columna a `combustible_alertas` que solo
+   *  se llena en la mitad de las filas es peor forma que esto. */
   async resolverAlertaManual(
     client: PoolClient,
     tenantId: string,
     alertaId: number,
-    usuarioId: string
+    usuarioId: string,
+    motivo: string
   ) {
     const result = await client.query(
       `
       UPDATE combustible_alertas
-      SET resuelta_en = now(), resuelta_por = $1
+      SET resuelta_en = now(),
+          resuelta_por = $1,
+          detalle = detalle || jsonb_build_object('motivo_revision', $4::text)
       WHERE id = $2 AND tenant_id = $3
-        AND tipo IN ('vale_anulado', 'sobredespacho') AND resuelta_en IS NULL
+        AND tipo = ANY($5::text[]) AND resuelta_en IS NULL
       RETURNING id, tipo, serie_talonario, n_vale, despacho_id, detalle, creado_en, leida_en, resuelta_en, resuelta_por
       `,
-      [usuarioId, alertaId, tenantId]
+      [usuarioId, alertaId, tenantId, motivo, CombustibleRepository.TIPOS_REVISABLES]
     );
     return result.rows[0] ?? null;
   }

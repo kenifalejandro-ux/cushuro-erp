@@ -179,7 +179,9 @@ describe("combustible: sobredespacho (Fase D, migraciones 0069/0070)", () => {
     const propias = await alertasDeSerie(serie);
     const alerta = propias.find((a: { tipo: string }) => a.tipo === "sobredespacho");
 
-    const resuelta = await agente.patch(`/api/erp/combustible/alertas/${alerta.id}/resolver`);
+    const resuelta = await agente
+      .patch(`/api/erp/combustible/alertas/${alerta.id}/resolver`)
+      .send({ motivo: "Revisado y dado por bueno" });
     expect(resuelta.status).toBe(200);
     expect(resuelta.body.resuelta_en).not.toBeNull();
     // A mano = queda registrado QUIÉN la revisó, a diferencia de un hueco

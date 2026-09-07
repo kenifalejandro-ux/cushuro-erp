@@ -40,6 +40,90 @@ export class CombustibleService {
     return this.repository.update(client, tenantId, id, data);
   }
 
+  /** Compara la vigilancia ANTES y DESPUÉS de un PUT de tanque y devuelve
+   *  qué controles se aflojan, con el valor viejo y el nuevo.
+   *
+   *  Existe porque la auditoría adversaria encontró que subir
+   *  `umbral_descuadre_pct` de 1% a 90% -- o sea, apagar la detección de
+   *  fraude -- se registraba EXACTAMENTE igual que renombrar el tanque:
+   *  `{ combustibleId }` y nada más. En un módulo cuyo propósito es detectar
+   *  robo, el acto de desactivar el control tiene que ser lo MÁS visible del
+   *  registro, no lo menos.
+   *
+   *  Qué cuenta como aflojar, para los tres umbrales: NULL es el estado más
+   *  débil de todos (no alerta nunca), así que pasar de un número a NULL
+   *  afloja siempre; y entre dos números, el más alto tolera más. Ojo con el
+   *  orden de esas dos reglas: preguntar por el número antes que por el NULL
+   *  haría que apagar el control (5 → null) se leyera como endurecerlo.
+   *
+   *  Devuelve [] cuando el cambio no toca ninguna vigilancia (renombrar,
+   *  mover de ubicación) o cuando la endurece -- esos no piden motivo. */
+  evaluarAflojamiento(
+    antes: {
+      umbral_diferencia_pct: string | null;
+      umbral_descuadre_pct: string | null;
+      umbral_descuadre_ciclo_pct: string | null;
+      requiere_documento: boolean;
+    },
+    ahora: ActualizarTanqueCombustibleInput
+  ) {
+    const cambios: { control: string; de: string; a: string }[] = [];
+
+    const umbrales = [
+      [
+        "umbral_diferencia_pct",
+        "Umbral de diferencia",
+        antes.umbral_diferencia_pct,
+        ahora.umbral_diferencia_pct,
+      ],
+      [
+        "umbral_descuadre_pct",
+        "Umbral de descuadre",
+        antes.umbral_descuadre_pct,
+        ahora.umbral_descuadre_pct,
+      ],
+      [
+        "umbral_descuadre_ciclo_pct",
+        "Umbral acumulado del ciclo",
+        antes.umbral_descuadre_ciclo_pct,
+        ahora.umbral_descuadre_ciclo_pct,
+      ],
+    ] as const;
+
+    for (const [control, etiqueta, viejoRaw, nuevo] of umbrales) {
+      const viejo = viejoRaw === null ? null : Number(viejoRaw);
+      if (viejo === nuevo) continue;
+
+      const afloja =
+        // Apagarlo del todo: el estado más débil que existe.
+        nuevo === null
+          ? viejo !== null
+          : // Encenderlo (null -> número) siempre endurece, nunca afloja.
+            viejo !== null && nuevo > viejo;
+
+      if (afloja) {
+        cambios.push({
+          control,
+          de: viejo === null ? "sin configurar" : `${viejo}%`,
+          a: nuevo === null ? "sin configurar (no alerta)" : `${nuevo}%`,
+        });
+        // La etiqueta legible viaja aparte para el mensaje de error, que lo
+        // lee una persona parada frente al formulario.
+        cambios[cambios.length - 1].control = etiqueta;
+      }
+    }
+
+    if (antes.requiere_documento && !ahora.requiere_documento) {
+      cambios.push({
+        control: "Exigir factura o guía en las recepciones",
+        de: "exigido",
+        a: "no exigido",
+      });
+    }
+
+    return cambios;
+  }
+
   async softDelete(client: PoolClient, tenantId: string, id: number) {
     return this.repository.softDelete(client, tenantId, id);
   }
@@ -324,8 +408,14 @@ export class CombustibleService {
     return this.repository.marcarAlertasLeidas(client, tenantId, ids);
   }
 
-  resolverAlertaManual(client: PoolClient, tenantId: string, alertaId: number, usuarioId: string) {
-    return this.repository.resolverAlertaManual(client, tenantId, alertaId, usuarioId);
+  resolverAlertaManual(
+    client: PoolClient,
+    tenantId: string,
+    alertaId: number,
+    usuarioId: string,
+    motivo: string
+  ) {
+    return this.repository.resolverAlertaManual(client, tenantId, alertaId, usuarioId, motivo);
   }
 
   findAdminsConCombustibleHabilitado(client: PoolClient, tenantId: string) {
@@ -639,6 +729,38 @@ export class CombustibleService {
       lecturaAnteriorId: Number(datos.lectura_anterior_id),
       lecturaId,
     };
+  }
+
+  /** Vale cargado por debajo del máximo de su serie (migración 0077).
+   *  Devuelve ese máximo, o null si la carga fue en orden. */
+  detectarValeFueraDeOrden(
+    client: PoolClient,
+    tenantId: string,
+    serieTalonario: string,
+    despachoId: number,
+    nVale: number
+  ) {
+    return this.repository.detectarValeFueraDeOrden(
+      client,
+      tenantId,
+      serieTalonario,
+      despachoId,
+      nVale
+    );
+  }
+
+  /** ¿Alguna vez se alertó un hueco por este número de vale?
+   *
+   *  Es lo que distingue el vale tardío legítimo -- el que sincronizó desde
+   *  la cola offline y viene a llenar un hueco que el sistema ya había
+   *  reportado -- del vale desordenado que nadie estaba esperando. Sin esta
+   *  pregunta, cada vale que llega tarde generaría una alerta de desorden
+   *  además de resolver su hueco, y el control moriría por ruidoso.
+   *
+   *  Mira también las resueltas y las congeladas a propósito: el hueco
+   *  EXISTIÓ, y que ya esté cerrado no lo vuelve sospechoso. */
+  existioHuecoPara(client: PoolClient, tenantId: string, serieTalonario: string, nVale: number) {
+    return this.repository.existioHuecoPara(client, tenantId, serieTalonario, nVale);
   }
 
   /** Saldo acumulado del ciclo (migración 0076): el mismo balance que

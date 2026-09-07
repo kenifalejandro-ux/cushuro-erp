@@ -235,7 +235,8 @@ interface AlertaCombustible {
     | "medidor_inconsistente"
     | "descuadre_inventario"
     | "descuadre_ciclo"
-    | "tanque_sin_medir";
+    | "tanque_sin_medir"
+    | "vale_fuera_de_orden";
   // Nullable desde 0073: las alertas de recepción y de nivel no son sobre
   // un vale, se anclan al tanque o a la recepción.
   serie_talonario: string | null;
@@ -266,6 +267,7 @@ const ETIQUETA_TIPO_ALERTA: Record<AlertaCombustible["tipo"], string> = {
   descuadre_inventario: "Descuadre de inventario",
   descuadre_ciclo: "Descuadre del ciclo",
   tanque_sin_medir: "Tanque sin medir",
+  vale_fuera_de_orden: "Vale fuera de orden",
 };
 
 /** El `detalle` es JSONB libre y cada tipo de alerta guarda cosas
@@ -865,6 +867,33 @@ export default function CombustiblePanel() {
 
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
+
+        // El backend rechaza sin motivo cualquier cambio que AFLOJE una
+        // vigilancia (subir un umbral, apagarlo, dejar de exigir documento).
+        // Se pide acá y se reintenta en vez de mandar el motivo siempre:
+        // renombrar un tanque no tiene por qué justificarse, y pedirlo en
+        // cada guardado convertiría el campo en un trámite que se completa
+        // con cualquier cosa.
+        if (errBody.requiere_motivo) {
+          const motivo = window.prompt(`${errBody.error}\n\nMotivo:`, "");
+          if (!motivo || !motivo.trim()) return;
+
+          const reintento = await apiFetch(url, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...body, motivo_ajuste: motivo.trim() }),
+          });
+          if (!reintento.ok) {
+            const errReintento = await reintento.json().catch(() => ({}));
+            alert(errReintento.error || "Error al guardar el tanque.");
+            return;
+          }
+          setModalTanqueAbierto(false);
+          setEditandoId(null);
+          await cargarTanques();
+          return;
+        }
+
         alert(errBody.error || "Error al guardar el tanque.");
         return;
       }
@@ -1535,15 +1564,29 @@ export default function CombustiblePanel() {
     }
   };
 
-  /** Aplica a vale_anulado y sobredespacho -- los dos son hechos consumados
-   *  que alguien tiene que revisar y dar por buenos. Un hueco NO: se
-   *  resuelve solo cuando llega el vale que faltaba. */
+  /** Aplica a los siete tipos que alguien tiene que mirar (0077 sumó los
+   *  cuatro que habían quedado sin camino de cierre). Los que se resuelven
+   *  solos no están: el hueco cuando llega el vale, el nivel bajo cuando se
+   *  repone, el "sin medir" cuando se mide.
+   *
+   *  El MOTIVO es obligatorio desde 0077: cerrar una alerta anti-fraude sin
+   *  decir por qué es indistinguible de taparla. Es la misma regla que ya
+   *  regía para anular una lectura o un vale. */
   const handleResolverAlerta = async (alertaId: number) => {
     if (resolviendoAlertaId !== null) return;
+
+    const motivo = window.prompt(
+      "¿Por qué se da por revisada esta alerta?\n\nQueda registrado con tu nombre.",
+      ""
+    );
+    if (!motivo || !motivo.trim()) return;
+
     setResolviendoAlertaId(alertaId);
     try {
       const res = await apiFetch(`/api/erp/combustible/alertas/${alertaId}/resolver`, {
         method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ motivo: motivo.trim() }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));

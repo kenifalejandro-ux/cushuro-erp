@@ -21,6 +21,7 @@ const ETIQUETA_TIPO: Record<string, string> = {
   descuadre_inventario: "Descuadre de inventario",
   descuadre_ciclo: "Descuadre del ciclo",
   tanque_sin_medir: "Tanque sin medir",
+  vale_fuera_de_orden: "Vale fuera de orden",
 };
 
 /** No toda alerta es sobre un vale (migración 0073): las de nivel bajo van

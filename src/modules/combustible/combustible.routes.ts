@@ -21,6 +21,7 @@ import {
   anularDespachoCombustibleSchema,
   marcarAlertasLeidasCombustibleSchema,
   configCombustibleSchema,
+  resolverAlertaCombustibleSchema,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleController } from "./combustible.controller";
 // Se activa solo con importarse (setInterval + .unref()) -- mismo mecanismo
@@ -129,6 +130,7 @@ router.patch(
 router.patch(
   "/alertas/:alertaId/resolver",
   requireRole("admin"),
+  validate(resolverAlertaCombustibleSchema),
   asyncHandler(controller.resolverAlertaManual.bind(controller))
 );
 

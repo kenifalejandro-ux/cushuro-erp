@@ -33,6 +33,7 @@ import type {
   AnularRecepcionCombustibleInput,
   AnularDespachoCombustibleInput,
   MarcarAlertasLeidasCombustibleInput,
+  ResolverAlertaCombustibleInput,
   ConfigCombustibleInput,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleService } from "./combustible.service";
@@ -96,6 +97,32 @@ export class CombustibleController {
       const tenantId = getTenantId(req);
       const id = Number(req.params.id);
       const data = req.validatedBody as ActualizarTanqueCombustibleInput;
+
+      // El estado ANTES del cambio, para saber si este PUT afloja alguna
+      // vigilancia. Se lee en su propia transacción y no dentro del update
+      // porque el resultado decide si el update llega a ocurrir.
+      const antes = await withTenant(tenantId, (client) => service.getById(client, tenantId, id));
+      if (!antes) {
+        return res.status(404).json({ error: "No encontrado" });
+      }
+
+      const aflojados = service.evaluarAflojamiento(antes, data);
+      if (aflojados.length > 0 && !data.motivo_ajuste) {
+        // 400 y no un guardado silencioso: aflojar un control anti-fraude es
+        // una acción correctiva, y el módulo ya exige motivo para las otras
+        // (anular una lectura, anular un vale). El mensaje enumera QUÉ se
+        // está aflojando para que quien lo lea sepa a qué está diciendo que
+        // sí -- puede estar tocando un umbral sin haberse dado cuenta.
+        const detalle = aflojados.map((c) => `${c.control}: ${c.de} → ${c.a}`).join("; ");
+        return res.status(400).json({
+          error:
+            `Este cambio reduce la vigilancia del tanque (${detalle}). ` +
+            `Indicá el motivo para dejarlo registrado.`,
+          requiere_motivo: true,
+          aflojados,
+        });
+      }
+
       const actualizado = await withTenant(tenantId, (client) =>
         service.update(client, tenantId, id, data)
       );
@@ -105,10 +132,20 @@ export class CombustibleController {
       }
 
       await registrarAuditoria({
-        accion: "combustible.tanque_actualizar",
+        accion:
+          aflojados.length > 0
+            ? "combustible.tanque_vigilancia_reducida"
+            : "combustible.tanque_actualizar",
         tenantId,
         usuarioId: req.usuario!.id,
-        detalle: { combustibleId: id },
+        // Cuando se afloja, el detalle lleva QUÉ cambió y POR QUÉ. Una acción
+        // distinta (`tanque_vigilancia_reducida`) además la hace filtrable:
+        // buscar quién apagó un control ya no obliga a leer todos los
+        // cambios de tanque uno por uno.
+        detalle:
+          aflojados.length > 0
+            ? { combustibleId: id, aflojados, motivo: data.motivo_ajuste }
+            : { combustibleId: id },
         contexto: contextoAuditoriaModulo(req),
       });
       await publicarEventoTenant(tenantId, "combustible.tanque_actualizado", {
@@ -551,110 +588,149 @@ export class CombustibleController {
     const serieTalonario = data.serie_talonario;
     const nVale = data.n_vale;
     try {
-      const { huecos, exceso, medidor, admins } = await withTenant(tenantId, async (client) => {
-        // El vale que acaba de llegar puede estar llenando un hueco ya
-        // alertado (offline que sincronizó) -- esto corre siempre, sin
-        // condicionar, y no hace nada si no había ninguna alerta abierta.
-        //
-        // Si el hueco YA se había congelado como anomalía, no lo resuelve
-        // (la anomalía es inmutable): devuelve `llegoTarde` y se registra
-        // el despacho_tardio del punto 4 -- que alguien se acuerde de un
-        // vale dos días después es una señal, no algo a corregir en
-        // silencio.
-        const { llegoTarde } = await service.resolverAlertaHuecoSiExiste(
-          client,
-          tenantId,
-          serieTalonario,
-          nVale
-        );
-
-        const huecos = await service.detectarHuecosRevelados(
-          client,
-          tenantId,
-          serieTalonario,
-          despachoId,
-          nVale
-        );
-
-        // Sobredespacho (0069/0070): solo aplica si el vale fue a un equipo.
-        // Devuelve null en el caso normal -- sin capacidad configurada, sin
-        // unidad conocida, o sin exceso (ver evaluarSobredespacho).
-        const exceso = data.equipo_id
-          ? await service.evaluarSobredespacho(
-              client,
-              tenantId,
-              data.equipo_id,
-              data.combustible_id ?? null,
-              data.cantidad
-            )
-          : null;
-
-        // Medidor que no cierra con el anterior (punto 5 del documento,
-        // migración 0073). Igual que el sobredespacho: no bloquea el vale,
-        // solo lo marca. Se evalúa contra el ÚLTIMO despacho vigente de ese
-        // equipo, así que el primero de cada equipo nunca alerta.
-        const medidor = data.equipo_id
-          ? await service.evaluarMedidorInconsistente(client, tenantId, data.equipo_id, {
-              lecturaHorometro: data.lectura_horometro ?? null,
-              lecturaOdometro: data.lectura_odometro ?? null,
-              despachadoEn: data.despachado_en ?? new Date().toISOString(),
-              despachoId,
-            })
-          : null;
-
-        const nuevas = [
-          ...huecos.map((n) => ({
-            tipo: "hueco_detectado" as const,
+      const { huecos, exceso, medidor, fueraDeOrden, admins } = await withTenant(
+        tenantId,
+        async (client) => {
+          // El vale que acaba de llegar puede estar llenando un hueco ya
+          // alertado (offline que sincronizó) -- esto corre siempre, sin
+          // condicionar, y no hace nada si no había ninguna alerta abierta.
+          //
+          // Si el hueco YA se había congelado como anomalía, no lo resuelve
+          // (la anomalía es inmutable): devuelve `llegoTarde` y se registra
+          // el despacho_tardio del punto 4 -- que alguien se acuerde de un
+          // vale dos días después es una señal, no algo a corregir en
+          // silencio.
+          const { llegoTarde } = await service.resolverAlertaHuecoSiExiste(
+            client,
+            tenantId,
             serieTalonario,
-            nVale: n,
+            nVale
+          );
+
+          const huecos = await service.detectarHuecosRevelados(
+            client,
+            tenantId,
+            serieTalonario,
             despachoId,
-            detalle: { revelado_por_vale: nVale } as Record<string, unknown>,
-          })),
-          ...(exceso
-            ? [
-                {
-                  tipo: "sobredespacho" as const,
-                  serieTalonario,
-                  nVale,
-                  despachoId,
-                  detalle: { ...exceso, equipoId: data.equipo_id } as Record<string, unknown>,
-                },
-              ]
-            : []),
-          ...(medidor
-            ? [
-                {
-                  tipo: "medidor_inconsistente" as const,
-                  serieTalonario,
-                  nVale,
-                  despachoId,
-                  detalle: { ...medidor, equipoId: data.equipo_id } as Record<string, unknown>,
-                },
-              ]
-            : []),
-          ...(llegoTarde
-            ? [
-                {
-                  tipo: "despacho_tardio" as const,
-                  serieTalonario,
-                  nVale,
-                  despachoId,
-                  detalle: {
-                    nota: "El vale llegó después de que el hueco se congelara como anomalía",
-                  } as Record<string, unknown>,
-                },
-              ]
-            : []),
-        ];
+            nVale
+          );
 
-        if (nuevas.length === 0) {
-          return { huecos, exceso, medidor, admins: [] as { email: string; nombre: string }[] };
+          // Vale cargado POR DEBAJO del máximo de su serie (0077). Si venía a
+          // llenar un hueco alertado, `llegoTarde`/el UPDATE de arriba ya lo
+          // explicaron y no hay nada que reportar: lo sospechoso es el vale
+          // desordenado que NADIE estaba esperando.
+          const maxAnterior = await service.detectarValeFueraDeOrden(
+            client,
+            tenantId,
+            serieTalonario,
+            despachoId,
+            nVale
+          );
+          const huecoLoEsperaba = await service.existioHuecoPara(
+            client,
+            tenantId,
+            serieTalonario,
+            nVale
+          );
+          const fueraDeOrden = maxAnterior !== null && !huecoLoEsperaba ? maxAnterior : null;
+
+          // Sobredespacho (0069/0070): solo aplica si el vale fue a un equipo.
+          // Devuelve null en el caso normal -- sin capacidad configurada, sin
+          // unidad conocida, o sin exceso (ver evaluarSobredespacho).
+          const exceso = data.equipo_id
+            ? await service.evaluarSobredespacho(
+                client,
+                tenantId,
+                data.equipo_id,
+                data.combustible_id ?? null,
+                data.cantidad
+              )
+            : null;
+
+          // Medidor que no cierra con el anterior (punto 5 del documento,
+          // migración 0073). Igual que el sobredespacho: no bloquea el vale,
+          // solo lo marca. Se evalúa contra el ÚLTIMO despacho vigente de ese
+          // equipo, así que el primero de cada equipo nunca alerta.
+          const medidor = data.equipo_id
+            ? await service.evaluarMedidorInconsistente(client, tenantId, data.equipo_id, {
+                lecturaHorometro: data.lectura_horometro ?? null,
+                lecturaOdometro: data.lectura_odometro ?? null,
+                despachadoEn: data.despachado_en ?? new Date().toISOString(),
+                despachoId,
+              })
+            : null;
+
+          const nuevas = [
+            ...huecos.map((n) => ({
+              tipo: "hueco_detectado" as const,
+              serieTalonario,
+              nVale: n,
+              despachoId,
+              detalle: { revelado_por_vale: nVale } as Record<string, unknown>,
+            })),
+            ...(exceso
+              ? [
+                  {
+                    tipo: "sobredespacho" as const,
+                    serieTalonario,
+                    nVale,
+                    despachoId,
+                    detalle: { ...exceso, equipoId: data.equipo_id } as Record<string, unknown>,
+                  },
+                ]
+              : []),
+            ...(fueraDeOrden !== null
+              ? [
+                  {
+                    tipo: "vale_fuera_de_orden" as const,
+                    serieTalonario,
+                    nVale,
+                    despachoId,
+                    detalle: { maxAnteriorDeLaSerie: fueraDeOrden } as Record<string, unknown>,
+                  },
+                ]
+              : []),
+            ...(medidor
+              ? [
+                  {
+                    tipo: "medidor_inconsistente" as const,
+                    serieTalonario,
+                    nVale,
+                    despachoId,
+                    detalle: { ...medidor, equipoId: data.equipo_id } as Record<string, unknown>,
+                  },
+                ]
+              : []),
+            ...(llegoTarde
+              ? [
+                  {
+                    tipo: "despacho_tardio" as const,
+                    serieTalonario,
+                    nVale,
+                    despachoId,
+                    detalle: {
+                      nota: "El vale llegó después de que el hueco se congelara como anomalía",
+                    } as Record<string, unknown>,
+                  },
+                ]
+              : []),
+          ];
+
+          if (nuevas.length === 0) {
+            return {
+              huecos,
+              exceso,
+              medidor,
+              fueraDeOrden,
+              admins: [] as { email: string; nombre: string }[],
+            };
+          }
+
+          await service.crearAlertas(client, tenantId, nuevas);
+          const admins = await service.findAdminsConCombustibleHabilitado(client, tenantId);
+          return { huecos, exceso, medidor, fueraDeOrden, admins };
         }
-
-        await service.crearAlertas(client, tenantId, nuevas);
-        const admins = await service.findAdminsConCombustibleHabilitado(client, tenantId);
-        return { huecos, exceso, medidor, admins };
-      });
+      );
 
       if (huecos.length > 0) {
         await publicarEventoTenant(tenantId, "combustible.alerta_creada", {
@@ -679,6 +755,14 @@ export class CombustibleController {
           serieTalonario,
           nVale,
           ...exceso,
+        });
+      }
+
+      if (fueraDeOrden !== null) {
+        await publicarEventoTenant(tenantId, "combustible.alerta_creada", {
+          tipo: "vale_fuera_de_orden",
+          serieTalonario,
+          nVale,
         });
       }
 
@@ -950,18 +1034,22 @@ export class CombustibleController {
     }
   }
 
-  /** PATCH /alertas/:alertaId/resolver -- revisión manual, aplica a
-   *  vale_anulado y sobredespacho (un hueco se resuelve solo, ver
-   *  resolverAlertaHuecoSiExiste). 404 si no existe o es de otro tipo/ya
-   *  estaba resuelta -- el repository no distingue esos casos porque acá
-   *  no hace falta: no hay nada más que corregir aparte de reintentar. */
+  /** PATCH /alertas/:alertaId/resolver -- revisión manual, con MOTIVO
+   *  obligatorio (0077). Aplica a los siete tipos que necesitan que alguien
+   *  los mire; los que se resuelven solos (hueco, nivel bajo, sin medir) no
+   *  están en la lista -- ver TIPOS_REVISABLES en el repository.
+   *
+   *  404 si no existe o es de otro tipo/ya estaba resuelta: el repository no
+   *  distingue esos casos porque acá no hace falta, no hay nada que corregir
+   *  aparte de reintentar. */
   async resolverAlertaManual(req: Request, res: Response) {
     try {
       const tenantId = getTenantId(req);
       const alertaId = Number(req.params.alertaId);
+      const { motivo } = req.validatedBody as ResolverAlertaCombustibleInput;
 
       const resuelta = await withTenant(tenantId, (client) =>
-        service.resolverAlertaManual(client, tenantId, alertaId, req.usuario!.id)
+        service.resolverAlertaManual(client, tenantId, alertaId, req.usuario!.id, motivo)
       );
       if (!resuelta) {
         res
