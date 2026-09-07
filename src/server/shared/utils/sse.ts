@@ -41,6 +41,16 @@ export async function manejarConexionSSE(
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  // nginx (y los proxies que lo usan de base, Railway incluido) bufferea la
+  // respuesta por defecto: junta la salida y la manda de a bloques, que para
+  // un stream significa que los eventos llegan tarde o no llegan. Esta
+  // cabecera es la forma estándar de pedirle que no lo haga; los proxies que
+  // no la entienden la ignoran sin costo.
+  //
+  // No se detectó en desarrollo porque ahí no hay nginx de por medio, y los
+  // tests hablan con el servidor directo -- de ahí que el stream pareciera
+  // sano durante semanas mientras la campanita no actualizaba nada.
+  res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
   const desdeId = parsearUltimoEventId(req);
