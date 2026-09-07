@@ -61,7 +61,7 @@ describe("combustible: descuadre de inventario (migración 0074)", () => {
   /** Tanque de 20.000 L con nivel inicial 20.000. Con umbral 1%, la banda
    *  tolerada es de 200 L -- los tests de abajo se mueven a propósito por
    *  encima y por debajo de ese número. */
-  async function crearTanque(umbralDescuadrePct: number, nivelInicial = 20000) {
+  async function crearTanque(umbralDescuadrePct: number | null, nivelInicial = 20000) {
     const res = await agente.post("/api/erp/combustible").send({
       codigo: idUnico("TQ"),
       tanque_nombre: "Tanque de balance",
@@ -152,11 +152,36 @@ describe("combustible: descuadre de inventario (migración 0074)", () => {
     expect(alertas[0].detalle.descuadreLitros).toBe(900);
   });
 
-  it("con el umbral en 0 (el default) no alerta, por grande que sea el descuadre", async () => {
-    const tanqueId = await crearTanque(0);
+  it("sin umbral configurado (null, el default) no alerta por grande que sea", async () => {
+    const tanqueId = await crearTanque(null);
     await registrarLectura(tanqueId, 20000, T0);
     await despachar(tanqueId, 1000, T1);
     await registrarLectura(tanqueId, 10000, T2); // faltarían 9.000
+
+    expect(await descuadresDe(tanqueId)).toHaveLength(0);
+  });
+
+  it("con umbral 0 (tolerancia cero) alerta por el faltante más chico", async () => {
+    // El caso que motivó la migración 0075: el cliente que quiere saber de
+    // cualquier litro que no cuadre. Antes el 0 apagaba la alerta y esto no
+    // se podía pedir de ninguna forma.
+    const tanqueId = await crearTanque(0);
+    await registrarLectura(tanqueId, 20000, T0);
+    await despachar(tanqueId, 1000, T1);
+    await registrarLectura(tanqueId, 18999, T2); // falta 1 litro
+
+    const alertas = await descuadresDe(tanqueId);
+    expect(alertas).toHaveLength(1);
+    expect(alertas[0].detalle.descuadreLitros).toBe(-1);
+  });
+
+  it("con umbral 0, un balance que cierra exacto NO alerta", async () => {
+    // Tolerancia cero es "cualquier diferencia", no "alertar siempre": un
+    // descuadre de 0 no es noticia.
+    const tanqueId = await crearTanque(0);
+    await registrarLectura(tanqueId, 20000, T0);
+    await despachar(tanqueId, 1000, T1);
+    await registrarLectura(tanqueId, 19000, T2);
 
     expect(await descuadresDe(tanqueId)).toHaveLength(0);
   });
