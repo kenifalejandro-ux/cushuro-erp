@@ -35,6 +35,7 @@ interface Tanque {
   // Desde cuántos % de diferencia entre lo facturado y lo medido se considera
   // sospechosa una recepción (migrations/0066). 0 = no alertar todavía.
   umbral_diferencia_pct: string;
+  umbral_descuadre_pct: string;
 }
 
 /** Una fila del historial de recepciones (GET /recepciones, Fase C). A
@@ -64,6 +65,7 @@ interface RecepcionHistorial {
   nivel_antes: string | null;
   nivel_despues: string | null;
   umbral_diferencia_pct: string;
+  umbral_descuadre_pct: string;
 }
 
 const ETIQUETA_TIPO_DOCUMENTO: Record<"factura" | "guia_remision", string> = {
@@ -200,9 +202,14 @@ interface SugerenciaUmbral {
 // resolución porque no se puede resolver, es evidencia.
 interface AnomaliaCombustible {
   id: number;
-  // Los cuatro tipos que se congelan: los FALTANTES. `nivel_bajo` y
-  // `despacho_tardio` nunca llegan acá -- ver el CHECK de tipos en 0073.
-  tipo: "hueco_detectado" | "sobredespacho" | "diferencia_recepcion" | "medidor_inconsistente";
+  // Los cinco tipos que se congelan: los FALTANTES. `nivel_bajo` y
+  // `despacho_tardio` nunca llegan acá -- ver el CHECK de tipos en 0073/0074.
+  tipo:
+    | "hueco_detectado"
+    | "sobredespacho"
+    | "diferencia_recepcion"
+    | "medidor_inconsistente"
+    | "descuadre_inventario";
   serie_talonario: string | null;
   n_vale: number | null;
   recepcion_id: number | null;
@@ -222,7 +229,8 @@ interface AlertaCombustible {
     | "despacho_tardio"
     | "diferencia_recepcion"
     | "nivel_bajo"
-    | "medidor_inconsistente";
+    | "medidor_inconsistente"
+    | "descuadre_inventario";
   // Nullable desde 0073: las alertas de recepción y de nivel no son sobre
   // un vale, se anclan al tanque o a la recepción.
   serie_talonario: string | null;
@@ -250,6 +258,7 @@ const ETIQUETA_TIPO_ALERTA: Record<AlertaCombustible["tipo"], string> = {
   diferencia_recepcion: "Diferencia en recepción",
   nivel_bajo: "Nivel bajo de tanque",
   medidor_inconsistente: "Medidor inconsistente",
+  descuadre_inventario: "Descuadre de inventario",
 };
 
 /** El `detalle` es JSONB libre y cada tipo de alerta guarda cosas
@@ -288,6 +297,27 @@ function describirDetalleAlerta(a: AlertaCombustible): string {
     return (
       `Despachó ${cantidad} ${unidadDespacho ?? ""} a un tanque de ` +
       `${capacidad} ${unidadCapacidad ?? ""} (+${excesoPct ?? "?"}%)`
+    );
+  }
+  if (a.tipo === "descuadre_inventario") {
+    const { descuadreLitros, esperado, nivelMedido, sentido, unidad, umbralPct } = a.detalle as {
+      descuadreLitros?: number;
+      esperado?: number;
+      nivelMedido?: number;
+      sentido?: string;
+      unidad?: string;
+      umbralPct?: number;
+    };
+    if (descuadreLitros === undefined) return "—";
+    // El valor absoluto va con la palabra ("faltan"/"sobran") en vez del
+    // signo: un "-500" pide que el lector traduzca, y esta columna se lee de
+    // reojo entre muchas filas.
+    const magnitud = Math.abs(descuadreLitros).toLocaleString("es-PE", {
+      maximumFractionDigits: 2,
+    });
+    return (
+      `${sentido === "falta" ? "Faltan" : "Sobran"} ${magnitud} ${unidad ?? ""}: ` +
+      `esperado ${esperado ?? "?"}, medido ${nivelMedido ?? "?"} (umbral ${umbralPct ?? "?"}%)`
     );
   }
   if (a.tipo === "diferencia_recepcion") {
@@ -465,6 +495,7 @@ const FORM_INICIAL = {
   tolerancia_capacidad_pct: "0",
   requiere_documento: true,
   umbral_diferencia_pct: "0",
+  umbral_descuadre_pct: "0",
 };
 
 function formatearFecha(iso: string): string {
@@ -727,6 +758,7 @@ export default function CombustiblePanel() {
       tolerancia_capacidad_pct: t.tolerancia_capacidad_pct,
       requiere_documento: t.requiere_documento,
       umbral_diferencia_pct: t.umbral_diferencia_pct,
+      umbral_descuadre_pct: t.umbral_descuadre_pct,
     });
     setModalTanqueAbierto(true);
   };
@@ -753,6 +785,7 @@ export default function CombustiblePanel() {
             tolerancia_capacidad_pct: Number(formData.tolerancia_capacidad_pct),
             requiere_documento: formData.requiere_documento,
             umbral_diferencia_pct: Number(formData.umbral_diferencia_pct),
+            umbral_descuadre_pct: Number(formData.umbral_descuadre_pct),
           }
         : {
             codigo: formData.codigo,
@@ -768,6 +801,7 @@ export default function CombustiblePanel() {
             tolerancia_capacidad_pct: Number(formData.tolerancia_capacidad_pct),
             requiere_documento: formData.requiere_documento,
             umbral_diferencia_pct: Number(formData.umbral_diferencia_pct),
+            umbral_descuadre_pct: Number(formData.umbral_descuadre_pct),
           };
 
       const res = await apiFetch(url, {
@@ -2209,6 +2243,32 @@ export default function CombustiblePanel() {
                         )}
                       </div>
                     )}
+                  </div>
+                  <div className="space-y-1 col-span-2">
+                    <label
+                      htmlFor="tanque-umbral-descuadre"
+                      className="text-xs font-bold text-slate-500 uppercase"
+                    >
+                      Umbral de descuadre (%)
+                    </label>
+                    <input
+                      id="tanque-umbral-descuadre"
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.01"
+                      className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-slate-900"
+                      value={formData.umbral_descuadre_pct}
+                      onChange={(e) =>
+                        setFormData({ ...formData, umbral_descuadre_pct: e.target.value })
+                      }
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Cuánto puede diferir el nivel medido de lo que los vales y recepciones
+                      explican, antes de alertar. Se mide sobre la capacidad del tanque: 1% de
+                      20,000 L son 200 L. <strong>0 = no alertar todavía</strong> — subilo cuando
+                      sepas cuánto ruido produce la varilla de este tanque.
+                    </p>
                   </div>
                 </div>
                 <label className="flex items-start gap-2 text-sm text-slate-600">

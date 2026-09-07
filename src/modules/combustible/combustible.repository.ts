@@ -18,7 +18,8 @@ export type TipoAlertaCombustible =
   | "despacho_tardio"
   | "diferencia_recepcion"
   | "nivel_bajo"
-  | "medidor_inconsistente";
+  | "medidor_inconsistente"
+  | "descuadre_inventario";
 
 /** Una alerta por crear. Las anclas son todas opcionales en el tipo, pero
  *  el CHECK de la base exige al menos una (vale, tanque o recepción). */
@@ -53,6 +54,7 @@ const COLUMNAS_TANQUE = `
   c.ubicacion, c.capacidad_total, c.nivel_minimo, c.totalizador_actual,
   c.costo_promedio, c.moneda, c.activo,
   c.tolerancia_capacidad_pct, c.requiere_documento, c.umbral_diferencia_pct,
+  c.umbral_descuadre_pct,
   ultima.nivel AS nivel_actual,
   ultima.leido_en AS fecha_actualizacion,
   ROUND((ultima.nivel / c.capacidad_total) * 100, 2) AS porcentaje
@@ -123,9 +125,10 @@ export class CombustibleRepository {
       INSERT INTO combustible (
         tenant_id, codigo, tanque_nombre, tipo_combustible, unidad, tipo_punto,
         ubicacion, capacidad_total, nivel_minimo, moneda,
-        tolerancia_capacidad_pct, requiere_documento, umbral_diferencia_pct
+        tolerancia_capacidad_pct, requiere_documento, umbral_diferencia_pct,
+        umbral_descuadre_pct
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
       RETURNING id
       `,
       [
@@ -142,6 +145,7 @@ export class CombustibleRepository {
         data.tolerancia_capacidad_pct,
         data.requiere_documento,
         data.umbral_diferencia_pct,
+        data.umbral_descuadre_pct,
       ]
     );
 
@@ -200,8 +204,9 @@ export class CombustibleRepository {
         activo = $10,
         tolerancia_capacidad_pct = $11,
         requiere_documento = $12,
-        umbral_diferencia_pct = $13
-      WHERE id = $14 AND tenant_id = $15
+        umbral_diferencia_pct = $13,
+        umbral_descuadre_pct = $14
+      WHERE id = $15 AND tenant_id = $16
       RETURNING id
       `,
       [
@@ -218,6 +223,7 @@ export class CombustibleRepository {
         data.tolerancia_capacidad_pct,
         data.requiere_documento,
         data.umbral_diferencia_pct,
+        data.umbral_descuadre_pct,
         id,
         tenantId,
       ]
@@ -258,7 +264,7 @@ export class CombustibleRepository {
       for (const fila of lote) porCodigo.set(fila.codigo, fila);
       const filasUnicas = [...porCodigo.values()];
 
-      const COLUMNAS_POR_FILA = 12;
+      const COLUMNAS_POR_FILA = 13;
       const placeholders = filasUnicas
         .map((_, i) => {
           const base = i * COLUMNAS_POR_FILA;
@@ -285,6 +291,7 @@ export class CombustibleRepository {
         d.tolerancia_capacidad_pct,
         d.requiere_documento,
         d.umbral_diferencia_pct,
+        d.umbral_descuadre_pct,
       ]);
 
       // Qué códigos YA existían, antes de que el upsert los toque: es la
@@ -300,7 +307,8 @@ export class CombustibleRepository {
         `INSERT INTO combustible (
            tenant_id, codigo, tanque_nombre, tipo_combustible, unidad, tipo_punto,
            ubicacion, capacidad_total, nivel_minimo,
-           tolerancia_capacidad_pct, requiere_documento, umbral_diferencia_pct
+           tolerancia_capacidad_pct, requiere_documento, umbral_diferencia_pct,
+           umbral_descuadre_pct
          )
          VALUES ${placeholders}
          ON CONFLICT (tenant_id, codigo) DO UPDATE SET
@@ -313,7 +321,8 @@ export class CombustibleRepository {
            nivel_minimo = EXCLUDED.nivel_minimo,
            tolerancia_capacidad_pct = EXCLUDED.tolerancia_capacidad_pct,
            requiere_documento = EXCLUDED.requiere_documento,
-           umbral_diferencia_pct = EXCLUDED.umbral_diferencia_pct
+           umbral_diferencia_pct = EXCLUDED.umbral_diferencia_pct,
+           umbral_descuadre_pct = EXCLUDED.umbral_descuadre_pct
          RETURNING id, codigo`,
         valores
       );
@@ -913,7 +922,7 @@ export class CombustibleRepository {
        FROM combustible_alertas
        WHERE tenant_id = $1
          AND tipo IN ('hueco_detectado', 'sobredespacho', 'diferencia_recepcion',
-                      'medidor_inconsistente')
+                      'medidor_inconsistente', 'descuadre_inventario')
          AND resuelta_en IS NULL
          AND congelada_en IS NULL
          AND creado_en < now() - make_interval(hours => $2)
@@ -1050,6 +1059,83 @@ export class CombustibleRepository {
        FROM combustible c
        WHERE c.id = $2 AND c.tenant_id = $1`,
       [tenantId, combustibleId]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  /** Los tres números que necesita el balance del tanque (migración 0074):
+   *  la lectura anterior a la que se acaba de registrar, y los movimientos
+   *  VIGENTES del intervalo entre las dos.
+   *
+   *  `id <> $3` y el corte por `(leido_en, id)`: la lectura nueva ya está
+   *  insertada cuando esto corre (igual que `evaluarNivelBajo`), así que sin
+   *  excluirla se encontraría a sí misma como "la anterior". Mismo detalle
+   *  que ya habían resuelto `detectarHuecosRevelados` y
+   *  `findUltimoMedidorEquipo` -- es el patrón de toda consulta "la anterior
+   *  a esta" que corre post-insert.
+   *
+   *  La comparación es por par `(leido_en, id)` y no solo por fecha para
+   *  desempatar igual que el resto del módulo (ver JOIN_ULTIMA_LECTURA): dos
+   *  lecturas en el mismo minuto -- la precisión que manda el formulario --
+   *  tienen que ordenarse siempre igual, si no el balance dependería del
+   *  plan del query.
+   *
+   *  Los movimientos van `> anterior` y `<= actual`: cada uno pertenece al
+   *  intervalo que cierra, nunca a los dos. Sin eso un despacho justo sobre
+   *  el borde se contaría dos veces y el descuadre aparecería de la nada en
+   *  la lectura siguiente.
+   *
+   *  Devuelve null cuando el tanque no tiene lectura anterior -- la primera
+   *  del alta no tiene contra qué balancearse, y suponer que antes había 0
+   *  sería inventar el dato que el módulo justamente no inventa. */
+  async findDatosDescuadre(
+    client: PoolClient,
+    tenantId: string,
+    combustibleId: number,
+    lecturaId: number,
+    leidoEn: string
+  ) {
+    const result = await client.query<{
+      lectura_anterior_id: string;
+      nivel_anterior: string;
+      leido_en_anterior: Date;
+      tanque_nombre: string;
+      unidad: string;
+      capacidad_total: string;
+      umbral_descuadre_pct: string;
+      despachos: string;
+      recepciones: string;
+    }>(
+      `
+      WITH anterior AS (
+        SELECT l.id, l.nivel, l.leido_en
+        FROM combustible_lecturas l
+        WHERE l.tenant_id = $1 AND l.combustible_id = $2
+          AND l.anulada_en IS NULL AND l.id <> $3
+          AND (l.leido_en, l.id) < ($4::timestamptz, $3::bigint)
+        ORDER BY l.leido_en DESC, l.id DESC
+        LIMIT 1
+      )
+      SELECT a.id AS lectura_anterior_id,
+             a.nivel AS nivel_anterior,
+             a.leido_en AS leido_en_anterior,
+             c.tanque_nombre, c.unidad, c.capacidad_total, c.umbral_descuadre_pct,
+             COALESCE((
+               SELECT SUM(d.cantidad) FROM combustible_despachos d
+               WHERE d.tenant_id = $1 AND d.combustible_id = $2
+                 AND d.anulada_en IS NULL
+                 AND d.despachado_en > a.leido_en AND d.despachado_en <= $4::timestamptz
+             ), 0) AS despachos,
+             COALESCE((
+               SELECT SUM(r.cantidad) FROM combustible_recepciones r
+               WHERE r.tenant_id = $1 AND r.combustible_id = $2
+                 AND r.anulada_en IS NULL
+                 AND r.recibido_en > a.leido_en AND r.recibido_en <= $4::timestamptz
+             ), 0) AS recepciones
+      FROM anterior a
+      JOIN combustible c ON c.id = $2 AND c.tenant_id = $1
+      `,
+      [tenantId, combustibleId, lecturaId, leidoEn]
     );
     return result.rows[0] ?? null;
   }

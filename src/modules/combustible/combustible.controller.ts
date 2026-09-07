@@ -14,6 +14,7 @@ import {
   enviarCorreoAlertaSobredespacho,
   enviarCorreoAlertaMedidor,
   enviarCorreoAlertaNivelBajo,
+  enviarCorreoAlertaDescuadre,
 } from "./combustibleAlertas.mailer";
 import type {
   RegistrarLecturaCombustibleInput,
@@ -375,6 +376,16 @@ export class CombustibleController {
         nivel: data.nivel,
       });
       await this.procesarAlertaNivelBajo(tenantId, data.combustible_id, data.nivel);
+      await this.procesarAlertaDescuadre(
+        tenantId,
+        data.combustible_id,
+        Number(fila!.lectura.id),
+        data.nivel,
+        // pg devuelve TIMESTAMPTZ como Date; el balance necesita el mismo
+        // instante exacto que quedó guardado (no `data.leido_en`, que es
+        // opcional en el body y puede venir sin definir).
+        new Date(fila!.lectura.leido_en).toISOString()
+      );
       res.status(201).json(fila);
     } catch (err) {
       // Los dos casos van con 400: son datos que se contradicen a sí mismos
@@ -713,6 +724,56 @@ export class CombustibleController {
       await enviarCorreoAlertaNivelBajo(admins, bajo);
     } catch (err) {
       logger.warn({ err, tenantId, combustibleId }, "No se pudo procesar la alerta de nivel bajo");
+    }
+  }
+
+  /** Descuadre de inventario (migración 0074). Mismo contrato "nunca lanza"
+   *  que el resto de los procesar*: la lectura ya se guardó y se respondió
+   *  201 -- que falle el correo o la alerta no puede tirar abajo un dato que
+   *  el operario ya dio por cargado, sobre todo viniendo de la cola offline.
+   *
+   *  `evaluarDescuadre` devuelve null en el caso normal: tanque sin umbral
+   *  configurado (el default), primera lectura del tanque, o descuadre
+   *  dentro de la tolerancia. */
+  private async procesarAlertaDescuadre(
+    tenantId: string,
+    combustibleId: number,
+    lecturaId: number,
+    nivel: number,
+    leidoEn: string
+  ) {
+    try {
+      const { descuadre, admins } = await withTenant(tenantId, async (client) => {
+        const descuadre = await service.evaluarDescuadre(
+          client,
+          tenantId,
+          combustibleId,
+          lecturaId,
+          nivel,
+          leidoEn
+        );
+        if (!descuadre) return { descuadre, admins: [] as { email: string; nombre: string }[] };
+
+        await service.crearAlertas(client, tenantId, [
+          {
+            tipo: "descuadre_inventario",
+            combustibleId,
+            detalle: { ...descuadre },
+          },
+        ]);
+        const admins = await service.findAdminsConCombustibleHabilitado(client, tenantId);
+        return { descuadre, admins };
+      });
+
+      if (!descuadre) return;
+
+      await publicarEventoTenant(tenantId, "combustible.alerta_creada", {
+        tipo: "descuadre_inventario",
+        combustibleId,
+      });
+      await enviarCorreoAlertaDescuadre(admins, descuadre);
+    } catch (err) {
+      logger.warn({ err, tenantId, combustibleId }, "No se pudo procesar la alerta de descuadre");
     }
   }
 

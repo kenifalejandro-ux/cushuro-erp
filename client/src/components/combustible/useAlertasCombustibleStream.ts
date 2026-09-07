@@ -23,7 +23,8 @@ export interface AlertaCombustible {
     | "despacho_tardio"
     | "diferencia_recepcion"
     | "nivel_bajo"
-    | "medidor_inconsistente";
+    | "medidor_inconsistente"
+    | "descuadre_inventario";
   // Nullable desde la migración 0073: las alertas de recepción y de nivel
   // no son sobre un vale, así que se anclan al tanque o a la recepción.
   serie_talonario: string | null;
