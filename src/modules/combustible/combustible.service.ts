@@ -64,6 +64,8 @@ export class CombustibleService {
       umbral_descuadre_pct: string | null;
       umbral_descuadre_ciclo_pct: string | null;
       requiere_documento: boolean;
+      capacidad_total: string;
+      nivel_minimo: string;
     },
     ahora: ActualizarTanqueCombustibleInput
   ) {
@@ -111,6 +113,33 @@ export class CombustibleService {
         // lee una persona parada frente al formulario.
         cambios[cambios.length - 1].control = etiqueta;
       }
+    }
+
+    // SUBIR LA CAPACIDAD AFLOJA, aunque el porcentaje no se toque.
+    //
+    // Los tres umbrales se miden como % de la capacidad, así que pasar un
+    // tanque de 20.000 a 200.000 L convierte una banda de 200 L en una de
+    // 2.000 sin que ningún umbral haya cambiado de número. Es la forma más
+    // discreta de apagar la vigilancia que tiene este modelo, y no la cubría
+    // nada: en la auditoría se veía como una corrección de ficha.
+    const capacidadAntes = Number(antes.capacidad_total);
+    if (ahora.capacidad_total > capacidadAntes) {
+      cambios.push({
+        control: "Capacidad del tanque (ensancha todos los umbrales)",
+        de: `${capacidadAntes}`,
+        a: `${ahora.capacidad_total}`,
+      });
+    }
+
+    // Bajar el mínimo retrasa el aviso de reposición. No es anti-fraude, pero
+    // es vigilancia operativa y se afloja igual.
+    const minimoAntes = Number(antes.nivel_minimo);
+    if (minimoAntes > 0 && ahora.nivel_minimo < minimoAntes) {
+      cambios.push({
+        control: "Nivel mínimo (avisa más tarde)",
+        de: `${minimoAntes}`,
+        a: `${ahora.nivel_minimo}`,
+      });
     }
 
     if (antes.requiere_documento && !ahora.requiere_documento) {

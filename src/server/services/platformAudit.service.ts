@@ -193,6 +193,9 @@ export interface CursorAuditoria {
 export interface FiltrosAuditoria {
   tenantId?: string;
   accion?: string;
+  /** Prefijo de acción, para pedir "todo lo de un módulo" sin enumerar cada
+   *  acción. Lo usa la bitácora que ve el propio tenant en Combustible. */
+  accionPrefijo?: string;
   resultado?: ResultadoAuditoria;
   sessionId?: string;
   actorId?: string;
@@ -219,6 +222,10 @@ export async function listarAuditoriaService(filtros: FiltrosAuditoria): Promise
   if (filtros.accion) {
     params.push(filtros.accion);
     condiciones.push(`a.accion = $${params.length}`);
+  }
+  if (filtros.accionPrefijo) {
+    params.push(filtros.accionPrefijo);
+    condiciones.push(`a.accion LIKE $${params.length} || '%'`);
   }
   if (filtros.resultado) {
     params.push(filtros.resultado);

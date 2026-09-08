@@ -137,6 +137,14 @@ router.patch(
 // Conciliación (migraciones 0071/0072) -- segmentos literales, ANTES de
 // /:id. Solo admin: la ventana de gracia gobierna cuándo un hallazgo se
 // vuelve permanente, y las anomalías son visibilidad de gerencia.
+// Bitácora del módulo para el propio tenant. Segmento literal, ANTES de
+// /:id. Solo admin: es visibilidad de gerencia, igual que las alertas.
+router.get(
+  "/bitacora",
+  requireRole("admin"),
+  asyncHandler(controller.listarBitacora.bind(controller))
+);
+
 router.get("/config", requireRole("admin"), asyncHandler(controller.getConfig.bind(controller)));
 router.put(
   "/config",
