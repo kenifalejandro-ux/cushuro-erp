@@ -957,12 +957,41 @@ export default function CombustiblePanel() {
   /** Fase D, entrega 3. Se pide al abrir el modal de edición, no al tipear
    *  en el input -- es una consulta contra todo el historial de
    *  recepciones del tanque, no algo para recalcular en cada tecla. */
+  /** Valida la FORMA de la respuesta antes de guardarla, y descarta lo que
+   *  no la cumpla.
+   *
+   *  No es paranoia: el endpoint devolvía la sugerencia suelta en la raíz y
+   *  ahora devuelve `{ diferencia, descuadre, ciclo }`. Mientras el frontend
+   *  ya tenía el código nuevo y el backend todavía el viejo, leer
+   *  `.diferencia.muestraSuficiente` de un `undefined` tiraba la pantalla
+   *  entera al error boundary -- pantalla amarilla, sin poder ni abrir la
+   *  ficha del tanque.
+   *
+   *  Eso no es solo un problema de desarrollo: pasa en CADA deploy, con
+   *  cualquiera que tenga la página abierta cuando el servidor se actualiza,
+   *  o con un bundle cacheado. Una pantalla de configuración anti-fraude que
+   *  se muere por eso es peor que una que muestra un widget de menos.
+   *
+   *  Con la forma inesperada se guarda `null`, que el render ya sabe tratar:
+   *  simplemente no muestra la sugerencia. */
   const cargarSugerenciaUmbral = async (tanqueId: number) => {
     setCargandoSugerenciaUmbral(true);
     try {
       const res = await apiFetch(`/api/erp/combustible/${tanqueId}/sugerencia-umbral`);
+      if (!res.ok) {
+        setSugerenciasUmbral(null);
+        return;
+      }
       const body = await res.json().catch(() => null);
-      setSugerenciasUmbral(body);
+      const esSugerencia = (v: unknown) =>
+        typeof v === "object" && v !== null && "muestraSuficiente" in v;
+      const formaEsperada =
+        body !== null &&
+        esSugerencia(body.diferencia) &&
+        esSugerencia(body.descuadre) &&
+        esSugerencia(body.ciclo);
+
+      setSugerenciasUmbral(formaEsperada ? body : null);
     } finally {
       setCargandoSugerenciaUmbral(false);
     }
