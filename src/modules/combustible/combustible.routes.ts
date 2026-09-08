@@ -22,6 +22,7 @@ import {
   marcarAlertasLeidasCombustibleSchema,
   configCombustibleSchema,
   resolverAlertaCombustibleSchema,
+  bajaTanqueCombustibleSchema,
 } from "../../server/schemas/combustible.schema";
 import { CombustibleController } from "./combustible.controller";
 // Se activa solo con importarse (setInterval + .unref()) -- mismo mecanismo
@@ -188,7 +189,12 @@ router.put(
 );
 
 // 🗑 soft-delete -- ver CombustibleController.delete
-router.delete("/:id", requireRole("admin"), asyncHandler(controller.delete.bind(controller)));
+router.delete(
+  "/:id",
+  requireRole("admin"),
+  validate(bajaTanqueCombustibleSchema),
+  asyncHandler(controller.delete.bind(controller))
+);
 
 // 📦 importación masiva -- el límite de tamaño del cuerpo ya lo amplía
 // app.ts de forma genérica para cualquier ruta que termine en /bulk.

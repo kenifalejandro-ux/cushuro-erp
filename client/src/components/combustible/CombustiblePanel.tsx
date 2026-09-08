@@ -280,7 +280,8 @@ interface AlertaCombustible {
     | "descuadre_inventario"
     | "descuadre_ciclo"
     | "tanque_sin_medir"
-    | "vale_fuera_de_orden";
+    | "vale_fuera_de_orden"
+    | "lectura_retroactiva";
   // Nullable desde 0073: las alertas de recepción y de nivel no son sobre
   // un vale, se anclan al tanque o a la recepción.
   serie_talonario: string | null;
@@ -308,6 +309,7 @@ const TIPOS_CRITICOS = new Set([
   "descuadre_inventario",
   "descuadre_ciclo",
   "vale_fuera_de_orden",
+  "lectura_retroactiva",
   "tanque_sin_medir",
 ]);
 const esCritica = (tipo: string) => TIPOS_CRITICOS.has(tipo);
@@ -424,6 +426,7 @@ const ETIQUETA_TIPO_ALERTA: Record<AlertaCombustible["tipo"], string> = {
   descuadre_ciclo: "Descuadre del ciclo",
   tanque_sin_medir: "Tanque sin medir",
   vale_fuera_de_orden: "Vale fuera de orden",
+  lectura_retroactiva: "Lectura fuera de orden",
 };
 
 /** El `detalle` es JSONB libre y cada tipo de alerta guarda cosas
@@ -1181,9 +1184,23 @@ export default function CombustiblePanel() {
     }
   };
 
+  /** Dar de baja un tanque APAGA su vigilancia: sale de la alerta de "sin
+   *  medir" y deja de balancearse. Por eso pide motivo y avisa a los admins,
+   *  igual que aflojar un umbral -- antes pedía menos que subir un
+   *  porcentaje, que era exactamente al revés. */
   const handleDesactivar = async (t: Tanque) => {
-    if (!window.confirm(`¿Desactivar el tanque "${t.tanque_nombre}"?`)) return;
-    const res = await apiFetch(`/api/erp/combustible/${t.id}`, { method: "DELETE" });
+    const motivo = window.prompt(
+      `Desactivar "${t.tanque_nombre}" apaga su vigilancia: deja de balancearse y ` +
+        `sale del aviso por falta de medición.\n\n¿Por qué se da de baja?`,
+      ""
+    );
+    if (!motivo || !motivo.trim()) return;
+
+    const res = await apiFetch(`/api/erp/combustible/${t.id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ motivo: motivo.trim() }),
+    });
     if (!res.ok) {
       alert("No se pudo desactivar el tanque.");
       return;

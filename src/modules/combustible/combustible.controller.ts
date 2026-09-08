@@ -20,6 +20,7 @@ import {
   enviarCorreoAlertaDescuadre,
   enviarCorreoAlertaDescuadreCiclo,
   enviarCorreoVigilanciaReducida,
+  enviarCorreoLecturaRetroactiva,
 } from "./combustibleAlertas.mailer";
 import type {
   RegistrarLecturaCombustibleInput,
@@ -37,6 +38,7 @@ import type {
   AnularRecepcionCombustibleInput,
   AnularDespachoCombustibleInput,
   MarcarAlertasLeidasCombustibleInput,
+  BajaTanqueCombustibleInput,
   ResolverAlertaCombustibleInput,
   ConfigCombustibleInput,
 } from "../../server/schemas/combustible.schema";
@@ -206,6 +208,8 @@ export class CombustibleController {
     try {
       const tenantId = getTenantId(req);
       const id = Number(req.params.id);
+      const { motivo } = req.validatedBody as BajaTanqueCombustibleInput;
+
       const desactivado = await withTenant(tenantId, (client) =>
         service.softDelete(client, tenantId, id)
       );
@@ -214,13 +218,38 @@ export class CombustibleController {
         return res.status(404).json({ error: "No encontrado" });
       }
 
+      // Dar de baja un tanque APAGA su vigilancia: sale de la alerta de "sin
+      // medir" y deja de balancearse. Por eso va con la misma acción de
+      // auditoría que aflojar un umbral y con el mismo correo -- pedía menos
+      // que subir un porcentaje, que era exactamente al revés.
       await registrarAuditoria({
-        accion: "combustible.tanque_eliminar",
+        accion: "combustible.tanque_vigilancia_reducida",
         tenantId,
         usuarioId: req.usuario!.id,
-        detalle: { combustibleId: id },
+        detalle: {
+          combustibleId: id,
+          aflojados: [
+            { control: "Tanque dado de baja", de: "activo", a: "desactivado (no se vigila)" },
+          ],
+          motivo,
+        },
         contexto: contextoAuditoriaModulo(req),
       });
+      try {
+        const admins = await withTenant(tenantId, (client) =>
+          service.findAdminsConCombustibleHabilitado(client, tenantId)
+        );
+        await enviarCorreoVigilanciaReducida(admins, {
+          quien: req.usuario!.nombre ?? req.usuario!.email ?? "Un administrador",
+          objeto: `${desactivado.codigo} — ${desactivado.tanque_nombre}`,
+          motivo,
+          cambios: [
+            { control: "Tanque dado de baja", de: "activo", a: "desactivado (no se vigila)" },
+          ],
+        });
+      } catch (err) {
+        logger.warn({ err, tenantId, combustibleId: id }, "No se pudo avisar de la baja");
+      }
       await publicarEventoTenant(tenantId, "combustible.tanque_eliminado", {
         combustibleId: id,
       });
@@ -492,6 +521,13 @@ export class CombustibleController {
         data.nivel,
         new Date(fila!.lectura.leido_en).toISOString()
       );
+      await this.procesarAlertaLecturaRetroactiva(
+        tenantId,
+        data.combustible_id,
+        Number(fila!.lectura.id),
+        data.nivel,
+        new Date(fila!.lectura.leido_en).toISOString()
+      );
       res.status(201).json(fila);
     } catch (err) {
       // Los dos casos van con 400: son datos que se contradicen a sí mismos
@@ -565,6 +601,7 @@ export class CombustibleController {
           err.message.includes("no existe en este tenant") ||
           err.message.includes("no tiene tipo de medidor configurado") ||
           err.message.includes("se mide por") ||
+          err.message.includes("está desactivado y no puede despachar") ||
           // Grifo del rol equivocado (migrations/0065).
           err.message.includes("no está marcado como"))
       ) {
@@ -978,6 +1015,66 @@ export class CombustibleController {
       logger.warn(
         { err, tenantId, combustibleId },
         "No se pudo procesar la alerta de descuadre del ciclo"
+      );
+    }
+  }
+
+  /** Varilla cargada hacia atrás (migración 0078). Mismo contrato "nunca
+   *  lanza" que el resto: la lectura ya se guardó y se respondió 201. */
+  private async procesarAlertaLecturaRetroactiva(
+    tenantId: string,
+    combustibleId: number,
+    lecturaId: number,
+    nivel: number,
+    leidoEn: string
+  ) {
+    try {
+      const { retro, tanque, admins } = await withTenant(tenantId, async (client) => {
+        const retro = await service.detectarLecturaRetroactiva(
+          client,
+          tenantId,
+          combustibleId,
+          lecturaId,
+          leidoEn
+        );
+        if (!retro) {
+          return { retro, tanque: null, admins: [] as { email: string; nombre: string }[] };
+        }
+        const tanque = await service.getById(client, tenantId, combustibleId);
+        await service.crearAlertas(client, tenantId, [
+          {
+            tipo: "lectura_retroactiva",
+            combustibleId,
+            detalle: {
+              tanqueNombre: tanque?.tanque_nombre ?? "",
+              unidad: tanque?.unidad ?? "",
+              nivel,
+              leidoEn,
+              posteriores: retro.posteriores,
+            },
+          },
+        ]);
+        const admins = await service.findAdminsConCombustibleHabilitado(client, tenantId);
+        return { retro, tanque, admins };
+      });
+
+      if (!retro) return;
+
+      await publicarEventoTenant(tenantId, "combustible.alerta_creada", {
+        tipo: "lectura_retroactiva",
+        combustibleId,
+      });
+      await enviarCorreoLecturaRetroactiva(admins, {
+        tanqueNombre: tanque?.tanque_nombre ?? "",
+        unidad: tanque?.unidad ?? "",
+        nivel,
+        leidoEn,
+        posteriores: retro.posteriores,
+      });
+    } catch (err) {
+      logger.warn(
+        { err, tenantId, combustibleId },
+        "No se pudo procesar la alerta de lectura retroactiva"
       );
     }
   }

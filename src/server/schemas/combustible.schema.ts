@@ -124,7 +124,24 @@ export const registrarLecturaCombustibleSchema = z.object({
   // Cuándo se TOMÓ la lectura, no cuándo llegó al servidor -- decide si
   // actualiza nivel_actual (ver combustible.repository.ts). Opcional:
   // sin dato, el service usa now() (siempre "la más reciente" en ese caso).
-  leido_en: z.string().datetime().optional(),
+  //
+  // NO puede estar en el FUTURO (0078), por el mismo motivo que
+  // `despachado_en` desde 0077 -- pero acá el daño es mayor: el nivel del
+  // tanque ES la última lectura vigente, así que una varilla fechada 90 días
+  // adelante se vuelve el nivel oficial y NINGUNA medición real posterior la
+  // desplaza hasta que llegue esa fecha. La simulación de robo lo aceptó sin
+  // una queja.
+  //
+  // Mismo margen de 1 hora que el despacho: los dispositivos de cancha vienen
+  // con el reloj corrido y rechazar una medición real por dos minutos de
+  // desfase es peor que el margen.
+  leido_en: z
+    .string()
+    .datetime()
+    .refine((v) => new Date(v).getTime() <= Date.now() + 60 * 60 * 1000, {
+      message: "La fecha de la lectura no puede estar en el futuro",
+    })
+    .optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -371,6 +388,16 @@ export type MarcarAlertasLeidasCombustibleInput = z.infer<
  *  que en `anularLecturaCombustibleSchema`: cerrar una alerta anti-fraude sin
  *  decir por qué es indistinguible de taparla, y "todo tiene que tener
  *  sustento". Antes de 0077 esta acción no pedía nada. */
+/** Dar de baja un tanque es un AFLOJAMIENTO, no una edición cualquiera: lo
+ *  saca de la alerta de "sin medir" y deja de vigilarse su balance. Pedía
+ *  menos que subir un umbral, que es exactamente al revés de lo que
+ *  corresponde -- lo mostró la simulación de robo (0078). */
+export const bajaTanqueCombustibleSchema = z.object({
+  motivo: z.string().trim().min(1, "El motivo de la baja es obligatorio").max(500),
+});
+
+export type BajaTanqueCombustibleInput = z.infer<typeof bajaTanqueCombustibleSchema>;
+
 export const resolverAlertaCombustibleSchema = z.object({
   motivo: z.string().trim().min(1, "El motivo de la revisión es obligatorio").max(500),
 });
