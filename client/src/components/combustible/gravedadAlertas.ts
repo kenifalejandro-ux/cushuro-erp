@@ -42,6 +42,7 @@ const CRITICAS = new Set([
   "descuadre_inventario",
   "descuadre_ciclo",
   "vale_fuera_de_orden",
+  "lectura_retroactiva",
   "tanque_sin_medir",
 ]);
 

@@ -328,6 +328,17 @@ export class CombustibleService {
           `el contómetro marcó ${data.lectura_contometro} pero se declararon ${data.cantidad} -- revisá el vale`
         );
       }
+
+      // Un tanque DESACTIVADO no puede seguir despachando. Parece obvio y no
+      // lo era: la simulación de robo dio de baja un tanque -- lo que además
+      // lo saca de la alerta de "sin medir" -- y siguió sacándole 5.000 L sin
+      // una queja. "Desactivado" tiene que significar algo.
+      const tanque = await this.repository.findById(client, tenantId, data.combustible_id!);
+      if (tanque && !tanque.activo) {
+        throw new Error(
+          `el tanque ${tanque.codigo} está desactivado y no puede despachar -- reactivalo si sigue en uso`
+        );
+      }
       return;
     }
 
@@ -849,6 +860,24 @@ export class CombustibleService {
       toleradoLitros,
       lecturaId,
     };
+  }
+
+  /** Lectura insertada hacia atrás dentro del ciclo vivo (migración 0078).
+   *  Devuelve null en el caso normal -- la lectura nueva es la más reciente. */
+  detectarLecturaRetroactiva(
+    client: PoolClient,
+    tenantId: string,
+    combustibleId: number,
+    lecturaId: number,
+    leidoEn: string
+  ) {
+    return this.repository.detectarLecturaRetroactiva(
+      client,
+      tenantId,
+      combustibleId,
+      lecturaId,
+      leidoEn
+    );
   }
 
   /** Llegó una lectura: si el tanque tenía una alerta de "sin medir"

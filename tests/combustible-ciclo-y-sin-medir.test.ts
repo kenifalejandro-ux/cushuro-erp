@@ -272,7 +272,7 @@ describe("combustible: saldo del ciclo y tanque sin medir (migración 0076)", ()
     const tq = await crearTanque();
     await leer(tq, 20000, new Date().toISOString());
     await envejecerLecturas(tq, 10);
-    await agente.delete(`/api/erp/combustible/${tq}`);
+    await agente.delete(`/api/erp/combustible/${tq}`).send({ motivo: "Tanque fuera de servicio" });
 
     await correrConciliacion();
 

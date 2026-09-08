@@ -291,6 +291,39 @@ export async function enviarCorreoAlertaSinMedir(
   });
 }
 
+/** Se cargó una varilla con fecha anterior a mediciones que ya existían,
+ *  dentro del ciclo en curso (migración 0078).
+ *
+ *  NO se bloqueó, y el correo lo dice: la explicación más común es la cola
+ *  offline -- una medición tomada sin señal que sincroniza más tarde. Pero
+ *  también es la forma de mover el punto de partida del ciclo, así que la
+ *  mira una persona. */
+export async function enviarCorreoLecturaRetroactiva(
+  destinatarios: Destinatario[],
+  params: {
+    tanqueNombre: string;
+    unidad: string;
+    nivel: number;
+    leidoEn: string;
+    posteriores: number;
+  }
+) {
+  await enviarCorreoAlerta({
+    destinatarios,
+    asunto: `Combustible: varilla cargada hacia atrás en ${params.tanqueNombre}`,
+    titulo: `Lectura fuera de orden en ${params.tanqueNombre}`,
+    lineas: [
+      `Se registró una lectura de ${params.nivel} ${params.unidad} fechada el ` +
+        `${new Date(params.leidoEn).toLocaleString("es-PE")}, cuando ya había ` +
+        `${params.posteriores} medición(es) posterior(es) en este mismo período.`,
+      "Lo más probable es que venga de la cola offline: una varilla tomada sin señal " +
+        "que recién ahora sincronizó. Eso es normal y no hay nada que corregir.",
+      "Se avisa igual porque una lectura insertada al inicio del período cambia el " +
+        "punto de partida del balance, y con él lo que el sistema considera esperado.",
+    ],
+  });
+}
+
 /** Alguien AFLOJÓ un control de vigilancia.
  *
  *  Es el aviso más importante del módulo, y el único que no es sobre

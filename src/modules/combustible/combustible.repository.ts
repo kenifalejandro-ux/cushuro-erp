@@ -22,7 +22,8 @@ export type TipoAlertaCombustible =
   | "descuadre_inventario"
   | "descuadre_ciclo"
   | "tanque_sin_medir"
-  | "vale_fuera_de_orden";
+  | "vale_fuera_de_orden"
+  | "lectura_retroactiva";
 
 /** Una alerta por crear. Las anclas son todas opcionales en el tipo, pero
  *  el CHECK de la base exige al menos una (vale, tanque o recepción). */
@@ -1340,6 +1341,59 @@ export class CombustibleRepository {
     return result.rows;
   }
 
+  /** ¿Esta lectura se insertó HACIA ATRÁS, dentro del ciclo en curso?
+   *  (migración 0078)
+   *
+   *  Devuelve la lectura posterior más antigua que ya existía, o null si la
+   *  nueva es la más reciente (el caso normal).
+   *
+   *  Dos filtros, y los dos son para no generar ruido:
+   *
+   *  - `id <> $3`: corre después del INSERT, así que sin excluirla se
+   *    encontraría a sí misma. Mismo detalle que en el resto del módulo.
+   *  - Solo dentro del ciclo vivo (`>= última recepción`): una lectura
+   *    metida en un ciclo YA CERRADO no puede cambiar ningún cálculo futuro,
+   *    porque el tramo mira la lectura inmediata anterior y el ciclo arranca
+   *    en la última recepción. Alertar por esas sería ruido.
+   *
+   *  Lo que SÍ importa: una lectura insertada justo después de una carga se
+   *  vuelve el arranque del ciclo, y con un nivel inventado más bajo el
+   *  "esperado" baja con ella -- un faltante real pasa a leerse como
+   *  sobrante. Eso es reescribir el punto de partida de la cuenta. */
+  async detectarLecturaRetroactiva(
+    client: PoolClient,
+    tenantId: string,
+    combustibleId: number,
+    lecturaId: number,
+    leidoEn: string
+  ): Promise<{ posteriores: number; masReciente: Date } | null> {
+    const result = await client.query<{ posteriores: string; mas_reciente: Date }>(
+      `
+      WITH ultima_recepcion AS (
+        SELECT MAX(r.recibido_en) AS recibido_en
+        FROM combustible_recepciones r
+        WHERE r.tenant_id = $1 AND r.combustible_id = $2 AND r.anulada_en IS NULL
+      )
+      SELECT COUNT(*)::text AS posteriores, MAX(l.leido_en) AS mas_reciente
+      FROM combustible_lecturas l, ultima_recepcion ur
+      WHERE l.tenant_id = $1 AND l.combustible_id = $2
+        AND l.anulada_en IS NULL AND l.id <> $3
+        -- La lectura 'inicial' del alta se crea con NOW() y NO es una
+        -- medición que alguien haya tomado: es el punto de partida
+        -- declarado. Contarla haría que toda varilla llegada de la cola
+        -- offline -- fechada cuando se tomó, en el pasado -- quedara marcada
+        -- como retroactiva. Ruido desde el día uno.
+        AND l.origen <> 'inicial'
+        AND l.leido_en > $4::timestamptz
+        AND (ur.recibido_en IS NULL OR $4::timestamptz >= ur.recibido_en)
+      `,
+      [tenantId, combustibleId, lecturaId, leidoEn]
+    );
+    const fila = result.rows[0];
+    const posteriores = Number(fila?.posteriores ?? 0);
+    return posteriores > 0 ? { posteriores, masReciente: fila.mas_reciente } : null;
+  }
+
   /** Alguien volvió a medir: la alerta de "sin medir" se cierra sola, igual
    *  que la de nivel bajo cuando se repone. `resuelta_por` queda NULL porque
    *  lo resolvió el sistema, no una persona. */
@@ -1601,6 +1655,7 @@ export class CombustibleRepository {
     "descuadre_inventario",
     "descuadre_ciclo",
     "vale_fuera_de_orden",
+    "lectura_retroactiva",
   ];
 
   /** El motivo se guarda dentro de `detalle` y no en una columna propia: es

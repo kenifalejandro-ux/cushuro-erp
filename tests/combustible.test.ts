@@ -254,7 +254,9 @@ describe("combustible: aislamiento entre tenants", () => {
       .send(payloadTanque({ tanque_nombre: "Hackeado" }));
     expect(updateAjeno.status).toBe(404);
 
-    const deleteAjeno = await agentA.delete(`/api/erp/combustible/${tanqueDeB}`);
+    const deleteAjeno = await agentA
+      .delete(`/api/erp/combustible/${tanqueDeB}`)
+      .send({ motivo: "Intento de baja cruzada entre tenants" });
     expect(deleteAjeno.status).toBe(404);
 
     const filaB = await withTenant(tenantBId, (client) =>
@@ -409,7 +411,11 @@ describe("combustible: ABM de tanques (Fase A)", () => {
       nivel: 42,
     });
 
-    const del = await agent.delete(`/api/erp/combustible/${tanqueId}`);
+    // Desde 0078 la baja exige motivo: es una reducción de vigilancia y queda
+    // en la bitácora como tal, no como una edición más.
+    const del = await agent
+      .delete(`/api/erp/combustible/${tanqueId}`)
+      .send({ motivo: "Tanque retirado de la sede" });
     expect(del.status).toBe(200);
 
     const filaDirecta = await withTenant(tenantId, (client) =>
@@ -434,7 +440,9 @@ describe("combustible: ABM de tanques (Fase A)", () => {
   });
 
   it("DELETE de un tanque inexistente da 404", async () => {
-    const res = await agent.delete("/api/erp/combustible/999999999");
+    const res = await agent
+      .delete("/api/erp/combustible/999999999")
+      .send({ motivo: "Baja de un tanque que no existe" });
     expect(res.status).toBe(404);
   });
 
