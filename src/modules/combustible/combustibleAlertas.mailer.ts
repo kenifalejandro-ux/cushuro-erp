@@ -291,6 +291,44 @@ export async function enviarCorreoAlertaSinMedir(
   });
 }
 
+/** Alguien AFLOJÓ un control de vigilancia.
+ *
+ *  Es el aviso más importante del módulo, y el único que no es sobre
+ *  combustible sino sobre el sistema que lo vigila. Sin él, apagar la
+ *  detección quedaba registrado en un log que nadie abre -- y un robo se
+ *  planifica así: apago el control, saco el combustible, lo vuelvo a prender.
+ *
+ *  Va a TODOS los admins con el módulo habilitado y no tiene configuración
+ *  de por medio, a propósito: si quien afloja el control pudiera además
+ *  elegir a quién se le avisa, el aviso no serviría de nada.
+ *
+ *  Ojo con lo que este correo NO resuelve: se puede esquivar haciendo el
+ *  cambio un viernes a la noche y revirtiéndolo el domingo. Lo que sí queda
+ *  es el registro, y el reporte de período que muestra que el control estuvo
+ *  apagado esos días. */
+export async function enviarCorreoVigilanciaReducida(
+  destinatarios: Destinatario[],
+  params: {
+    quien: string;
+    objeto: string;
+    motivo: string;
+    cambios: { control: string; de: string; a: string }[];
+  }
+) {
+  await enviarCorreoAlerta({
+    destinatarios,
+    asunto: `Combustible: se redujo la vigilancia de ${params.objeto}`,
+    titulo: `${params.quien} redujo la vigilancia de ${params.objeto}`,
+    lineas: [
+      ...params.cambios.map((c) => `${c.control}: ${c.de} → ${c.a}.`),
+      `Motivo declarado: "${params.motivo}".`,
+      "Mientras el control esté así, el sistema detecta menos de lo que detectaba. " +
+        "Si el cambio no corresponde, revertilo y revisá el movimiento del tanque en " +
+        "ese período.",
+    ],
+  });
+}
+
 /** Un vale que sí se había registrado se anuló -- a diferencia del hueco,
  *  esto siempre tiene un motivo escrito por quien lo anuló, pero necesita
  *  revisión: "todo tiene que tener sustento". */

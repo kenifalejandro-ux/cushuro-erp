@@ -5,7 +5,10 @@ import { withTenant } from "../../server/config/database";
 import { getTenantId } from "../../server/shared/utils/request";
 import { parsePaginacion, armarRespuestaPaginada } from "../../server/shared/utils/pagination";
 import { contextoAuditoriaModulo } from "../../server/shared/utils/moduleAudit";
-import { registrarAuditoria } from "../../server/services/platformAudit.service";
+import {
+  registrarAuditoria,
+  listarAuditoriaService,
+} from "../../server/services/platformAudit.service";
 import { publicarEventoTenant } from "../../server/services/realtimeEvents.service";
 import { logger } from "../../server/config/logger";
 import {
@@ -16,6 +19,7 @@ import {
   enviarCorreoAlertaNivelBajo,
   enviarCorreoAlertaDescuadre,
   enviarCorreoAlertaDescuadreCiclo,
+  enviarCorreoVigilanciaReducida,
 } from "./combustibleAlertas.mailer";
 import type {
   RegistrarLecturaCombustibleInput,
@@ -161,6 +165,25 @@ export class CombustibleController {
             : { combustibleId: id },
         contexto: contextoAuditoriaModulo(req),
       });
+      if (aflojados.length > 0) {
+        // Nunca bloquea la respuesta: el cambio ya está guardado y auditado.
+        // Que falle el SMTP no puede deshacer eso ni devolverle un error al
+        // admin por algo que sí se aplicó.
+        try {
+          const admins = await withTenant(tenantId, (client) =>
+            service.findAdminsConCombustibleHabilitado(client, tenantId)
+          );
+          await enviarCorreoVigilanciaReducida(admins, {
+            quien: req.usuario!.nombre ?? req.usuario!.email ?? "Un administrador",
+            objeto: `${actualizado.codigo} — ${actualizado.tanque_nombre}`,
+            motivo: data.motivo_ajuste ?? "",
+            cambios: aflojados,
+          });
+        } catch (err) {
+          logger.warn({ err, tenantId, combustibleId: id }, "No se pudo avisar del aflojamiento");
+        }
+      }
+
       await publicarEventoTenant(tenantId, "combustible.tanque_actualizado", {
         combustibleId: id,
       });
@@ -1098,6 +1121,63 @@ export class CombustibleController {
       res.json(resuelta);
     } catch {
       res.status(500).json({ error: "Error al resolver la alerta" });
+    }
+  }
+
+  /** GET /bitacora -- el historial de cambios del módulo, para el PROPIO
+   *  tenant.
+   *
+   *  Hasta acá todo quedaba registrado pero solo lo podía ver el dueño del
+   *  software desde el panel de plataforma. Un control que únicamente puede
+   *  revisar el proveedor no es un control de la empresa: gerencia tiene que
+   *  poder responder "¿quién cambió esto?" sin pedirle nada a nadie.
+   *
+   *  Reusa `listarAuditoriaService` en vez de consultar `platform_audit_log`
+   *  desde acá, y no es casualidad: esa tabla NO tiene RLS, y el servicio ya
+   *  resuelve bien las dos trampas que trae -- filtrar por tenant a mano, y
+   *  resolver los nombres de `usuarios` (que SÍ tiene RLS) agrupando por
+   *  tenant dentro de withTenant(). Duplicar esa lógica acá era la forma
+   *  segura de equivocarse. El lint del repo directamente prohíbe importar
+   *  `pool` en un controller de módulo, por este mismo motivo.
+   *
+   *  El `tenantId` sale de la sesión, nunca del query: si viniera del
+   *  cliente, un admin podría pedir la bitácora de otra empresa.
+   *
+   *  Solo admin, como el resto de la visibilidad de gerencia. */
+  async listarBitacora(req: Request, res: Response) {
+    try {
+      const tenantId = getTenantId(req);
+      const paginacion = parsePaginacion(req.query);
+      const desde = typeof req.query.desde === "string" ? req.query.desde : undefined;
+      const hasta = typeof req.query.hasta === "string" ? req.query.hasta : undefined;
+
+      const pagina = await listarAuditoriaService({
+        tenantId,
+        accionPrefijo: "combustible.",
+        desde,
+        hasta,
+        limit: paginacion.pageSize,
+      });
+
+      // Se traduce a la forma que ya usa el resto del módulo (snake_case y
+      // un `usuario` legible) en vez de filtrar el shape del panel de
+      // plataforma hacia la pantalla del tenant.
+      const filas = pagina.entradas.map((e) => ({
+        id: e.id,
+        accion: e.accion,
+        // null = lo hizo el sistema (un worker), no una persona. Decirlo
+        // explícitamente evita que se lea como un dato faltante.
+        usuario: e.usuarioId ? (e.usuarioEmail ?? "Usuario eliminado") : "Sistema",
+        detalle: e.detalle,
+        creado_en: e.creadoEn,
+      }));
+
+      // Sin `armarRespuestaPaginada`: ese helper espera un `total_count` que
+      // la auditoría no calcula (pagina por cursor, no por offset). La forma
+      // `{ data }` es la que el panel ya consume.
+      res.json({ data: filas, pagination: { pageSize: paginacion.pageSize } });
+    } catch {
+      res.status(500).json({ error: "Error al obtener la bitácora" });
     }
   }
 

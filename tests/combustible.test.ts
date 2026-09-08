@@ -374,7 +374,11 @@ describe("combustible: ABM de tanques (Fase A)", () => {
       tipo_combustible: "gasolina_90",
       unidad: "L",
       tipo_punto: "surtidor",
+      // Subir la capacidad ensancha todas las bandas (los umbrales son % de
+      // ella), así que desde el PR de la bitácora cuenta como aflojar y pide
+      // motivo. Este test no es sobre eso -- lo declara y sigue.
       capacidad_total: 2000,
+      motivo_ajuste: "Se reemplazó el tanque por uno más grande",
       nivel_minimo: 50,
       moneda: "USD",
       activo: true,

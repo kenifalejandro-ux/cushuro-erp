@@ -199,6 +199,41 @@ interface SugerenciaUmbral {
   muestra?: Array<{ cantidad: number; diferenciaLitros: number; diferenciaPct: number }>;
 }
 
+/** Un renglón de la bitácora del módulo. `detalle` es JSONB libre y cambia
+ *  según la acción, igual que en las alertas. */
+interface EventoBitacora {
+  id: string;
+  accion: string;
+  usuario: string;
+  detalle: Record<string, unknown>;
+  creado_en: string;
+}
+
+/** Las acciones auditadas, en castellano. Las que REDUCEN la vigilancia se
+ *  marcan aparte: son las que un auditor busca primero, y perderlas entre
+ *  cincuenta "tanque actualizado" es como no tenerlas. */
+const ETIQUETA_ACCION: Record<string, string> = {
+  "combustible.tanque_crear": "Tanque creado",
+  "combustible.tanque_actualizar": "Tanque editado",
+  "combustible.tanque_eliminar": "Tanque desactivado",
+  "combustible.tanque_vigilancia_reducida": "⚠ Vigilancia reducida",
+  "combustible.tanques_carga_masiva": "Importación de tanques",
+  "combustible.registrar_lectura": "Lectura de varilla",
+  "combustible.actualizar_nivel": "Nivel actualizado",
+  "combustible.anular_lectura": "Lectura anulada",
+  "combustible.despacho_crear": "Vale registrado",
+  "combustible.despacho_anular": "Vale anulado",
+  "combustible.recepcion_crear": "Recepción registrada",
+  "combustible.recepcion_anular": "Recepción anulada",
+  "combustible.precio_crear": "Precio cargado",
+  "combustible.precio_anular": "Precio anulado",
+  "combustible.grifo_crear": "Proveedor creado",
+  "combustible.grifo_actualizar": "Proveedor editado",
+  "combustible.config_actualizar": "Configuración del módulo",
+};
+
+const ACCIONES_QUE_AFLOJAN = new Set(["combustible.tanque_vigilancia_reducida"]);
+
 /** Las tres sugerencias vienen juntas del mismo endpoint: salen del mismo
  *  historial del tanque, y partirlas en tres requests haría tres pasadas
  *  sobre lo mismo. */
@@ -809,6 +844,9 @@ export default function CombustiblePanel() {
    *  resaltarla. La notificación es un PUNTERO: su trabajo es dejarte
    *  parado sobre el hallazgo, no reemplazar a la bandeja donde se actúa. */
   const [alertaResaltadaId, setAlertaResaltadaId] = useState<number | null>(null);
+  const [modalBitacoraAbierto, setModalBitacoraAbierto] = useState(false);
+  const [cargandoBitacora, setCargandoBitacora] = useState(false);
+  const [bitacora, setBitacora] = useState<EventoBitacora[]>([]);
   /** Cómo se vigila el tanque que se está creando. Arranca en null y hay que
    *  elegir: es la diferencia entre que el tanque quede ciego porque alguien
    *  lo decidió y que quede ciego porque nadie miró el formulario. */
@@ -943,6 +981,18 @@ export default function CombustiblePanel() {
   }, [cargarTanques]);
 
   // --- Alta / edición ---
+
+  const abrirModalBitacora = async () => {
+    setModalBitacoraAbierto(true);
+    setCargandoBitacora(true);
+    try {
+      const res = await apiFetch("/api/erp/combustible/bitacora?pageSize=200");
+      const body = await res.json().catch(() => null);
+      setBitacora(Array.isArray(body?.data) ? body.data : []);
+    } finally {
+      setCargandoBitacora(false);
+    }
+  };
 
   const abrirModalNuevo = () => {
     setEditandoId(null);
@@ -2061,6 +2111,13 @@ export default function CombustiblePanel() {
             className="px-4 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium rounded-xl transition-all"
           >
             🔔 Alertas
+          </button>
+          <button
+            onClick={abrirModalBitacora}
+            className="px-4 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium rounded-xl transition-all"
+            title="Quién cambió qué en este módulo"
+          >
+            📓 Bitácora
           </button>
           <button
             onClick={abrirModalGrifos}
@@ -4168,6 +4225,104 @@ export default function CombustiblePanel() {
       {/* Modal: alertas (migrations/0068) -- pantalla completa a la que
           lleva la campanita del Header. Hueco de talonario se resuelve
           solo; vale anulado necesita revisión manual de gerencia. */}
+      {/* Bitácora: quién cambió qué en el módulo.
+
+          Antes esto solo lo veía el dueño del software desde el panel de
+          plataforma. Un control que únicamente revisa el proveedor no es un
+          control de la empresa: gerencia tiene que poder responder "¿quién
+          cambió esto?" sin pedirle nada a nadie. */}
+      {modalBitacoraAbierto && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+          <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b flex justify-between items-start shrink-0">
+              <div>
+                <h3 className="text-xl font-bold">Bitácora del módulo</h3>
+                <p className="text-sm text-slate-500">
+                  Quién cambió qué, y cuándo. Los cambios que reducen la vigilancia van marcados.
+                </p>
+              </div>
+              <button
+                onClick={() => setModalBitacoraAbierto(false)}
+                className="text-slate-400 hover:text-slate-600 text-2xl leading-none"
+                aria-label="Cerrar"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="overflow-auto p-6">
+              {cargandoBitacora ? (
+                <p className="text-slate-400 text-center py-8">Cargando...</p>
+              ) : bitacora.length === 0 ? (
+                <p className="text-slate-400 text-center py-8">Todavía no hay movimientos.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs font-bold text-slate-500 uppercase border-b">
+                      <th className="p-3">Cuándo</th>
+                      <th className="p-3">Quién</th>
+                      <th className="p-3">Qué hizo</th>
+                      <th className="p-3">Detalle</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bitacora.map((e) => {
+                      const afloja = ACCIONES_QUE_AFLOJAN.has(e.accion);
+                      const cambios = (e.detalle.aflojados ?? []) as Array<{
+                        control: string;
+                        de: string;
+                        a: string;
+                      }>;
+                      return (
+                        <tr
+                          key={e.id}
+                          className={
+                            afloja
+                              ? "align-top border-b border-slate-50 bg-red-50/60"
+                              : "align-top border-b border-slate-50"
+                          }
+                        >
+                          <td className="p-3 whitespace-nowrap text-slate-600">
+                            {new Date(e.creado_en).toLocaleString("es-PE")}
+                          </td>
+                          <td className="p-3 text-slate-800">{e.usuario}</td>
+                          <td
+                            className={
+                              afloja ? "p-3 font-semibold text-red-700" : "p-3 text-slate-800"
+                            }
+                          >
+                            {ETIQUETA_ACCION[e.accion] ?? e.accion}
+                          </td>
+                          <td className="p-3 text-slate-600">
+                            {cambios.length > 0 ? (
+                              <>
+                                {cambios.map((c, i) => (
+                                  <span key={i} className="block">
+                                    {c.control}: {c.de} → <strong>{c.a}</strong>
+                                  </span>
+                                ))}
+                                {typeof e.detalle.motivo === "string" && (
+                                  <span className="block mt-1 italic">
+                                    Motivo: {e.detalle.motivo}
+                                  </span>
+                                )}
+                              </>
+                            ) : typeof e.detalle.codigo === "string" ? (
+                              <span>{e.detalle.codigo}</span>
+                            ) : (
+                              <span className="text-slate-300">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {modalAlertasAbierto && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
           <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl max-h-[85vh] flex flex-col">
